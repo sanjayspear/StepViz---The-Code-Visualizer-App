@@ -1,0 +1,92 @@
+# StepViz
+
+Paste a Python program and watch it run one step at a time: the running line,
+variables, call stack and output, each step explained in plain English with a
+real-life comparison.
+
+Phase 1 of the product described in `StepViz_Build_Spec.pdf`. Everything runs in the
+browser: Python runs in [Pyodide](https://pyodide.org) inside a Web Worker with no
+network access. There is no backend.
+
+## Requirements
+
+- Node.js 20 or newer (developed with Node 24) and npm
+
+## Run locally
+
+```bash
+npm install
+npm run dev
+```
+
+Open the URL it prints (usually http://localhost:5173/).
+
+`npm run dev` and `npm run build` first copy the Pyodide runtime from
+`node_modules/pyodide` into `public/pyodide/` (git-ignored), so it is served from
+the app's own site.
+
+To try the production build locally:
+
+```bash
+npm run build
+npm run preview
+```
+
+## Test
+
+```bash
+npx playwright install chromium   # once
+npm test
+```
+
+`npm test` builds the app, serves it on port 4317 and runs:
+
+- `tests/tracer.spec.ts`: the Python tracer under Node (valid factorial trace, caps,
+  syntax and runtime errors, blocked imports, `input()`, fixtures match the live tracer)
+- `tests/acceptance.spec.ts`: the 16-point acceptance checklist from section 9 of the
+  spec, plus crash, `input()`, Beginner mode, keyboard and example checks
+
+Run one file or one test:
+
+```bash
+npx playwright test tests/acceptance.spec.ts
+npx playwright test -g "Play moves one step"
+```
+
+## Deploy to GitHub Pages
+
+The build is a static site with relative paths, so it works at
+`https://<user>.github.io/<repo>/` without any configuration.
+
+### Option A: GitHub Actions (included)
+
+`.github/workflows/deploy.yml` builds and deploys on every push to `main`.
+
+1. In the repository on GitHub, go to **Settings → Pages**.
+2. Under **Build and deployment → Source**, choose **GitHub Actions**.
+3. Push to `main` (or run the workflow from the **Actions** tab).
+4. The site URL appears in the workflow run and in **Settings → Pages**.
+
+### Option B: by hand
+
+```bash
+npm run build
+npx gh-pages -d dist      # pushes dist/ to the gh-pages branch
+```
+
+Then in **Settings → Pages**, set the source to the `gh-pages` branch, folder `/ (root)`.
+
+## Project layout
+
+```
+src/
+  screens/Home/        Screen 1 (and its phone layout)
+  screens/Step/        Screen 2 and Screen 4 (phone)
+  runner/              Web Worker, Python tracer (tracer.py), watchdog
+  trace/               trace JSON types, explanations, getTrace()
+  examples/            example programs and hand-written traces
+  hooks/               playback, Beginner mode, media query
+  styles/tokens.css    design tokens (spec section 5)
+tests/                 Playwright tests
+scripts/               Pyodide copy step, screenshot helpers
+```
