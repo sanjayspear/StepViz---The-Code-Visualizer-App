@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { loadPyodide, type PyodideAPI } from 'pyodide';
 import { EXAMPLES } from '../src/examples/index';
 import type { RawRunResult } from '../src/runner/protocol';
+import { FOR_LOOP_TRACE } from '../src/examples/forLoopTrace';
+import { FIBONACCI_TRACE } from '../src/examples/fibonacciTrace';
 
 let py: PyodideAPI;
 let run: (source: string, inputs?: string, maxSteps?: number, maxSeconds?: number) => string;
@@ -107,4 +109,50 @@ test('input() reads the lines typed before running', () => {
   expect(JSON.parse(analyze('name = input("Name? ")\nprint("Hi", name)'))).toEqual({ ok: true, inputCalls: 1 });
   const result = runJson('name = input("Name? ")\nprint("Hi", name)', ['Sam']);
   expect(result.steps.at(-1)!.output).toBe('Name? Sam\nHi Sam\n');
+});
+
+test('For loop and Fibonacci fixtures still match the live tracer', () => {
+  for (const fixture of [FOR_LOOP_TRACE, FIBONACCI_TRACE]) {
+    const live = runJson(fixture.source);
+    expect(live.status).toBe('ok');
+    expect(live.steps.map(({ line, frames, output }) => ({ line, frames, output }))).toEqual(
+      fixture.steps.map(({ line, frames, output }) => ({ line, frames, output })),
+    );
+    // Hand-written explanations: one per step, and no comparison is repeated.
+    const lifes = fixture.steps.map((s) => s.explain.life);
+    expect(new Set(lifes).size).toBe(lifes.length);
+    expect(fixture.steps.every((s) => s.explain.what.length > 0)).toBe(true);
+  }
+});
+
+test('a crash (10 / 0) ends with an error step in the crashing frame', () => {
+  const result = runJson('print("start")\nx = 10\ny = x / 0\nprint(y)');
+  expect(result.status).toBe('runtime-error');
+  expect(result.error).toEqual({ line: 3, type: 'ZeroDivisionError', message: 'division by zero' });
+  const last = result.steps.at(-1)!;
+  expect(last.line).toBe(3);
+  expect(last.error).toEqual({ type: 'ZeroDivisionError', message: 'division by zero' });
+  expect(last.output).toBe('start\n');
+  expect(last.frames).toEqual([{ name: 'Global', vars: { x: '10', y: '?' }, status: 'error' }]);
+  // Only the last step is an error step.
+  expect(result.steps.slice(0, -1).some((s) => s.error)).toBe(false);
+});
+
+test('a crash inside a function marks that frame as error', () => {
+  const result = runJson('def f(n):\n    return 10 / n\nprint(f(2))\nprint(f(0))');
+  const last = result.steps.at(-1)!;
+  expect(last.line).toBe(2);
+  expect(last.frames.map((f) => [f.name, f.status])).toEqual([
+    ['Global', 'waiting'],
+    ['f(0)', 'error'],
+  ]);
+});
+
+test('a crash on the first line records no steps; a caught error is not a crash', () => {
+  const first = runJson('x = 10 / 0');
+  expect(first.status).toBe('runtime-error');
+  expect(first.steps).toHaveLength(0);
+  const caught = runJson('try:\n    1 / 0\nexcept ZeroDivisionError:\n    print("caught")');
+  expect(caught.status).toBe('ok');
+  expect(caught.steps.some((s) => s.error || s.frames.some((f) => f.status === 'error'))).toBe(false);
 });

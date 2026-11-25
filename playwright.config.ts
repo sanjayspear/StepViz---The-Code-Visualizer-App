@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 4173;
+// A dedicated port, and never reuse a server already running there (it could be
+// another project).
+const PORT = 4317;
 
 export default defineConfig({
   testDir: 'tests',
@@ -19,7 +21,7 @@ export default defineConfig({
   webServer: {
     command: `npm run build && npx vite preview --port ${PORT} --strictPort`,
     port: PORT,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });
