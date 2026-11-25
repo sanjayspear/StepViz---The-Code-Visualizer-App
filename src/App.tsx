@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { DEFAULT_EXAMPLE } from './examples';
+import { DEFAULT_EXAMPLE, titleForSource } from './examples';
 import { Home, type Language } from './screens/Home/Home';
+import { StepScreen } from './screens/Step/StepScreen';
 import { pythonRunner } from './runner/pythonRunner';
 import { checkSource, getTrace } from './trace/getTrace';
 import type { Trace } from './trace/types';
@@ -50,10 +51,9 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    // Screen 2 is added in stage (d).
-    if (trace && import.meta.env.DEV) console.info('[StepViz] trace', trace.steps.length, 'steps', trace);
-  }, [trace]);
+  if (trace) {
+    return <StepScreen trace={trace} title={titleForSource(trace.source)} onNewCode={() => setTrace(null)} />;
+  }
 
   return (
     <Home
