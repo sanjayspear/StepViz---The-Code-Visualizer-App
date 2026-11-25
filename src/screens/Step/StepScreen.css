@@ -198,6 +198,22 @@
   word-break: break-word;
 }
 
+/* The raw Python error on a crash step. Error text color on the light error
+   background keeps contrast high on the dark output box. */
+.output-box__error {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--color-error-bg);
+  color: var(--color-error-text);
+  font-size: 16px;
+}
+
+.output-box__text:empty {
+  display: none;
+}
+
 /* Call stack -------------------------------------------------------------- */
 
 .stack-card {
@@ -314,6 +330,16 @@
 .frame--returning .frame__status {
   font-weight: 600;
   color: var(--color-success-text);
+}
+
+.frame--error {
+  border-color: var(--color-error-border);
+  background: var(--color-error-bg);
+}
+
+.frame--error .frame__status {
+  font-weight: 600;
+  color: var(--color-error-text);
 }
 
 /* Explanation ------------------------------------------------------------- */

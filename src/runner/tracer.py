@@ -259,7 +259,10 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
     # frame and gets its step when it finishes.
     stack = []
     deadline = time.monotonic() + max_seconds
-    state = {"module": None}
+    # "crash": the step to show if an exception ends the program. Taken when
+    # the exception first appears, in the frame where it happened; cleared
+    # when the program carries on (the exception was caught).
+    state = {"module": None, "crash": None, "crash_exc": None}
 
     def global_vars():
         result = {}
@@ -281,24 +284,29 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
                 result[name] = _short(value)
         return result
 
-    def record(line, returning=None):
-        if len(steps) >= max_steps:
-            raise StopRun("steps")
+    def snapshot(line, returning=None, error=False):
         frames = []
         top = len(stack) - 1
         for i, (frame, label, _pending, _raised) in enumerate(stack):
             vars_ = global_vars() if i == 0 else local_vars(frame)
             if i < top:
                 status = "waiting"
+            elif error:
+                status = "error"
             elif returning is not None:
                 status = "returning"
             else:
                 status = "running"
             entry = {"name": label, "vars": vars_, "status": status}
-            if i == top and returning is not None:
+            if i == top and returning is not None and not error:
                 entry["returns"] = "returns " + _short(returning)
             frames.append(entry)
-        steps.append({"line": line, "frames": frames, "output": out.getvalue()})
+        return {"line": line, "frames": frames, "output": out.getvalue()}
+
+    def record(line, returning=None):
+        if len(steps) >= max_steps:
+            raise StopRun("steps")
+        steps.append(snapshot(line, returning))
 
     def local_trace(frame, event, arg):
         if time.monotonic() > deadline:
@@ -306,6 +314,9 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
         if not stack or stack[-1][0] is not frame:
             return local_trace
         entry = stack[-1]
+        if event == "line":  # the program carried on, so any exception was caught
+            state["crash"] = None
+            state["crash_exc"] = None
         if event == "line":
             if entry[2] is not None:
                 record(entry[2])  # the previous line in this frame has finished
@@ -313,6 +324,10 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
             entry[3] = False
         elif event == "exception":
             entry[3] = True
+            exc = arg[1] if isinstance(arg, tuple) and len(arg) > 1 else None
+            if state["crash_exc"] is not exc or state["crash"] is None:
+                state["crash"] = snapshot(frame.f_lineno, error=True)
+                state["crash_exc"] = exc
         elif event == "return":
             if frame is state["module"]:
                 if entry[2] is not None and not entry[3]:
@@ -364,6 +379,11 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
                 line = tb.tb_lineno
             tb = tb.tb_next
         error = {"line": line, "type": type(e).__name__, "message": str(e)}
+        crash = state["crash"]
+        if crash is not None and steps:
+            crash["output"] = out.getvalue()
+            crash["error"] = {"type": error["type"], "message": error["message"]}
+            steps.append(crash)
     finally:
         sys.settrace(None)
         sys.stdout = real_stdout

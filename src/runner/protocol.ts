@@ -11,8 +11,14 @@ export type AnalyzeResult = { ok: true; inputCalls: number } | { ok: false; erro
 /** A step as recorded by tracer.py (before explanations are added). */
 export interface RawStep {
   line: number;
-  frames: { name: string; vars: Record<string, string>; status: 'running' | 'waiting' | 'returning'; returns?: string }[];
+  frames: {
+    name: string;
+    vars: Record<string, string>;
+    status: 'running' | 'waiting' | 'returning' | 'error';
+    returns?: string;
+  }[];
   output: string;
+  error?: { type: string; message: string };
 }
 
 export interface RawRunResult {

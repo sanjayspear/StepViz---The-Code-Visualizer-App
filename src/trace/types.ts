@@ -2,7 +2,7 @@
 // The UI reads only this shape, so other runners (JavaScript tracing, AI
 // traces) can be added later without changing the screens.
 
-export type FrameStatus = 'running' | 'waiting' | 'returning';
+export type FrameStatus = 'running' | 'waiting' | 'returning' | 'error';
 
 export interface TraceFrame {
   /** e.g. "Global", "factorial(2)" */
@@ -24,6 +24,11 @@ export interface TraceStep {
   frames: TraceFrame[];
   /** everything printed so far */
   output: string;
+  /**
+   * Only on the last step of a program that crashed: the Python error.
+   * The frame where it happened has status "error".
+   */
+  error?: { type: string; message: string };
   explain: {
     what: string;
     /** "In real life" comparison; empty when there is none */

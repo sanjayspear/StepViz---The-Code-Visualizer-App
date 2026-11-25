@@ -1,5 +1,5 @@
 // Screen 1: Home (spec section 2).
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Icon, type IconName } from '../../components/Icon';
 import { ComingSoonButton } from '../../components/ComingSoon';
 import { EXAMPLES, exampleForSource } from '../../examples';
@@ -46,8 +46,12 @@ interface Props {
   busy?: boolean;
   /** True while waiting for Pyodide to finish loading. */
   loadingPython?: boolean;
-  /** A friendly message under the editor (syntax error, step/time cap). */
+  /** A friendly message under the editor (syntax error, step/time cap, crash). */
   error?: string | null;
+  /** Number of input() calls, once the code was checked and needs input. */
+  inputCalls?: number | null;
+  inputText?: string;
+  onInputChange?: (text: string) => void;
 }
 
 export function Home({
@@ -59,8 +63,18 @@ export function Home({
   busy = false,
   loadingPython = false,
   error,
+  inputCalls = null,
+  inputText = '',
+  onInputChange,
 }: Props) {
   const chipsRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // When the input box first appears, put the cursor in it.
+  const showInput = inputCalls !== null && inputCalls > 0;
+  useEffect(() => {
+    if (showInput) inputRef.current?.focus();
+  }, [showInput]);
   const selected = exampleForSource(code)?.id;
 
   const isEmpty = code.trim() === '';
@@ -133,6 +147,25 @@ export function Home({
               ariaLabel="Your code"
               ariaDescribedBy={helper || error ? 'editor-message' : undefined}
             />
+
+            {showInput && (
+              <div className="input-box">
+                <label htmlFor="program-input" className="input-box__label">
+                  Your program asks for input. Type one line per input() call.
+                </label>
+                <textarea
+                  id="program-input"
+                  ref={inputRef}
+                  className="input-box__field"
+                  rows={Math.min(Math.max(inputCalls ?? 1, 2), 6)}
+                  value={inputText}
+                  onChange={(e) => onInputChange?.(e.target.value)}
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoComplete="off"
+                />
+              </div>
+            )}
 
             <div id="editor-message" aria-live="polite">
               {error && !comingSoon ? (

@@ -26,6 +26,9 @@
   --color-life-border: #e8d48a;      /* Real-life box border */
   --color-life-text: #3b3000;        /* Real-life text */
   --color-waiting-bg: #f2f1ec;       /* Waiting frame bg */
+  --color-error-bg: #fde8e3;         /* Error frame bg (crash step) */
+  --color-error-border: #b42318;     /* Error frame border */
+  --color-error-text: #8a1c12;       /* Error text */
 
   /* Fonts */
   --font-heading: 'Space Grotesk', 'Inter', system-ui, sans-serif;

@@ -7,6 +7,7 @@ import { usePlayback } from '../../hooks/usePlayback';
 import { useBeginnerMode } from '../../hooks/useBeginnerMode';
 import { PHONE_QUERY, useMediaQuery } from '../../hooks/useMediaQuery';
 import type { Trace, TraceFrame } from '../../trace/types';
+import { rawErrorText } from '../../trace/explain';
 import './StepScreen.css';
 
 interface Props {
@@ -39,6 +40,12 @@ function isTyping(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 }
 
+/** Controls where Space has its own meaning (press the button, open the select…). */
+function isControl(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return isTyping(target) || target.closest('button, a[href], [role="button"]') !== null;
+}
+
 export function StepScreen({ trace, title, onNewCode }: Props) {
   const total = trace.steps.length;
   const pb = usePlayback(total);
@@ -51,6 +58,7 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
   const step = trace.steps[pb.index];
   const lines = trace.source.split('\n');
   const output = step.output.replace(/\n$/, '');
+  const errorText = step.error ? rawErrorText(step.error) : '';
   const showLife = beginner && step.explain.life !== '';
   const stepLabel = `Step ${pb.index + 1} of ${total}`;
   const progress = total > 0 ? ((pb.index + 1) / total) * 100 : 0;
@@ -72,6 +80,8 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
         e.preventDefault();
         pb.back();
       } else if (e.key === ' ' || e.code === 'Space') {
+        // On a focused button, link, select or text field, Space works as normal.
+        if (isControl(e.target)) return;
         e.preventDefault();
         if (!e.repeat) pb.togglePlay();
       } else if (e.key === 'Escape' && menuOpen) {
@@ -177,12 +187,17 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
               </ol>
             </div>
             {/* On phone the output box appears once something is printed. */}
-            {(!phone || output !== '') && (
+            {(!phone || output !== '' || errorText !== '') && (
               <div className="output-box">
                 <h3 className="output-box__label">Output</h3>
                 <pre className="output-box__text" data-testid="output">
                   {output}
                 </pre>
+                {errorText && (
+                  <pre className="output-box__text output-box__error" data-testid="output-error">
+                    {errorText}
+                  </pre>
+                )}
               </div>
             )}
           </section>

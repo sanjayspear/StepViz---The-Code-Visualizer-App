@@ -13,6 +13,9 @@ export default function App() {
   const [loadingPython, setLoadingPython] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [trace, setTrace] = useState<Trace | null>(null);
+  // input(): how many calls the checked code has, and the lines typed for them.
+  const [inputCalls, setInputCalls] = useState<number | null>(null);
+  const [inputText, setInputText] = useState('');
 
   // Start loading Pyodide in the background once the page is idle, so the
   // first "Visualize my code" on pasted code is quick.
@@ -24,6 +27,8 @@ export default function App() {
   const changeCode = (next: string) => {
     setCode(next);
     setError(null);
+    setInputCalls(null);
+    setInputText('');
   };
 
   const visualize = async () => {
@@ -37,7 +42,13 @@ export default function App() {
         setError(check.message);
         return;
       }
-      const outcome = await getTrace(code);
+      // The program reads input(): show the prompt box first, run on the next click.
+      if (check.inputCalls > 0 && inputCalls === null) {
+        setInputCalls(check.inputCalls);
+        return;
+      }
+      const inputs = check.inputCalls > 0 ? inputText.split('\n') : [];
+      const outcome = await getTrace(code, inputs);
       if (outcome.kind === 'error') {
         setError(outcome.message);
         return;
@@ -65,6 +76,9 @@ export default function App() {
       busy={busy}
       loadingPython={loadingPython}
       error={error}
+      inputCalls={inputCalls}
+      inputText={inputText}
+      onInputChange={setInputText}
     />
   );
 }
