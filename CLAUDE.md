@@ -16,9 +16,10 @@ Phase 1 is done. Phase 2: (g) Screen 3 and Bubble sort (done), (h) JavaScript ex
 trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branch
 `wip/ai-explanations`). Next, in this order:
 
-1. Rule-based explainer: a `kind` on every trace step, and plain-English "What is
-   happening" + "In real life" text built from what changed (plan first, then build).
-2. Java, C++ and C exact traces: tree-walking interpreters over tree-sitter, each in
+1. Rule-based explainer (E1, done): every tracer fills in `kind` (+ `detail`) on each
+   step; `src/trace/explainer.ts` writes "What is happening" + "In real life" for live
+   traces from the kind and what changed, with no per-language rules.
+2. Java, C++ and C exact traces (start only when the product owner says so): tree-walking interpreters over tree-sitter, each in
    its own locked-down worker, same trace JSON, explained by the rule-based explainer.
    - J1: shared interpreter core + Java basics. J2: Java arrays, list view, Scanner,
      crashes, examples; Java loses "(coming soon)".
@@ -105,6 +106,17 @@ Playwright tests. Static build for GitHub Pages.
   Qwen2.5-1.5B-Instruct, Apache-2.0; model program copy served from our site; model
   from Hugging Face only), no accounts, no daily limits, accuracy guard, CSP allows
   only self + huggingface.co + *.hf.co.
+- Explainer rules: kinds are define, assign, input, print, branch-taken,
+  branch-skipped, loop-start, loop-next, loop-end, call, return, swap, crash, other.
+  "b stays 1" when a value does not change; lists of more than 6 items and text over
+  20 characters are summarised in sentences ("a list of 8 numbers", "a long piece of
+  text"), frames keep real values. While loops: "Checking the condition again: total
+  < 10 is still true." "In real life" lines are tagged by sub-kind ("swapping seats"
+  only for swaps and simultaneous changes of existing boxes). Crash steps have no
+  "In real life" line; unknown statements keep "Line N runs: ..." plus a generic one.
+  No jargon ("iteration", "expression"). JavaScript records a loop-end step like
+  Python. Hand-written fixtures keep their text. Only print/input/function words
+  change per language.
 - Java/C++/C decisions: tree-sitter (MIT) for all three, each grammar loaded only
   when chosen and served from our site. Bottom frame is main(); C++ gets a "Global"
   frame only when it has global variables. C++ stops with a plain-words crash for an

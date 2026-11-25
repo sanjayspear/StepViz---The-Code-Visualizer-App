@@ -11,7 +11,8 @@ import type { CodeLanguage } from '../examples';
 import { pythonRunner } from '../runner/pythonRunner';
 import { analyzeJavaScript, runJavaScript } from '../runner/jsRunner';
 import type { RawRunResult } from '../runner/protocol';
-import { errorSentence, genericExplanation } from './explain';
+import { errorSentence } from './explain';
+import { explainTrace } from './explainer';
 import type { Trace } from './types';
 
 export const CAP_MESSAGE =
@@ -63,16 +64,15 @@ export async function getTrace(
   }
   if (raw.steps.length === 0) return { kind: 'error', message: 'Paste some code first' };
 
-  return {
-    kind: 'trace',
-    trace: {
-      language,
-      source,
-      ...(raw.listView ? { listView: raw.listView } : {}),
-      steps: raw.steps.map((s) => ({
-        ...s,
-        explain: s.error ? { what: errorSentence(s.error.type, language), life: '' } : genericExplanation(source, s.line),
-      })),
-    },
+  // Live traces are explained by the rule-based explainer (built from each
+  // step's kind and what changed); hand-written fixtures returned above.
+  const trace: Trace = {
+    language,
+    source,
+    ...(raw.listView ? { listView: raw.listView } : {}),
+    steps: raw.steps.map((s) => ({ ...s, explain: { what: '', life: '' } })),
   };
+  const texts = explainTrace(trace);
+  trace.steps.forEach((s, i) => (s.explain = texts[i]));
+  return { kind: 'trace', trace };
 }

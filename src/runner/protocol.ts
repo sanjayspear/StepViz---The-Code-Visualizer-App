@@ -20,6 +20,8 @@ export interface RawStep {
   output: string;
   error?: { type: string; message: string };
   list?: { values: string[]; compare?: number[]; swap?: [number, number] };
+  kind?: import('../trace/types').StepKind;
+  detail?: import('../trace/types').StepDetail;
 }
 
 export interface RawRunResult {

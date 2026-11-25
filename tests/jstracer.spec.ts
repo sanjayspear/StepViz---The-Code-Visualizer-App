@@ -24,6 +24,7 @@ test('live trace of the JavaScript factorial is valid and matches the Python sha
     line: 9,
     frames: [{ name: 'Global', vars: { factorial: 'function', result: '6' }, status: 'running' }],
     output: '6\n',
+    kind: 'print',
   });
   expect(r.steps[0].frames[0].vars).toEqual({ factorial: 'function', result: '?' }); // const before it is set
 });
@@ -51,7 +52,11 @@ test('loop variables: a step shows the state after its line, before the loop upd
     [3, { total: '3', i: '2' }],
     [2, { total: '3', i: '3' }],
     [3, { total: '6', i: '3' }],
+    [2, { total: '6' }], // loop-end, in the scope after the loop (i is gone)
     [5, { total: '6' }],
+  ]);
+  expect(r.steps.map((s) => s.kind)).toEqual([
+    'assign', 'loop-start', 'assign', 'loop-next', 'assign', 'loop-next', 'assign', 'loop-end', 'print',
   ]);
   expect(r.steps.at(-1)!.output).toBe('6\n');
   expect(runJs(js('fibonacci'), opts).steps.at(-1)!.output).toBe('0\n1\n1\n2\n3\n');

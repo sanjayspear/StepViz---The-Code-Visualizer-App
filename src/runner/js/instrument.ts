@@ -30,6 +30,19 @@ export interface JsListPlan {
   loopOf: Record<string, { outerLine: number; outerEndLine: number; loopVars: string[] }>;
 }
 
+/** What a statement does, for the step kinds: k = kind, b/e = line ranges of the
+ *  if body / else part or loop body, c = condition text, v = loop variable,
+ *  t = names assigned, s = assigned at the same time (a, b = b, a + b). */
+export interface StepInfo {
+  k: 'define' | 'assign' | 'print' | 'branch' | 'loop' | 'swap' | 'other';
+  b?: [number, number];
+  e?: [number, number];
+  c?: string;
+  v?: string;
+  t?: string[];
+  s?: boolean;
+}
+
 export interface Instrumented {
   code: string;
   /** name lists referenced by namesId in __sv.l / __sv.enter */
@@ -99,6 +112,26 @@ const call = (method: string, args: N[]): N => ({
 const exprStmt = (expression: N): N => ({ type: 'ExpressionStatement', expression });
 const block = (body: N[]): N => ({ type: 'BlockStatement', body });
 const clone = <T,>(node: T): T => JSON.parse(JSON.stringify(node));
+
+/** A plain value (string, number, boolean, array, object) as an AST literal. */
+function toAst(value: unknown): N {
+  if (Array.isArray(value)) return arr(value.map(toAst));
+  if (value !== null && typeof value === 'object') {
+    return {
+      type: 'ObjectExpression',
+      properties: Object.entries(value).map(([k, v]) => ({
+        type: 'Property',
+        key: id(k),
+        value: toAst(v),
+        kind: 'init',
+        computed: false,
+        method: false,
+        shorthand: false,
+      })),
+    };
+  }
+  return lit(value as string | number | null);
+}
 
 /** Names bound by a pattern (let { a, b: [c] } = ...). */
 function patternNames(p: N, out: string[] = []): string[] {
@@ -333,11 +366,83 @@ export function instrument(source: string): Instrumented | { error: JsSyntaxErro
     return arr([lit(subs[0]![0]), arrow(clone(subs[0]![1])), arrow(clone(subs[1]![1]))]);
   };
 
-  const hook = (line: number, scope: Scope, readParts: N[], swap: N = lit(null)): N => {
+  const hook = (line: number, scope: Scope, readParts: N[], swap: N = lit(null), info: StepInfo = { k: 'other' }): N => {
     const names = visibleNames(scope);
     return exprStmt(
-      call('l', [lit(line), lit(nameSetId(names)), arr(names.map((n) => arrow(id(n)))), readsOf(readParts), swap]),
+      call('l', [lit(line), lit(nameSetId(names)), arr(names.map((n) => arrow(id(n)))), readsOf(readParts), swap, toAst(info)]),
     );
+  };
+
+  // ---- step kinds (for the rule-based explainer) ---------------------------
+  const text = (n: N) => source.slice(n.start, n.end).trim();
+  const rangeOf = (stmt: N): [number, number] | undefined => {
+    if (!stmt) return undefined;
+    const body = stmt.type === 'BlockStatement' ? stmt.body : [stmt];
+    if (!body.length) return undefined;
+    return [body[0].loc.start.line, body[body.length - 1].loc.end.line];
+  };
+  const isConsoleCall = (e: N) =>
+    e?.type === 'CallExpression' &&
+    e.callee.type === 'MemberExpression' &&
+    e.callee.object.type === 'Identifier' &&
+    e.callee.object.name === 'console';
+  const assignedNames = (target: N): string[] => {
+    const out: string[] = [];
+    walk(target, (n) => {
+      const sub = subscriptOf(n);
+      if (sub) {
+        if (!out.includes(sub[0])) out.push(sub[0]);
+        return false;
+      }
+      if (n.type === 'MemberExpression') return false;
+      if (n.type === 'Identifier' && !out.includes(n.name)) out.push(n.name);
+      return undefined;
+    });
+    return out;
+  };
+  const infoOf = (stmt: N): StepInfo => {
+    switch (stmt.type) {
+      case 'FunctionDeclaration':
+      case 'ClassDeclaration':
+        return { k: 'define', t: [stmt.id.name] };
+      case 'IfStatement': {
+        const info: StepInfo = { k: 'branch', c: text(stmt.test) };
+        const b = rangeOf(stmt.consequent);
+        const e = rangeOf(stmt.alternate);
+        if (b) info.b = b;
+        if (e) info.e = e;
+        return info;
+      }
+      case 'VariableDeclaration': {
+        const t = stmt.declarations.flatMap((d: N) => patternNames(d.id));
+        const simultaneous = stmt.declarations.some((d: N) => d.id.type !== 'Identifier' && patternNames(d.id).length > 1);
+        return simultaneous ? { k: 'assign', t, s: true } : { k: 'assign', t };
+      }
+      case 'ExpressionStatement': {
+        const e = stmt.expression;
+        if (isConsoleCall(e)) return { k: 'print' };
+        if (e.type === 'AssignmentExpression') {
+          const t = assignedNames(e.left);
+          return e.left.type === 'ArrayPattern' && e.left.elements.length > 1 ? { k: 'assign', t, s: true } : { k: 'assign', t };
+        }
+        if (e.type === 'UpdateExpression') return { k: 'assign', t: assignedNames(e.argument) };
+        if (e.type === 'SequenceExpression' && e.expressions.every((x: N) => x.type === 'AssignmentExpression' || x.type === 'UpdateExpression')) {
+          return { k: 'assign', t: e.expressions.flatMap((x: N) => assignedNames(x.left ?? x.argument)) };
+        }
+        return { k: 'other' };
+      }
+      default:
+        return { k: 'other' };
+    }
+  };
+  const loopInfo = (loop: N): StepInfo => {
+    const info: StepInfo = { k: 'loop' };
+    const b = rangeOf(loop.body);
+    if (b) info.b = b;
+    if (loop.test) info.c = text(loop.test);
+    const v = loopVar(loop);
+    if (v) info.v = v;
+    return info;
   };
 
   // Parts of a statement evaluated before its body runs.
@@ -370,13 +475,21 @@ export function instrument(source: string): Instrumented | { error: JsSyntaxErro
   const transformStatements = (body: N[], scope: Scope): N[] => {
     const out: N[] = [];
     for (const stmt of body) {
+      const info = LOOPS.has(stmt.type) ? loopInfo(stmt) : infoOf(stmt); // before the body is rewritten
       transformStatement(stmt, scope);
       if (LOOPS.has(stmt.type)) {
-        out.push(stmt); // loops report their header line at the start of each round
+        // Loops report their header line at the start of each round, and a
+        // loop-end step when they finish (in the scope around the loop).
+        const names = visibleNames(scope);
+        out.push(
+          stmt,
+          exprStmt(call('x', [lit(stmt.loc.start.line), lit(nameSetId(names)), arr(names.map((n) => arrow(id(n)))), toAst(info)])),
+        );
       } else if (stmt.type === 'EmptyStatement') {
         continue;
       } else {
-        out.push(hook(stmt.loc.start.line, scope, headOf(stmt), swapOf(stmt)), stmt);
+        const swap = swapOf(stmt);
+        out.push(hook(stmt.loc.start.line, scope, headOf(stmt), swap, swap.type === 'Literal' ? info : { k: 'swap' }), stmt);
       }
     }
     return out;
@@ -388,6 +501,7 @@ export function instrument(source: string): Instrumented | { error: JsSyntaxErro
   };
 
   const transformLoop = (loop: N, scope: Scope) => {
+    const info = loopInfo(loop); // before the body is rewritten
     // let/const in the loop head belong to the loop's own scope.
     let headNames: string[] = [];
     if (loop.type === 'ForStatement' && loop.init?.type === 'VariableDeclaration' && loop.init.kind !== 'var') {
@@ -401,7 +515,7 @@ export function instrument(source: string): Instrumented | { error: JsSyntaxErro
     loop.body = asBlock(loop.body);
     const bodyScope: Scope = { names: lexical(loop.body.body), parent: headScope, isFunction: false };
     const inner = transformStatements(loop.body.body, bodyScope);
-    loop.body.body = [hook(loop.loc.start.line, bodyScope, headOf(loop)), ...inner, exprStmt(call('f', []))];
+    loop.body.body = [hook(loop.loc.start.line, bodyScope, headOf(loop), lit(null), info), ...inner, exprStmt(call('f', []))];
   };
 
   /** Transform functions nested inside expressions. */

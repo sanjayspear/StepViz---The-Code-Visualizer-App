@@ -67,17 +67,19 @@ test('JavaScript Factorial plays its hand-written explanations', async ({ page }
   await expect(page.getByTestId('output')).toHaveText('6');
 });
 
-test('pasted JavaScript is traced live with the generic explanation', async ({ page }) => {
+test('pasted JavaScript is traced live and explained by the rule-based explainer', async ({ page }) => {
   await chooseJavaScript(page);
   await setCode(page, 'function double(x) {\n  return x * 2;\n}\nconst y = double(4);\nconsole.log(y);');
   await visualize(page).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your code');
-  await expect(page.locator('.explain-card__what')).toHaveText('Line 1 runs: function double(x) {');
+  await expect(page.locator('.explain-card__what')).toHaveText(/^(JavaScript saves the function double for later\. Nothing inside it runs yet\.|double is defined now, but its code waits until it is called\.)$/);
+  await expect(page.locator('.life-box__text')).toHaveText(/^Like /);
   await nextButton(page).click();
   await expect(page.getByTestId('frame').locator('.frame__name')).toHaveText(['Global', 'double(4)']);
+  await expect(page.locator('.explain-card__what')).toContainText('double(4)');
   await lastStep(page);
   await expect(page.getByTestId('output')).toHaveText('8');
-  await expect(page.locator('.life-box')).toHaveCount(0);
+  await expect(page.locator('.explain-card__what')).toContainText('8');
 });
 
 test('JavaScript Bubble sort uses the loops view', async ({ page }) => {

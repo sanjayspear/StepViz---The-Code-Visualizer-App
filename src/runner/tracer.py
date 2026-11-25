@@ -321,6 +321,101 @@ class _ListPlan(ast.NodeVisitor):
             self.swaps[node.lineno] = (subs[0][0], compile_(subs[0][1]), compile_(subs[1][1]))
 
 
+# --------------------------------------------------------------------------
+# Step kinds (for the rule-based explainer): what each line does.
+
+
+def _calls_named(node, name):
+    return any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == name for n in ast.walk(node)
+    )
+
+
+def _target_names(targets):
+    names = []
+    for t in targets:
+        for n in ast.walk(t):
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and n.id not in names:
+                names.append(n.id)
+            elif isinstance(n, ast.Subscript) and isinstance(n.value, ast.Name) and n.value.id not in names:
+                names.append(n.value.id)
+    return names
+
+
+def _block_range(stmts):
+    if not stmts:
+        return None
+    return [stmts[0].lineno, max(getattr(n, "end_lineno", n.lineno) for n in stmts)]
+
+
+def _line_kinds(tree, source):
+    """line -> what the statement starting on that line does (outermost statement)."""
+    info = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.stmt) or node.lineno in info:
+            continue
+        seg = lambda n: (ast.get_source_segment(source, n) or "").strip()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            info[node.lineno] = {"kind": "define", "targets": [node.name]}
+        elif isinstance(node, ast.If):
+            info[node.lineno] = {"kind": "branch", "body": _block_range(node.body), "else": _block_range(node.orelse), "condition": seg(node.test)}
+        elif isinstance(node, ast.For):
+            var = node.target.id if isinstance(node.target, ast.Name) else None
+            info[node.lineno] = {"kind": "loop", "body": _block_range(node.body), "loopVar": var}
+        elif isinstance(node, ast.While):
+            info[node.lineno] = {"kind": "loop", "body": _block_range(node.body), "condition": seg(node.test)}
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            simultaneous = isinstance(node, ast.Assign) and any(
+                isinstance(t, (ast.Tuple, ast.List)) and len(t.elts) > 1 for t in node.targets
+            )
+            value = node.value if node.value is not None else node
+            kind = "input" if _calls_named(value, "input") else "assign"
+            info[node.lineno] = {"kind": kind, "targets": _target_names(targets), "simultaneous": simultaneous}
+        elif isinstance(node, ast.Expr) and _calls_named(node, "print"):
+            info[node.lineno] = {"kind": "print"}
+        elif isinstance(node, ast.Expr) and _calls_named(node, "input"):
+            info[node.lineno] = {"kind": "input", "targets": []}
+        else:
+            info[node.lineno] = {"kind": "other"}
+    return info
+
+
+def _in_range(line, rng):
+    return line is not None and rng is not None and rng[0] <= line <= rng[1]
+
+
+def _classify(info, line, next_line, active_loops):
+    """(kind, detail) for the line that just finished, given the line that runs next."""
+    i = info.get(line) or {"kind": "other"}
+    kind = i["kind"]
+    detail = {}
+    if kind == "branch":
+        taken = _in_range(next_line, i["body"])
+        kind = "branch-taken" if taken else "branch-skipped"
+        if i["condition"]:
+            detail["condition"] = i["condition"]
+        if not taken and _in_range(next_line, i["else"]):
+            detail["toElse"] = True
+    elif kind == "loop":
+        if _in_range(next_line, i["body"]):
+            kind = "loop-next" if line in active_loops else "loop-start"
+            active_loops.add(line)
+        else:
+            kind = "loop-end"
+            active_loops.discard(line)
+        if i.get("loopVar"):
+            detail["loopVar"] = i["loopVar"]
+        if i.get("condition"):
+            detail["condition"] = i["condition"]
+    elif kind in ("assign", "input", "define"):
+        if i.get("targets"):
+            detail["targets"] = i["targets"]
+        if i.get("simultaneous"):
+            detail["simultaneous"] = True
+    return kind, detail
+
+
 def _loop_var(loop):
     if isinstance(loop, ast.For) and isinstance(loop.target, ast.Name):
         return loop.target.id
@@ -382,15 +477,17 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
 
     plan = _ListPlan()
     plan.visit(tree)
+    kinds = _line_kinds(tree, source)
     list_names = plan.candidates + [n for n in plan.weak if n not in plan.candidates]
 
     out = io.StringIO()
     g = {"__name__": "__main__", "__builtins__": _safe_builtins(out, json.loads(inputs_json))}
 
     steps = []
-    # Each entry: [frame, label, pending_line, raised]. Bottom to top; index 0 is
-    # the module (Global). pending_line is the line that is running in that
-    # frame and gets its step when it finishes.
+    # Each entry: [frame, label, pending_line, raised, active_loops]. Bottom to
+    # top; index 0 is the module (Global). pending_line is the line that is
+    # running in that frame and gets its step when it finishes; active_loops
+    # holds the header lines of loops that have started (for loop-start/next).
     stack = []
     deadline = time.monotonic() + max_seconds
     # "crash": the step to show if an exception ends the program. Taken when
@@ -421,7 +518,7 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
     def snapshot(line, returning=None, error=False):
         frames = []
         top = len(stack) - 1
-        for i, (frame, label, _pending, _raised) in enumerate(stack):
+        for i, (frame, label, *_rest) in enumerate(stack):
             vars_ = global_vars() if i == 0 else local_vars(frame)
             if i < top:
                 status = "waiting"
@@ -467,13 +564,21 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
                 return frame
         return None
 
-    def record(line, returning=None, swap=None):
+    def record(line, returning=None, swap=None, kind="other", detail=None):
         if len(steps) >= max_steps:
             raise StopRun("steps")
         step = snapshot(line, returning)
         if swap is not None:
             step["_swap"] = swap
+        step["kind"] = kind
+        if detail:
+            step["detail"] = detail
         steps.append(step)
+
+    def record_line(entry, next_line):
+        """The pending line of this frame has finished; `next_line` runs next."""
+        kind, detail = _classify(kinds, entry[2], next_line, entry[4])
+        record(entry[2], kind=kind, detail=detail)
 
     def record_swap_before(frame, line):
         """A swap line is shown before it runs: the old list and an arrow."""
@@ -485,7 +590,7 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
         a, b = _eval_index(code_a, f, len(value)), _eval_index(code_b, f, len(value))
         if a is None or b is None:
             return False
-        record(line, swap={"list": name, "pair": [a, b]})
+        record(line, swap={"list": name, "pair": [a, b]}, kind="swap")
         return True
 
     def local_trace(frame, event, arg):
@@ -499,7 +604,7 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
             state["crash_exc"] = None
         if event == "line":
             if entry[2] is not None:
-                record(entry[2])  # the previous line in this frame has finished
+                record_line(entry, frame.f_lineno)  # the previous line in this frame has finished
             entry[2] = frame.f_lineno
             entry[3] = False
             if frame.f_lineno in plan.swaps and record_swap_before(frame, frame.f_lineno):
@@ -509,14 +614,15 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
             exc = arg[1] if isinstance(arg, tuple) and len(arg) > 1 else None
             if state["crash_exc"] is not exc or state["crash"] is None:
                 state["crash"] = snapshot(frame.f_lineno, error=True)
+                state["crash"]["kind"] = "crash"
                 state["crash_exc"] = exc
         elif event == "return":
             if frame is state["module"]:
                 if entry[2] is not None and not entry[3]:
-                    record(entry[2])  # the last line of the program
+                    record_line(entry, None)  # the last line of the program
                 return None
             if not entry[3]:
-                record(frame.f_lineno, returning=arg)
+                record(frame.f_lineno, returning=arg, kind="return")
             stack.pop()
         return local_trace
 
@@ -529,14 +635,14 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
             return None
         if state["module"] is None:
             state["module"] = frame
-            stack.append([frame, "Global", None, False])
+            stack.append([frame, "Global", None, False, set()])
             return local_trace
         name = frame.f_code.co_name
         if name.startswith("<"):  # lambdas, generator expressions
             return None
-        stack.append([frame, _frame_label(frame), None, False])
+        stack.append([frame, _frame_label(frame), None, False, set()])
         caller = frame.f_back
-        record(caller.f_lineno if caller is not None else frame.f_lineno)
+        record(caller.f_lineno if caller is not None else frame.f_lineno, kind="call")
         return local_trace
 
     status = "ok"

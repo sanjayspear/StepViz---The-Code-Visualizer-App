@@ -6,7 +6,7 @@
 // before it runs. Pure TypeScript: runs in the worker and in Node tests.
 import type { RawRunResult, RawStep } from '../protocol';
 import type { ListView } from '../../trace/types';
-import { instrument, type JsListPlan } from './instrument';
+import { instrument, type JsListPlan, type StepInfo } from './instrument';
 
 const MAX_REPR = 40;
 const MAX_DEPTH = 200;
@@ -27,8 +27,56 @@ interface Frame {
   getters: Getter[];
   pending: number | null;
   pendingReads: Reads;
+  pendingInfo: StepInfo | null;
+  /** header lines of loops that have started in this frame */
+  activeLoops: Set<number>;
   raised: boolean;
   returned: boolean;
+}
+
+type StepKind = NonNullable<RawStep['kind']>;
+type StepDetail = NonNullable<RawStep['detail']>;
+
+const inRange = (line: number | null, r?: [number, number]) => line !== null && !!r && r[0] <= line && line <= r[1];
+
+/** Kind of the line that just finished, given the line that runs next (same rules as tracer.py). */
+function classify(info: StepInfo | null, line: number, next: number | null, active: Set<number>): { kind: StepKind; detail?: StepDetail } {
+  if (!info) return { kind: 'other' };
+  const detail: StepDetail = {};
+  let kind: StepKind;
+  switch (info.k) {
+    case 'branch': {
+      const taken = inRange(next, info.b);
+      kind = taken ? 'branch-taken' : 'branch-skipped';
+      if (info.c) detail.condition = info.c;
+      if (!taken && inRange(next, info.e)) detail.toElse = true;
+      break;
+    }
+    case 'loop':
+      if (inRange(next, info.b)) {
+        kind = active.has(line) ? 'loop-next' : 'loop-start';
+        active.add(line);
+      } else {
+        kind = 'loop-end';
+        active.delete(line);
+      }
+      if (info.v) detail.loopVar = info.v;
+      if (info.c) detail.condition = info.c;
+      break;
+    case 'define':
+    case 'assign':
+      kind = info.k;
+      if (info.t?.length) detail.targets = info.t;
+      if (info.s) detail.simultaneous = true;
+      break;
+    case 'print':
+    case 'swap':
+      kind = info.k;
+      break;
+    default:
+      kind = 'other';
+  }
+  return Object.keys(detail).length ? { kind, detail } : { kind };
 }
 
 // --------------------------------------------------------------------------
@@ -121,7 +169,17 @@ class Runtime {
   }
 
   private newFrame(label: string, namesId: number, getters: Getter[]): Frame {
-    return { label, names: this.nameSets[namesId] ?? [], getters, pending: null, pendingReads: null, raised: false, returned: false };
+    return {
+      label,
+      names: this.nameSets[namesId] ?? [],
+      getters,
+      pending: null,
+      pendingReads: null,
+      pendingInfo: null,
+      activeLoops: new Set(),
+      raised: false,
+      returned: false,
+    };
   }
 
   private checkTime() {
@@ -169,7 +227,10 @@ class Runtime {
     return i >= 0 && i < length ? i : null;
   }
 
-  private snapshot(line: number, opts: { returning?: unknown; isReturn?: boolean; error?: boolean; reads?: Reads } = {}) {
+  private snapshot(
+    line: number,
+    opts: { returning?: unknown; isReturn?: boolean; error?: boolean; reads?: Reads; kind?: StepKind; detail?: StepDetail } = {},
+  ) {
     const top = this.stack.length - 1;
     const frames = this.stack.map((f, i) => {
       let status: RawStep['frames'][number]['status'] = 'running';
@@ -180,7 +241,8 @@ class Runtime {
       if (i === top && opts.isReturn && !opts.error) entry.returns = `returns ${short(opts.returning)}`;
       return entry;
     });
-    const step: Runtime['steps'][number] = { line, frames, output: this.output };
+    const step: Runtime['steps'][number] = { line, frames, output: this.output, kind: opts.kind ?? 'other' };
+    if (opts.detail) step.detail = opts.detail;
     if (this.plan.candidates.length) {
       const lists: Record<string, string[]> = {};
       const looks: Record<string, number[]> = {};
@@ -207,21 +269,29 @@ class Runtime {
     return step;
   }
 
+  /** Record the pending line of a frame; `next` is the line that runs next. */
+  private recordPending(frame: Frame, next: number | null) {
+    if (frame.pending === null) return;
+    const { kind, detail } = classify(frame.pendingInfo, frame.pending, next, frame.activeLoops);
+    this.record(frame.pending, { reads: frame.pendingReads, kind, detail });
+  }
+
   // ---- hooks called by the instrumented program ----------------------------
 
   hooks = {
-    l: (line: number, namesId: number, getters: Getter[], reads: Reads, swap: Swap) => {
+    l: (line: number, namesId: number, getters: Getter[], reads: Reads, swap: Swap, info: StepInfo) => {
       this.checkTime();
       this.hasCrash = false; // the program carried on, so any error was caught
       this.crash = null;
       const top = this.stack[this.stack.length - 1];
       // The previous line in this frame has finished: record it with the
       // variables it could see, before switching to this statement's.
-      if (top.pending !== null) this.record(top.pending, { reads: top.pendingReads });
+      this.recordPending(top, line);
       top.names = this.nameSets[namesId];
       top.getters = getters;
       top.pending = line;
       top.pendingReads = reads;
+      top.pendingInfo = info;
       top.raised = false;
       if (swap) {
         const [name, getA, getB] = swap;
@@ -230,7 +300,7 @@ class Runtime {
         const j = a ? this.evalIndex(getB, a.length) : null;
         if (i !== null && j !== null) {
           // A swap is shown before it runs: the old list and an arrow.
-          const step = this.record(line, { reads });
+          const step = this.record(line, { reads, kind: 'swap' });
           step._swap = { list: name, pair: [i, j] };
           top.pending = null;
         }
@@ -239,8 +309,20 @@ class Runtime {
     /** End of a loop body: record its last line before the loop's update (i++) runs. */
     f: () => {
       const top = this.stack[this.stack.length - 1];
-      if (top.pending !== null && !top.raised) this.record(top.pending, { reads: top.pendingReads });
+      if (!top.raised) this.recordPending(top, null);
       top.pending = null;
+    },
+    /** After a loop: record its loop-end step, in the scope around the loop. */
+    x: (line: number, namesId: number, getters: Getter[], info: StepInfo) => {
+      this.checkTime();
+      const top = this.stack[this.stack.length - 1];
+      this.recordPending(top, line); // a loop that never ran a round
+      top.names = this.nameSets[namesId];
+      top.getters = getters;
+      top.pending = null;
+      top.activeLoops.delete(line);
+      const { kind, detail } = classify(info, line, null, top.activeLoops);
+      this.record(line, { kind, detail });
     },
     enter: (name: string, namesId: number, getters: Getter[]) => {
       this.checkTime();
@@ -254,11 +336,11 @@ class Runtime {
         }
       });
       this.stack.push(this.newFrame(`${name}(${values.join(', ')})`, namesId, getters));
-      this.record(caller.pending ?? 1);
+      this.record(caller.pending ?? 1, { kind: 'call' });
     },
     ret: <T,>(line: number, value: T): T => {
       const top = this.stack[this.stack.length - 1];
-      if (!top.raised) this.record(line, { returning: value, isReturn: true });
+      if (!top.raised) this.record(line, { returning: value, isReturn: true, kind: 'return' });
       top.returned = true;
       return value;
     },
@@ -267,7 +349,7 @@ class Runtime {
       const top = this.stack[this.stack.length - 1];
       top.raised = true;
       if (!this.hasCrash || this.crashExc !== e) {
-        this.crash = this.snapshot(top.pending ?? 1, { error: true });
+        this.crash = this.snapshot(top.pending ?? 1, { error: true, kind: 'crash' });
         this.crashExc = e;
         this.hasCrash = true;
       }
@@ -275,7 +357,7 @@ class Runtime {
     leave: () => {
       const top = this.stack[this.stack.length - 1];
       try {
-        if (!top.returned && !top.raised) this.record(top.pending ?? 1, { returning: undefined, isReturn: true });
+        if (!top.returned && !top.raised) this.record(top.pending ?? 1, { returning: undefined, isReturn: true, kind: 'return' });
       } finally {
         this.stack.pop();
       }
@@ -291,7 +373,7 @@ class Runtime {
   /** The last line of the program has finished. */
   finish() {
     const g = this.stack[0];
-    if (g.pending !== null && !g.raised) this.record(g.pending, { reads: g.pendingReads });
+    if (!g.raised) this.recordPending(g, null);
   }
 }
 

@@ -689,7 +689,7 @@ test('speed cycles 0.5×, 1×, 2×', async ({ page }) => {
   await expect(speed).toHaveText('Speed 1×');
 });
 
-test('For loop, Fibonacci and Bubble sort play their hand-written explanations; edited code uses the generic one', async ({ page }) => {
+test('For loop, Fibonacci and Bubble sort play their hand-written explanations; edited code uses the rule-based explainer', async ({ page }) => {
   const cases = [
     { chip: 'For loop', title: 'For loop: sum of 1 to 3', steps: 9, life: 'Like setting a scoreboard to zero before the game starts.', output: '6' },
     { chip: 'Fibonacci', title: 'fibonacci(5)', steps: 17, life: 'Like writing the first two numbers of a pattern on a card.', output: '0\n1\n1\n2\n3' },
@@ -719,8 +719,12 @@ test('For loop, Fibonacci and Bubble sort play their hand-written explanations; 
   await page.keyboard.press('ControlOrMeta+End');
   await page.keyboard.type(' # edited');
   await visualizeButton(page).click();
-  await expect(page.locator('.explain-card__what')).toHaveText('Line 1 runs: nums = [5, 2, 8, 1]', { timeout: 60_000 });
-  await expect(page.locator('.life-box')).toHaveCount(0);
+  // Edited code is explained by the rule-based explainer, with a real-life line.
+  await expect(page.locator('.explain-card__what')).toContainText('nums', { timeout: 60_000 });
+  await expect(page.locator('.explain-card__what')).not.toHaveText(
+    'We make a list called nums with four numbers: 5, 2, 8 and 1. They are not in order yet.',
+  );
+  await expect(page.locator('.life-box__text')).toHaveText(/^Like /);
 });
 
 test('empty editor and other languages', async ({ page }) => {
@@ -734,4 +738,22 @@ test('empty editor and other languages', async ({ page }) => {
   await expect(visualizeButton(page)).toBeDisabled();
   await page.locator('select').selectOption('python');
   await expect(visualizeButton(page)).toBeEnabled();
+});
+
+test('pasted code is explained step by step, with "In real life" lines that Beginner mode can hide', async ({ page }) => {
+  await openHome(page);
+  await visualizeLive(page, 'total = 0\nfor i in range(1, 3):\n    total = total + i\nprint(total)');
+  await expect(page.locator('.explain-card__what')).toHaveText(
+    /^(We make a box called total and put 0 in it|A new box called total now holds 0|total is created and set to 0)\.$/,
+  );
+  await expect(page.locator('.life-box__text')).toHaveText(/^Like /);
+  await nextButton(page).click();
+  await expect(page.locator('.explain-card__what')).toHaveText(
+    /^(The loop starts\. i is 1 for the first round|Round one of the loop: i starts at 1)\.$/,
+  );
+  await lastStep(page);
+  await expect(page.locator('.explain-card__what')).toContainText('3');
+  await page.getByRole('button', { name: 'Beginner mode: on' }).click();
+  await expect(page.locator('.life-box')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Beginner mode: off' }).click();
 });
