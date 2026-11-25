@@ -9,7 +9,8 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self' 'wasm-unsafe-eval'",
   "worker-src 'self'",
-  "connect-src 'self'",
+  // Optional AI explanations: Ollama on the student's own computer, nothing else.
+  "connect-src 'self' http://localhost:11434",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data:",

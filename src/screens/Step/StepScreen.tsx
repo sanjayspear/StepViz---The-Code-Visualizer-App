@@ -9,6 +9,8 @@ import { PHONE_QUERY, useMediaQuery } from '../../hooks/useMediaQuery';
 import type { Trace, TraceFrame } from '../../trace/types';
 import { rawErrorText } from '../../trace/explain';
 import { ListPanel, LoopVarCards, passStarts } from './ListPanel';
+import { isHandWritten } from '../../trace/getTrace';
+import { AiPanel, AI_PHONE_NOTE, useAi } from './AiPanel';
 import './StepScreen.css';
 
 interface Props {
@@ -70,7 +72,16 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
   const lines = trace.source.split('\n');
   const output = step.output.replace(/\n$/, '');
   const errorText = step.error ? rawErrorText(step.error) : '';
-  const showLife = beginner && step.explain.life !== '';
+  // AI (desktop only): live traces, not the hand-written examples or a crash step.
+  // An AI explanation replaces the built-in text once it has passed the accuracy guard.
+  const ai = useAi();
+  const aiOn = !phone && !isHandWritten(trace);
+  const aiEligible = (k: number) => aiOn && !trace.steps[k].error;
+  const aiText = aiOn ? ai.explanationFor(trace, pb.index) : undefined;
+  const aiDone = aiText?.state === 'done' ? aiText : null;
+  const what = aiDone ? aiDone.what : step.explain.what;
+  const life = aiDone ? aiDone.life : step.explain.life;
+  const showLife = beginner && life !== '';
   const stepLabel = `Step ${pb.index + 1} of ${total}`;
   const kickerLabel = step.explain.label ?? stepLabel;
   const progress = total > 0 ? ((pb.index + 1) / total) * 100 : 0;
@@ -128,6 +139,12 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
     </button>
   );
 
+  // With AI ready, explain the step being viewed (and prepare the next ones).
+  useEffect(() => {
+    if (aiOn) ai.request(trace, pb.index, aiEligible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ai, aiOn, trace, pb.index, ai.status.kind]);
+
   const beginnerButton = (
     <button type="button" className="outline-btn" aria-pressed={beginner} onClick={toggleBeginner}>
       {beginner ? 'Beginner mode: on' : 'Beginner mode: off'}
@@ -177,6 +194,7 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
                     {badge}
                     {listView && <p className="topbar-menu__note">{listView.note ?? 'Loops view'}</p>}
                     {beginnerButton}
+                    <p className="topbar-menu__note">{AI_PHONE_NOTE}</p>
                   </div>
                 )}
               </div>
@@ -290,18 +308,22 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
 
         <section className={`explain-card${showLife ? '' : ' explain-card--single'}`} aria-live="polite">
           <div>
-            <p className="explain-card__kicker">{phone ? kickerLabel : `What is happening · ${kickerLabel}`}</p>
-            <p className="explain-card__what">{step.explain.what}</p>
+            <p className="explain-card__kicker">
+              {phone ? kickerLabel : `What is happening · ${kickerLabel}`}
+              {aiDone && <span className="ai-tag">AI-explained (beta)</span>}
+            </p>
+            <p className="explain-card__what">{what}</p>
+            {aiOn && <AiPanel eligible={aiEligible(pb.index)} explanation={aiText} />}
           </div>
           {showLife &&
             (phone ? (
               <p className="life-box life-box__text">
-                <strong>In real life:</strong> {lowerFirst(step.explain.life)}
+                <strong>In real life:</strong> {lowerFirst(life)}
               </p>
             ) : (
               <div className="life-box">
                 <p className="life-box__kicker">In real life</p>
-                <p className="life-box__text">{step.explain.life}</p>
+                <p className="life-box__text">{life}</p>
               </div>
             ))}
         </section>

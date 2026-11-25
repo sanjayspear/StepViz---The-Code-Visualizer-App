@@ -55,6 +55,22 @@ npm test
 - `tests/cpp.spec.ts`: the C++ interpreter under Node; `tests/cpp-app.spec.ts`: C++ in the app
 - `tests/c.spec.ts`: C mode under Node; `tests/c-app.spec.ts`: C in the app
 - `tests/switch.spec.ts`: switch in JavaScript, Java, C++ and C
+- `tests/ai-guard.spec.ts`: the AI accuracy guard and the facts the model gets;
+  `tests/ai-app.spec.ts`: AI explanations in the app, with a stand-in for Ollama
+
+## AI explanations (optional, desktop only)
+
+StepViz can ask Llama, running in [Ollama](https://ollama.com) on your own
+computer, to reword each step's explanation. It is free and needs no account:
+
+1. Install Ollama and open it.
+2. `ollama pull llama3.2:3b`
+3. Let the site talk to Ollama (not needed for `npm run dev` on localhost):
+   Mac `launchctl setenv OLLAMA_ORIGINS "https://<user>.github.io"`, Windows
+   `setx OLLAMA_ORIGINS "https://<user>.github.io"`, then restart Ollama.
+
+The page talks only to `http://localhost:11434`; the code runners stay offline.
+Built with Llama (Llama 3.2 Community License).
 
 Run one file or one test:
 

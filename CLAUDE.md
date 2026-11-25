@@ -117,7 +117,21 @@ Playwright tests. Static build for GitHub Pages.
   the other language; the student's own code is left alone. Loops report their header
   line at the start of each round, and the last body line is recorded before the
   loop's update runs (so `i` shows that round's value).
-- Paused AI (branch `wip/ai-explanations`): free, open model in the browser (WebLLM,
+- AI explanations (built, replaces the paused in-browser plan): Llama 3.2 3B in
+  Ollama on the student's own desktop/laptop (free, no account). Desktop only;
+  shown only for live traces (not hand-written examples, not crash steps).
+  Button "Explain with AI (Llama on this computer)", line "AI explanations work on
+  a desktop or laptop with Llama installed (free).", link "How to set it up →"
+  opening 3 copyable setup steps (ollama pull llama3.2:3b; OLLAMA_ORIGINS for this
+  site on Mac/Windows) + "Built with Llama" credit. Ollama is contacted only after
+  the button is pressed. Phone ⋮ menu: "AI explanations are available on a desktop
+  with Llama installed." The AI gets trace facts plus the rule-based text to reword;
+  the accuracy guard keeps the built-in text if a number or name is not in the
+  step. Tag "AI-explained (beta)"; failure: "AI explanation isn't available right
+  now." CSP connect-src: 'self' http://localhost:11434 only. Code runners stay
+  offline. Code in `src/ai/` (aiClient, prompt, guard, config) and
+  `src/screens/Step/AiPanel.tsx`.
+- Old paused AI (branch `wip/ai-explanations`, superseded): free, open model in the browser (WebLLM,
   Qwen2.5-1.5B-Instruct, Apache-2.0; model program copy served from our site; model
   from Hugging Face only), no accounts, no daily limits, accuracy guard, CSP allows
   only self + huggingface.co + *.hf.co.

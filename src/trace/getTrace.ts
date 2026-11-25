@@ -34,6 +34,11 @@ const FIXTURES: Trace[] = [
   FACTORIAL_C_TRACE,
 ];
 
+/** Built-in examples with hand-written explanations (the AI leaves these alone). */
+export function isHandWritten(trace: Trace): boolean {
+  return FIXTURES.includes(trace);
+}
+
 export function fixtureFor(source: string, language: TraceLanguage = 'python'): Trace | undefined {
   return FIXTURES.find((t) => t.source === source && t.language === language);
 }
