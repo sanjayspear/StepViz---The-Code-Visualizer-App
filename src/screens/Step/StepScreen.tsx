@@ -1,9 +1,11 @@
-// Screen 2: Step-through (spec section 3). Reads only the Trace JSON.
-import { useEffect, useRef } from 'react';
+// Screen 2: Step-through (spec section 3), and its phone layout, Screen 4
+// (spec section 5), below 900 px wide. Reads only the Trace JSON.
+import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../components/Icon';
 import { ComingSoonButton } from '../../components/ComingSoon';
 import { usePlayback } from '../../hooks/usePlayback';
 import { useBeginnerMode } from '../../hooks/useBeginnerMode';
+import { PHONE_QUERY, useMediaQuery } from '../../hooks/useMediaQuery';
 import type { Trace, TraceFrame } from '../../trace/types';
 import './StepScreen.css';
 
@@ -13,13 +15,22 @@ interface Props {
   onNewCode: () => void;
 }
 
-/** "n = 1 → 1 × 1 = 1" */
-export function frameVarsText(frame: TraceFrame): string {
+/**
+ * The variables line of a frame: "n = 1 → 1 × 1 = 1".
+ * The compact phone frame leaves out function values, as in the Screen 4
+ * screenshot ("Global · result = ?").
+ */
+export function frameVarsText(frame: TraceFrame, compact = false): string {
   const vars = Object.entries(frame.vars)
+    .filter(([, v]) => !(compact && v === 'function'))
     .map(([k, v]) => `${k} = ${v}`)
     .join(', ');
   if (!frame.returns) return vars;
   return vars ? `${vars} → ${frame.returns}` : frame.returns;
+}
+
+function lowerFirst(text: string): string {
+  return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
 function isTyping(target: EventTarget | null): boolean {
@@ -32,13 +43,17 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
   const total = trace.steps.length;
   const pb = usePlayback(total);
   const [beginner, toggleBeginner] = useBeginnerMode();
+  const phone = useMediaQuery(PHONE_QUERY);
+  const [menuOpen, setMenuOpen] = useState(false);
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const step = trace.steps[pb.index];
   const lines = trace.source.split('\n');
   const output = step.output.replace(/\n$/, '');
   const showLife = beginner && step.explain.life !== '';
   const stepLabel = `Step ${pb.index + 1} of ${total}`;
+  const progress = total > 0 ? ((pb.index + 1) / total) * 100 : 0;
 
   // Move focus to the title when the screen opens (screen reader context).
   useEffect(() => {
@@ -59,39 +74,92 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
       } else if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault();
         if (!e.repeat) pb.togglePlay();
+      } else if (e.key === 'Escape' && menuOpen) {
+        setMenuOpen(false);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [pb]);
+  }, [pb, menuOpen]);
 
-  const progress = total > 0 ? ((pb.index + 1) / total) * 100 : 0;
+  // Phone menu: close on a click outside it, and when leaving the phone layout.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [menuOpen]);
+  useEffect(() => {
+    if (!phone) setMenuOpen(false);
+  }, [phone]);
+
+  const beginnerButton = (
+    <button type="button" className="outline-btn" aria-pressed={beginner} onClick={toggleBeginner}>
+      {beginner ? 'Beginner mode: on' : 'Beginner mode: off'}
+    </button>
+  );
+  const badge = <span className="step-badge">Python · exact trace</span>;
 
   return (
     <div className="step-screen">
       <header className="step-topbar">
         <div className="step-topbar__left">
-          <button type="button" className="step-topbar__back" onClick={onNewCode}>
-            <Icon name="arrow-left" size={18} />
-            <span>New code</span>
+          <button
+            type="button"
+            className="step-topbar__back"
+            onClick={onNewCode}
+            aria-label={phone ? 'New code' : undefined}
+          >
+            <Icon name="arrow-left" size={phone ? 22 : 18} />
+            {!phone && <span>New code</span>}
           </button>
           <h1 className="step-topbar__title" ref={titleRef} tabIndex={-1}>
             {title}
           </h1>
-          <span className="step-badge">Python · exact trace</span>
+          {!phone && badge}
         </div>
         <div className="step-topbar__right">
-          <ComingSoonButton className="outline-btn">Share link</ComingSoonButton>
-          <button type="button" className="outline-btn" aria-pressed={beginner} onClick={toggleBeginner}>
-            {beginner ? 'Beginner mode: on' : 'Beginner mode: off'}
-          </button>
+          {phone ? (
+            <>
+              <ComingSoonButton className="icon-btn" aria-label="Share link" align="end">
+                <Icon name="share" size={22} />
+              </ComingSoonButton>
+              <div className="topbar-menu" ref={menuRef}>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label="Menu"
+                  aria-expanded={menuOpen}
+                  aria-controls="step-menu"
+                  onClick={() => setMenuOpen((o) => !o)}
+                >
+                  <Icon name="more" size={22} />
+                </button>
+                {menuOpen && (
+                  <div className="topbar-menu__panel" id="step-menu">
+                    {badge}
+                    {beginnerButton}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <ComingSoonButton className="outline-btn">Share link</ComingSoonButton>
+              {beginnerButton}
+            </>
+          )}
         </div>
       </header>
 
       <main className="step-main">
         <div className="step-grid">
-          <section className="code-panel" aria-label="Code">
-            <h2 className="code-panel__heading">Code</h2>
+          <section className="code-panel" aria-labelledby="code-heading">
+            <h2 id="code-heading" className={phone ? 'visually-hidden' : 'code-panel__heading'}>
+              Code
+            </h2>
             <div className="code-lines" style={{ ['--active-index' as string]: step.line - 1 }}>
               <div className="code-lines__highlight" aria-hidden="true" />
               <ol className="code-lines__list">
@@ -108,12 +176,15 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
                 ))}
               </ol>
             </div>
-            <div className="output-box">
-              <h3 className="output-box__label">Output</h3>
-              <pre className="output-box__text" data-testid="output">
-                {output}
-              </pre>
-            </div>
+            {/* On phone the output box appears once something is printed. */}
+            {(!phone || output !== '') && (
+              <div className="output-box">
+                <h3 className="output-box__label">Output</h3>
+                <pre className="output-box__text" data-testid="output">
+                  {output}
+                </pre>
+              </div>
+            )}
           </section>
 
           <section className="stack-card" aria-labelledby="stack-title">
@@ -121,33 +192,47 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
               <h2 id="stack-title" className="stack-card__title">
                 Call stack
               </h2>
-              <p className="stack-card__hint">Newest call sits on top, like a stack of plates</p>
+              <p className="stack-card__hint">
+                {phone ? 'newest on top' : 'Newest call sits on top, like a stack of plates'}
+              </p>
             </div>
             <ol className="stack" aria-label="Frames, newest last">
-              {step.frames.map((frame, i) => (
-                <li key={`${i}:${frame.name}`} className={`frame frame--${frame.status}`} data-testid="frame">
-                  <div className="frame__body">
-                    <span className="frame__name">{frame.name}</span>
-                    <span className="frame__vars">{frameVarsText(frame) || ' '}</span>
-                  </div>
-                  <span className="frame__status">{frame.status}</span>
-                </li>
-              ))}
+              {step.frames.map((frame, i) => {
+                const vars = frameVarsText(frame, phone);
+                return (
+                  <li key={`${i}:${frame.name}`} className={`frame frame--${frame.status}`} data-testid="frame">
+                    <div className="frame__body">
+                      <span className="frame__name">{frame.name}</span>
+                      {phone ? (
+                        vars && <span className="frame__vars"> · {vars}</span>
+                      ) : (
+                        <span className="frame__vars">{vars || ' '}</span>
+                      )}
+                    </div>
+                    <span className="frame__status">{frame.status}</span>
+                  </li>
+                );
+              })}
             </ol>
           </section>
         </div>
 
         <section className={`explain-card${showLife ? '' : ' explain-card--single'}`} aria-live="polite">
           <div>
-            <p className="explain-card__kicker">What is happening · {stepLabel}</p>
+            <p className="explain-card__kicker">{phone ? stepLabel : `What is happening · ${stepLabel}`}</p>
             <p className="explain-card__what">{step.explain.what}</p>
           </div>
-          {showLife && (
-            <div className="life-box">
-              <p className="life-box__kicker">In real life</p>
-              <p className="life-box__text">{step.explain.life}</p>
-            </div>
-          )}
+          {showLife &&
+            (phone ? (
+              <p className="life-box life-box__text">
+                <strong>In real life:</strong> {lowerFirst(step.explain.life)}
+              </p>
+            ) : (
+              <div className="life-box">
+                <p className="life-box__kicker">In real life</p>
+                <p className="life-box__text">{step.explain.life}</p>
+              </div>
+            ))}
         </section>
 
         <section className="controls-card" aria-label="Controls">
@@ -163,9 +248,11 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
             <div className="progress__fill" style={{ width: `${progress}%` }} />
           </div>
           <div className="controls">
-            <button type="button" className="ctrl-btn ctrl-btn--restart" onClick={pb.restart}>
-              Restart
-            </button>
+            {!phone && (
+              <button type="button" className="ctrl-btn ctrl-btn--restart" onClick={pb.restart}>
+                Restart
+              </button>
+            )}
             <button type="button" className="ctrl-btn ctrl-btn--back" onClick={pb.back} disabled={pb.isFirst}>
               Back
             </button>
@@ -175,9 +262,11 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
             <button type="button" className="ctrl-btn ctrl-btn--next" onClick={pb.next} disabled={pb.isLast}>
               Next step
             </button>
-            <button type="button" className="speed-btn" onClick={pb.cycleSpeed}>
-              Speed {pb.speed}×
-            </button>
+            {!phone && (
+              <button type="button" className="speed-btn" onClick={pb.cycleSpeed}>
+                Speed {pb.speed}×
+              </button>
+            )}
           </div>
         </section>
       </main>

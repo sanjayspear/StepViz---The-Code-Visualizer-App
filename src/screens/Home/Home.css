@@ -334,3 +334,77 @@
   background: var(--color-warning-bg);
   color: var(--color-warning-text);
 }
+
+/* Screen 1 at phone width (spec section 5): single column, hero H1 at 34 px,
+   editor card full width, chips wrap. ----------------------------------- */
+
+@media (max-width: 899px) {
+  .home-header {
+    padding: 8px var(--home-page-padding);
+    gap: 8px;
+  }
+
+  .home-logo {
+    gap: 8px;
+  }
+
+  .home-logo__name {
+    font-size: 18px;
+  }
+
+  .home-nav {
+    gap: 10px;
+  }
+
+  .home-nav__link,
+  .home-nav__signin {
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .home-nav__signin {
+    min-height: 44px;
+    padding: 0 10px;
+  }
+
+  .home-main {
+    padding-top: 28px;
+  }
+
+  .home-hero__title {
+    font-size: var(--text-h1-home-phone);
+  }
+
+  .home-hero__sub {
+    margin-top: 12px;
+    font-size: 17px;
+  }
+
+  .home-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--gap-lg);
+    margin-top: 24px;
+  }
+
+  .editor-card {
+    padding: 16px;
+  }
+
+  .editor-card__head {
+    flex-wrap: wrap;
+  }
+
+  .select-wrap select {
+    width: 150px;
+  }
+
+  .examples {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .lang-strip {
+    margin-top: 28px;
+  }
+}

@@ -447,3 +447,232 @@
   font-size: 14px;
   color: var(--color-text-muted);
 }
+
+/* Top bar icon buttons and menu (phone) ------------------------------------ */
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: none;
+  color: var(--color-text);
+}
+
+.topbar-menu {
+  position: relative;
+}
+
+.topbar-menu__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button-lg);
+  background: var(--color-surface);
+  box-shadow: 0 8px 24px rgb(22 22 29 / 0.12);
+}
+
+/* Screen 4: phone layout, below 900 px. Measured from the Screen 4 screenshot
+   (390 px design width). Order: top bar, code, call stack, explanation, then
+   the fixed bottom bar. ---------------------------------------------------- */
+
+@media (max-width: 899px) {
+  .step-screen {
+    --row-h: 28px;
+    --bottom-bar-h: 102px;
+  }
+
+  .step-topbar {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    min-height: 60px;
+    padding: 8px 6px;
+  }
+
+  .step-topbar__left {
+    display: contents;
+  }
+
+  .step-topbar__back {
+    grid-column: 1;
+    justify-self: start;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+  }
+
+  .step-topbar__title {
+    grid-column: 2;
+    font-size: 18px;
+    text-align: center;
+  }
+
+  .step-topbar__right {
+    grid-column: 3;
+    justify-self: end;
+    gap: 0;
+  }
+
+  .step-main {
+    padding: 12px var(--step-page-padding) calc(var(--bottom-bar-h) + 16px);
+  }
+
+  .step-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .code-panel {
+    padding: 10px 0;
+  }
+
+  .code-line {
+    font-size: 13px;
+  }
+
+  .code-line__num {
+    width: 30px;
+    font-size: 13px;
+  }
+
+  .output-box {
+    margin: 10px 14px 4px;
+    min-height: 0;
+    padding: 10px 12px;
+  }
+
+  .output-box__label {
+    font-size: 14px;
+  }
+
+  .output-box__text {
+    font-size: 15px;
+  }
+
+  .stack-card {
+    padding: 12px 14px;
+  }
+
+  .stack-card__head {
+    align-items: center;
+    margin-bottom: 5px;
+  }
+
+  .stack-card__title {
+    font-size: 16px;
+  }
+
+  .stack-card__hint {
+    font-size: 12px;
+  }
+
+  .frame__status {
+    font-size: 12px;
+  }
+
+  .stack {
+    gap: 6px;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .frame {
+    min-height: 33px;
+    padding: 4px 14px;
+    border-radius: 10px;
+  }
+
+  .frame__body {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+  }
+
+  .frame__name,
+  .frame__vars {
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+  }
+
+  .explain-card {
+    display: block;
+    margin-top: 10px;
+    padding: 12px 15px 13px;
+  }
+
+  .explain-card__kicker {
+    font-size: 12px;
+  }
+
+  .explain-card__what {
+    margin-top: 4px;
+    font-size: 15px;
+    line-height: 1.43;
+  }
+
+  .life-box {
+    margin-top: 12px;
+    padding: 9px 11px;
+    border-radius: 10px;
+  }
+
+  .life-box.life-box__text {
+    font-size: 13px;
+    line-height: 1.38;
+  }
+
+  .life-box strong {
+    font-weight: 600;
+  }
+
+  /* Fixed bottom bar: progress above Back, Play, Next step. */
+  .controls-card {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    margin: 0;
+    padding: 10px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    border-radius: 0;
+  }
+
+  .progress {
+    height: 6px;
+    border-radius: 3px;
+  }
+
+  .controls {
+    flex-wrap: nowrap;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .ctrl-btn {
+    flex: 102 1 0;
+    min-width: 0;
+    padding: 0 8px;
+    border-radius: var(--radius-button-lg);
+  }
+
+  .ctrl-btn--next {
+    flex: 137 1 0;
+    padding: 0 8px;
+  }
+}

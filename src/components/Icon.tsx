@@ -9,7 +9,8 @@ export type IconName =
   | 'boxes'
   | 'message'
   | 'chevron-down'
-  | 'share';
+  | 'share'
+  | 'more';
 
 const PATHS: Record<IconName, ReactNode> = {
   logo: (
@@ -47,6 +48,13 @@ const PATHS: Record<IconName, ReactNode> = {
   ),
   message: <path d="M20 15a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" />,
   'chevron-down': <path d="m6 9 6 6 6-6" />,
+  more: (
+    <>
+      <circle cx="12" cy="5" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="12" cy="19" r="1" />
+    </>
+  ),
   share: (
     <>
       <path d="M12 15V3" />
