@@ -41,21 +41,25 @@
   --line-height-body: 1.5;
   --line-height-code: 1.7;
 
-  /* Radius */
-  --radius-card: 18px;     /* cards 14-18 */
-  --radius-card-sm: 14px;
-  --radius-code-panel: 16px;
-  --radius-button: 10px;   /* buttons 10-12 */
-  --radius-button-lg: 12px;
-  --radius-pill: 22px;     /* pills 20-22 */
-  --radius-frame: 12px;
+  /* Radius (per screen, as measured from the screenshots) */
+  --radius-editor-card: 18px;   /* Home editor card */
+  --radius-step-card: 16px;     /* Step-through cards and code panel */
+  --radius-feature-card: 14px;  /* Home "What you will see" cards */
+  --radius-frame: 12px;         /* call stack frames */
+  --radius-button-lg: 12px;     /* big buttons */
+  --radius-button: 10px;        /* small buttons */
+  --radius-pill: 22px;          /* pills and chips */
 
   /* Spacing */
-  --page-padding: 44px;    /* 40-48 */
-  --gap-sm: 14px;          /* gaps 14-28 */
+  --gap-sm: 14px;
   --gap-md: 20px;
   --gap-lg: 28px;
-  --content-max: 1200px;   /* 1200-1240 */
+
+  /* Page padding and content width, per screen */
+  --home-page-padding: 48px;
+  --home-content-max: 1200px;
+  --step-page-padding: 40px;
+  --step-content-max: 1240px;
 
   /* Buttons */
   --button-min-height: 44px;
@@ -69,8 +73,10 @@
   --motion-slow: 250ms;
 }
 
+/* Below 900 px both screens use a 16 px side padding. */
 @media (max-width: 899px) {
   :root {
-    --page-padding: 16px;
+    --home-page-padding: 16px;
+    --step-page-padding: 16px;
   }
 }

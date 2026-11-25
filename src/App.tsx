@@ -1,5 +1,20 @@
-// Stage (a): app shell only. Screen 1 (Home) and Screen 2 (Step-through)
-// are added in stages (b) and (d).
+import { useState } from 'react';
+import { DEFAULT_EXAMPLE } from './examples';
+import { Home, type Language } from './screens/Home/Home';
+
+// Stage (b): Home screen. "Visualize my code" is wired to the Python runner in
+// stage (c) and opens Screen 2 in stage (d).
 export default function App() {
-  return <div className="app" />;
+  const [code, setCode] = useState(DEFAULT_EXAMPLE.source);
+  const [language, setLanguage] = useState<Language>('python');
+
+  return (
+    <Home
+      code={code}
+      onCodeChange={setCode}
+      language={language}
+      onLanguageChange={setLanguage}
+      onVisualize={() => {}}
+    />
+  );
 }

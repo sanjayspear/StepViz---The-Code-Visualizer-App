@@ -1,0 +1,37 @@
+.coming-soon {
+  position: relative;
+  display: inline-flex;
+}
+
+.coming-soon__note {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 20;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--color-text);
+  color: var(--color-surface);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.coming-soon__note:empty {
+  display: none;
+}
+
+.coming-soon__note--start {
+  left: 0;
+}
+
+.coming-soon__note--center {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.coming-soon__note--end {
+  right: 0;
+}
