@@ -1,4 +1,4 @@
-// C++ interpreter for StepViz. A tree-walking interpreter over the tree-sitter
+// C++ (and C) interpreter for StepViz. A tree-walking interpreter over the tree-sitter
 // C++ syntax tree for a beginner subset. It never compiles or runs real C++: it
 // carries out each statement itself and reports to the shared step recorder
 // (../recorder.ts), so steps, kinds, caps and crash steps follow the same rules
@@ -14,6 +14,10 @@
 // substr/+; vector push_back/pop_back/size/empty/at/front/back/clear; swap, max,
 // min, abs, sqrt, pow, floor, ceil, round, sort(v.begin(), v.end()), to_string,
 // stoi, stod.
+//
+// C mode (dialect 'c'): <stdio.h> <stdlib.h> <math.h> <string.h> <stdbool.h>
+// <limits.h>; printf, puts, putchar, scanf (with &x), strlen, strcmp; text in
+// char arrays ("Sam" plus '\0'); no string type, vector, cout, cin or references.
 //
 // StepViz is stricter than a real compiler where real C++ would quietly give
 // garbage: an index outside a list, a variable used before it has a value and
@@ -100,11 +104,30 @@ export function formatCpp(x: unknown): string | undefined {
       return 'nothing';
     case 'vector':
     case 'array':
+      if (x.elem === 'char') {
+        const items = x.v as CVal[];
+        return items[0] === UNSET_VAL ? '?' : JSON.stringify(charText(items));
+      }
       return formatCpp(x.v);
     default:
       return String(x.v);
   }
 }
+
+/** The text held in a char array: the letters up to '\0'. */
+function charText(items: CVal[]): string {
+  let out = '';
+  for (const c of items) {
+    if (c === UNSET_VAL || c.v === '\u0000') break;
+    out += c.v as string;
+  }
+  return out;
+}
+
+/** Which language the program is in (set for each check or run). */
+type Dialect = 'cpp' | 'c';
+let dialect: Dialect = 'cpp';
+const LANG_NAME = () => (dialect === 'c' ? 'C' : 'C++');
 
 // --------------------------------------------------------------------------
 // Errors
@@ -139,7 +162,7 @@ class BreakSignal {}
 class ContinueSignal {}
 
 const lineOf = (n: Node) => n.startPosition.row + 1;
-const unsupported = (n: Node, feature: string) => new CompileError(lineOf(n), `StepViz can't run ${feature} in C++ yet.`);
+const unsupported = (n: Node, feature: string) => new CompileError(lineOf(n), `StepViz can't run ${feature} in ${LANG_NAME()} yet.`);
 const named = (n: Node | null | undefined): Node[] =>
   (n?.namedChildren ?? []).filter((c): c is Node => !!c && c.type !== 'comment');
 
@@ -165,9 +188,9 @@ function syntaxError(tree: Tree): CompileError | null {
   };
   visit(tree.rootNode);
   const node = found as Node | null;
-  if (!node) return new CompileError(1, 'C++ could not understand this program.');
-  if (node.isMissing) return new CompileError(lineOf(node), FRIENDLY_MISSING[node.type] ?? 'C++ could not understand this line.');
-  return new CompileError(lineOf(node), 'C++ could not understand this line.');
+  if (!node) return new CompileError(1, `${LANG_NAME()} could not understand this program.`);
+  if (node.isMissing) return new CompileError(lineOf(node), FRIENDLY_MISSING[node.type] ?? `${LANG_NAME()} could not understand this line.`);
+  return new CompileError(lineOf(node), `${LANG_NAME()} could not understand this line.`);
 }
 
 const FEATURES: Record<string, string> = {
@@ -200,6 +223,7 @@ const FEATURES: Record<string, string> = {
 };
 
 const INCLUDES = new Set(['<iostream>', '<vector>', '<string>', '<cmath>', '<algorithm>', '<iomanip>', '<utility>', '<climits>', '<bits/stdc++.h>']);
+const C_INCLUDES = new Set(['<stdio.h>', '<stdlib.h>', '<math.h>', '<string.h>', '<stdbool.h>', '<limits.h>']);
 
 interface Program {
   main: Node;
@@ -219,11 +243,11 @@ function checkSubset(tree: Tree): Program {
     switch (n.type) {
       case 'preproc_include': {
         const path = n.childForFieldName('path')?.text ?? '';
-        if (!INCLUDES.has(path)) throw unsupported(n, `#include ${path}`);
+        if (!(dialect === 'c' ? C_INCLUDES : INCLUDES).has(path)) throw unsupported(n, `#include ${path}`);
         continue;
       }
       case 'using_declaration':
-        if (!/^using\s+namespace\s+std\s*;$/.test(n.text)) throw unsupported(n, n.text.replace(/;$/, ''));
+        if (dialect === 'c' || !/^using\s+namespace\s+std\s*;$/.test(n.text)) throw unsupported(n, n.text.replace(/;$/, ''));
         continue;
       case 'function_definition': {
         const name = functionName(n);
@@ -244,8 +268,16 @@ function checkSubset(tree: Tree): Program {
     throw new CompileError(main ? lineOf(main) : 1, 'StepViz needs an int main() function to start the program.');
   }
   const visit = (n: Node) => {
+    // C: &x is allowed only as an argument of scanf.
+    const scanfAddress =
+      dialect === 'c' &&
+      n.type === 'pointer_expression' &&
+      n.childForFieldName('operator')?.type === '&' &&
+      n.parent?.type === 'argument_list' &&
+      n.parent.parent?.childForFieldName('function')?.text === 'scanf';
     const feature = FEATURES[n.type];
-    if (feature) throw unsupported(n, feature);
+    if (feature && !scanfAddress) throw unsupported(n, feature);
+    if (dialect === 'c' && n.type === 'reference_declarator') throw unsupported(n, 'references (&)');
     if (n.type === 'unary_expression' && n.childForFieldName('operator')?.type === '&') throw unsupported(n, 'pointers');
     if (n.type === 'template_type') {
       const name = n.childForFieldName('name')?.text;
@@ -277,8 +309,8 @@ function primOf(n: Node | null): Prim | 'void' | 'auto' {
   if (/^(long|long long|long int|long long int|size_t)$/.test(text)) return 'long';
   if (text === 'double' || text === 'float' || text === 'long double') return 'double';
   if (text === 'char') return 'char';
-  if (text === 'bool') return 'bool';
-  if (text === 'string') return 'string';
+  if (text === 'bool' || text === '_Bool') return 'bool';
+  if (text === 'string' && dialect === 'cpp') return 'string';
   if (text === 'void') return 'void';
   throw unsupported(n!, `the type ${text}`);
 }
@@ -370,6 +402,38 @@ function swapCall(s: Node): [string, Node, Node] | null {
   const x = subscriptIndex(a);
   const y = subscriptIndex(b);
   return safeIndex(x) && safeIndex(y) ? [base, x, y] : null;
+}
+
+/** int temp = a[x]; a[x] = a[y]; a[y] = temp;  ->  [a, x, y] */
+function tempSwap(stmts: Node[], i: number): [string, Node, Node] | null {
+  const [s1, s2, s3] = stmts.slice(i, i + 3);
+  if (!s1 || !s2 || !s3 || s2.type !== 'expression_statement' || s3.type !== 'expression_statement') return null;
+  let temp: string | null = null;
+  let first: Node | null = null;
+  if (s1.type === 'declaration') {
+    const ds = declarators(s1);
+    if (ds.length !== 1 || ds[0].type !== 'init_declarator') return null;
+    temp = ds[0].childForFieldName('declarator')!.text;
+    first = ds[0].childForFieldName('value');
+  } else if (s1.type === 'expression_statement' && named(s1)[0]?.type === 'assignment_expression') {
+    const a = named(s1)[0];
+    if (a.childForFieldName('operator')?.type !== '=' || a.childForFieldName('left')?.type !== 'identifier') return null;
+    temp = a.childForFieldName('left')!.text;
+    first = a.childForFieldName('right');
+  }
+  const a2 = named(s2)[0];
+  const a3 = named(s3)[0];
+  if (!temp || !first || a2?.type !== 'assignment_expression' || a3?.type !== 'assignment_expression') return null;
+  const base = subscriptBase(first);
+  const l2 = a2.childForFieldName('left')!;
+  const r2 = a2.childForFieldName('right')!;
+  const l3 = a3.childForFieldName('left')!;
+  const r3 = a3.childForFieldName('right')!;
+  if (!base || subscriptBase(l2) !== base || subscriptBase(r2) !== base || subscriptBase(l3) !== base || r3.text !== temp) return null;
+  const x = subscriptIndex(first);
+  const y = subscriptIndex(r2);
+  if (l2.text !== first.text || subscriptIndex(l3).text !== y.text || !safeIndex(x) || !safeIndex(y)) return null;
+  return [base, x, y];
 }
 
 function planLists(p: Program): ListPlan {
@@ -522,7 +586,8 @@ class Interp {
     return names.map((n) => () => {
       const b = scope.lookup(n);
       if (!b || b.cell.v === UNSET) throw new Error('unset');
-      const value = b.cell.v.t === 'vector' || b.cell.v.t === 'array' ? b.cell.v.v : b.cell.v;
+      // Lists are handed over as their items (for the list view); char arrays as text.
+      const value = (b.cell.v.t === 'vector' || b.cell.v.t === 'array') && b.cell.v.elem !== 'char' ? b.cell.v.v : b.cell.v;
       return b.refOf ? { refOf: b.refOf, value } : value;
     });
   }
@@ -597,7 +662,7 @@ class Interp {
     const stmts = statementsOf(block);
     for (const d of declaredNames(stmts)) this.scope.vars.set(d.name, { cell: { ...d.type, v: UNSET } });
     try {
-      for (const s of stmts) this.exec(s);
+      for (let i = 0; i < stmts.length; i++) this.exec(stmts[i], tempSwap(stmts, i));
     } finally {
       this.scope = saved;
     }
@@ -632,6 +697,10 @@ class Interp {
           const f = e.childForFieldName('function')!;
           const args = named(e.childForFieldName('arguments'));
           if (/^(std::)?getline$/.test(f.text) && args[1]) return { k: 'input', t: [args[1].text] };
+          if (['printf', 'puts', 'putchar'].includes(f.text)) return { k: 'print' };
+          if (f.text === 'scanf') {
+            return { k: 'input', t: args.slice(1).map((a) => (a.type === 'pointer_expression' ? this.targetName(a.childForFieldName('argument')!) : this.targetName(a))) };
+          }
           if (/^(std::)?swap$/.test(f.text)) {
             return { k: 'assign', t: [...new Set(args.map((a) => this.targetName(a)))], s: true };
           }
@@ -665,7 +734,7 @@ class Interp {
     return [s];
   }
 
-  private exec(s: Node) {
+  private exec(s: Node, tempSwapInfo: [string, Node, Node] | null = null) {
     switch (s.type) {
       case 'compound_statement':
         this.execBody(s);
@@ -677,7 +746,7 @@ class Interp {
         this.execLoop(s);
         return;
     }
-    const swap = swapCall(s);
+    const swap = swapCall(s) ?? tempSwapInfo;
     const swapInfo: Swap = swap
       ? (() => {
           const scope = this.scope;
@@ -744,7 +813,13 @@ class Interp {
       }
       if (info.arraySize !== undefined) {
         const elem = type.t as Prim;
-        const items = info.value ? named(info.value).map((e) => this.convert(this.eval(e), { t: elem }, e, info.name)) : [];
+        const fromText = info.value?.type === 'string_literal' || info.value?.type === 'concatenated_string';
+        if (fromText && elem !== 'char') throw new CompileError(lineOf(d), `${info.name} is a list of ${elem}, so it can't hold text.`);
+        const items = !info.value
+          ? []
+          : fromText
+            ? [...(this.eval(info.value).v as string), '\u0000'].map(chr)
+            : named(info.value).map((e) => this.convert(this.eval(e), { t: elem }, e, info.name));
         const size = info.arraySize ? this.num(this.eval(info.arraySize)) : items.length;
         if (items.length > size) throw new CompileError(lineOf(d), `${info.name} has room for ${size} items, not ${items.length}.`);
         // Items without a value: 0 for global arrays or a partly filled {...}; otherwise "no value yet".
@@ -1263,6 +1338,31 @@ class Interp {
     const name = f.text.replace(/^std::/, '');
     if (this.program.functions.has(name)) return this.call(n, name, argNodes);
     switch (name) {
+      case 'printf': {
+        const [fmt, ...rest] = argNodes;
+        const pattern = fmt ? this.eval(fmt) : null;
+        if (pattern?.t !== 'string') throw new CompileError(lineOf(n), 'printf needs a text pattern in quotes first.');
+        this.rt.output += this.cFormat(pattern.v as string, rest.map((a) => this.eval(a)));
+        return int(0);
+      }
+      case 'puts':
+        this.rt.output += `${this.textOf(this.eval(argNodes[0]), n)}\n`;
+        return int(0);
+      case 'putchar': {
+        const c = this.eval(argNodes[0]);
+        this.rt.output += c.t === 'char' ? (c.v as string) : String.fromCharCode(this.num(c));
+        return int(0);
+      }
+      case 'scanf':
+        return this.scanf(n, argNodes);
+      case 'strlen':
+        return lng(this.textOf(this.eval(argNodes[0]), n).length);
+      case 'strcmp': {
+        const [a, b] = args().map((v) => this.textOf(v, n));
+        return int(a < b ? -1 : a > b ? 1 : 0);
+      }
+      case 'fabs':
+        return dbl(Math.abs(this.num(args()[0])));
       case 'getline': {
         const [stream, target] = argNodes;
         if (!stream || !isStream(stream, 'cin') || !target) throw unsupported(n, 'getline like this');
@@ -1324,6 +1424,124 @@ class Interp {
     throw unsupported(n, `the function ${name}`);
   }
 
+  /** Text from a string value or a char array. */
+  private textOf(v: CVal, at: Node): string {
+    if (v.t === 'string') return v.v as string;
+    if ((v.t === 'array' || v.t === 'vector') && v.elem === 'char') return charText(v.v as CVal[]);
+    throw new CompileError(lineOf(at), 'This needs text here.');
+  }
+
+  /** printf: %d %i %ld %lld %u %f %lf %e %g %c %s %x %o %% with widths and flags. */
+  private cFormat(format: string, args: CVal[]): string {
+    let k = 0;
+    const bad = (conv: string, v: CVal) =>
+      new CppCrash('BadFormat', `%${conv} does not match ${formatCpp(v) ?? 'this value'}`);
+    return format.replace(/%([-+ 0#]*)(\d+)?(?:\.(\d+))?(hh|h|ll|l|L|z)?([diufFeEgGcsxXo%])/g, (_m, flags: string, width: string, prec: string, _len: string, conv: string) => {
+      if (conv === '%') return '%';
+      const v = args[k++];
+      if (!v) throw new CppCrash('BadFormat', `%${conv} has no value to print`);
+      let text: string;
+      switch (conv) {
+        case 'd':
+        case 'i':
+        case 'u':
+          if (!['int', 'long', 'char', 'bool'].includes(v.t)) throw bad(conv, v);
+          text = String(this.num(v));
+          if (flags.includes('+') && this.num(v) >= 0) text = `+${text}`;
+          break;
+        case 'f':
+        case 'F':
+        case 'e':
+        case 'E':
+        case 'g':
+        case 'G': {
+          if (v.t !== 'double') throw bad(conv, v);
+          const x = v.v as number;
+          const p = prec === undefined ? 6 : Number(prec);
+          if (conv === 'f' || conv === 'F') text = x.toFixed(p);
+          else if (conv === 'g' || conv === 'G') text = cppDouble(x, p || 1);
+          else text = x.toExponential(p).replace(/e([+-])(\d)$/, 'e$10$2');
+          if (conv === 'E' || conv === 'G') text = text.toUpperCase();
+          if (flags.includes('+') && x >= 0) text = `+${text}`;
+          break;
+        }
+        case 'c':
+          if (v.t !== 'char' && v.t !== 'int') throw bad(conv, v);
+          text = v.t === 'char' ? (v.v as string) : String.fromCharCode(v.v as number);
+          break;
+        case 's':
+          if (v.t !== 'string' && !((v.t === 'array' || v.t === 'vector') && v.elem === 'char')) throw bad(conv, v);
+          text = this.textOf(v, null as unknown as Node);
+          if (prec !== undefined) text = text.slice(0, Number(prec));
+          break;
+        case 'x':
+        case 'X':
+        case 'o':
+          if (!['int', 'long', 'char'].includes(v.t)) throw bad(conv, v);
+          text = (this.num(v) >>> 0).toString(conv === 'o' ? 8 : 16);
+          if (conv === 'X') text = text.toUpperCase();
+          break;
+        default:
+          text = String(v.v);
+      }
+      if (width && text.length < Number(width)) {
+        const zero = flags.includes('0') && !flags.includes('-') && conv !== 's' && conv !== 'c';
+        const pad = (zero ? '0' : ' ').repeat(Number(width) - text.length);
+        text = flags.includes('-') ? text + pad : zero && /^[+-]/.test(text) ? text[0] + pad + text.slice(1) : pad + text;
+      }
+      return text;
+    });
+  }
+
+  /** scanf("%d %s", &age, name): one value per conversion; returns how many were read. */
+  private scanf(n: Node, argNodes: Node[]): CVal {
+    const [fmtNode, ...targets] = argNodes;
+    const fmt = fmtNode ? this.eval(fmtNode) : null;
+    if (fmt?.t !== 'string') throw new CompileError(lineOf(n), 'scanf needs a text pattern in quotes first.');
+    const convs = [...(fmt.v as string).matchAll(/%(l{0,2})([difscu])/g)];
+    if (convs.length !== targets.length) throw new CompileError(lineOf(n), `scanf has ${convs.length} patterns but ${targets.length} places to store them.`);
+    // Mistakes in the code come before running out of input.
+    convs.forEach((m, i) => {
+      const target = targets[i];
+      if (m[2] !== 's' && target.type !== 'pointer_expression') {
+        throw new CompileError(lineOf(target), `scanf needs &${target.text} to store a value in ${target.text}.`);
+      }
+    });
+    convs.forEach((m, i) => {
+      const conv = m[2];
+      const target = targets[i];
+      const word = this.input.peekWord();
+      if (word === null) throw new CppCrash('NoMoreInput', 'No more input');
+      if (conv === 's') {
+        if (target.type !== 'identifier') throw unsupported(target, 'scanf %s into this');
+        const b = this.scope.lookup(target.text);
+        if (!b || b.cell.v === UNSET || b.cell.v.t !== 'array' || b.cell.v.elem !== 'char') {
+          throw new CompileError(lineOf(target), `${target.text} must be a char array to hold text.`);
+        }
+        const items = b.cell.v.v as CVal[];
+        const text = this.input.word();
+        if (text.length + 1 > items.length) throw new CppCrash('IndexOutOfRange', `"${text}" does not fit in ${target.text} (room for ${items.length - 1} letters)`);
+        [...text, '\u0000'].forEach((c, j) => (items[j] = chr(c)));
+        return;
+      }
+      if (target.type !== 'pointer_expression') throw new CompileError(lineOf(target), `scanf needs &${target.text} to store a value in ${target.text}.`);
+      const place = target.childForFieldName('argument')!;
+      let value: CVal;
+      if (conv === 'c') {
+        value = chr(word[0]);
+        this.input.word();
+      } else if (conv === 'f') {
+        if (Number.isNaN(Number(word))) throw new CppCrash('BadInput', `"${word}" is not a number`);
+        value = dbl(Number(this.input.word()));
+      } else {
+        if (!/^[+-]?\d+$/.test(word)) throw new CppCrash('BadInput', `"${word}" is not a whole number`);
+        value = int(Number(this.input.word()));
+      }
+      this.assignTo(place, value);
+    });
+    return int(convs.length);
+  }
+
   private stringMethod(n: Node, s: CVal, method: string, a: CVal[]): CVal {
     const text = s.v as string;
     if ((method === 'length' || method === 'size') && a.length === 0) return lng(text.length);
@@ -1375,7 +1593,8 @@ class Interp {
 
 // --------------------------------------------------------------------------
 
-export function checkCpp(tree: Tree): CompileError | null {
+export function checkCpp(tree: Tree, lang: Dialect = 'cpp'): CompileError | null {
+  dialect = lang;
   const syntax = syntaxError(tree);
   if (syntax) return syntax;
   try {
@@ -1389,11 +1608,11 @@ export function checkCpp(tree: Tree): CompileError | null {
 
 /** Does the program read input (cin or getline)? */
 export function cppReadsInput(tree: Tree): boolean {
-  return /\b(std::)?cin\b/.test(tree.rootNode.text);
+  return /\b(std::)?cin\b|\bscanf\s*\(/.test(tree.rootNode.text);
 }
 
-export function runCpp(tree: Tree, opts: RunOptions & { input?: string }): RawRunResult {
-  const problem = checkCpp(tree);
+export function runCpp(tree: Tree, opts: RunOptions & { input?: string; dialect?: Dialect }): RawRunResult {
+  const problem = checkCpp(tree, opts.dialect ?? 'cpp');
   if (problem) return { status: 'syntax-error', steps: [], error: { line: problem.line, message: problem.message } };
   const program = checkSubset(tree);
   const plan = planLists(program);

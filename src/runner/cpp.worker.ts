@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-// Runs one C++ program and is then terminated (a fresh worker per run).
+// Runs one C++ or C program and is then terminated (a fresh worker per run).
 // tree-sitter is loaded from our own site and the program is parsed; then the
 // worker is locked down (no network, eval or Function constructors) before the
 // interpreter carries out the program. The program itself is never compiled or
@@ -17,13 +17,19 @@ self.onmessage = async (event: MessageEvent<TreeToWorker>) => {
   const tree = parser.parse(msg.source);
   if (!tree) throw new Error('C++ could not be read.');
   if (msg.type === 'analyze') {
-    const problem = checkCpp(tree);
+    const problem = checkCpp(tree, msg.dialect ?? 'cpp');
     const result = problem
       ? { ok: false as const, error: { line: problem.line, message: problem.message } }
       : { ok: true as const, readsInput: cppReadsInput(tree) };
     self.postMessage({ type: 'analyze-result', result } satisfies TreeFromWorker);
   } else {
-    const result = runCpp(tree, { maxSteps: msg.maxSteps, maxSeconds: msg.maxSeconds, input: msg.input, beforeRun: lockDown });
+    const result = runCpp(tree, {
+      maxSteps: msg.maxSteps,
+      maxSeconds: msg.maxSeconds,
+      input: msg.input,
+      dialect: msg.dialect ?? 'cpp',
+      beforeRun: lockDown,
+    });
     self.postMessage({ type: 'run-result', result } satisfies TreeFromWorker);
   }
 };

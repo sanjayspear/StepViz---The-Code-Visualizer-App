@@ -132,11 +132,7 @@ test('JavaScript runs in a locked-down worker with no network requests', async (
   expect(requests.every((u) => u.startsWith('http://localhost:4317/'))).toBe(true);
 });
 
-test('C still says "Coming soon"', async ({ page }) => {
+test('no language in the list says "Coming soon" any more', async ({ page }) => {
   await page.goto('./');
-  for (const lang of ['c']) {
-    await page.locator('select').selectOption(lang);
-    await expect(page.locator('.editor-card__helper')).toHaveText('Coming soon');
-    await expect(visualize(page)).toBeDisabled();
-  }
+  await expect(page.locator('select option')).not.toContainText(['coming soon']);
 });

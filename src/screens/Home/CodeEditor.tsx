@@ -12,7 +12,7 @@ import { cpp } from '@codemirror/lang-cpp';
 import type { CodeLanguage } from '../../examples';
 
 const languageFor = (lang: CodeLanguage) =>
-  lang === 'javascript' ? javascript() : lang === 'java' ? java() : lang === 'cpp' ? cpp() : python();
+  lang === 'javascript' ? javascript() : lang === 'java' ? java() : lang === 'cpp' || lang === 'c' ? cpp() : python();
 
 interface Props {
   value: string;

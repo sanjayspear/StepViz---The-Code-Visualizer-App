@@ -290,6 +290,12 @@ function whatVariants(sub: SubKind, f: Facts): string[] {
       ];
     }
     case 'input': {
+      // Several values read at once: scanf("%s %d", ...) or cin >> a >> b.
+      const read = (d.targets ?? []).filter((t) => t in f.top.vars);
+      if (read.length > 1) {
+        const list = (xs: string[]) => `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
+        return [`We read ${list(read.map((t) => sayValue(f.top.vars[t])))} with ${f.words.input} and store them in ${list(read)}.`];
+      }
       const name = d.targets?.[0];
       const value = name && name in f.top.vars ? sayValue(f.top.vars[name]) : undefined;
       if (!name || value === undefined) return [`We read the next value with ${f.words.input}.`];

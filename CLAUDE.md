@@ -34,7 +34,10 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      setprecision, boolalpha), cin and getline, swap/sort/max/min/math/to_string/
      stoi; list view incl. swap(); four C++ examples (Factorial hand-written);
      C++ selectable ("C++", strip "C++ · exact trace").
-   - C3: C mode (printf/scanf) reusing the C++ interpreter; C loses "(coming soon)".
+   - C3 (done): C mode of the C++ interpreter (dialect 'c', tree-sitter-c grammar):
+     printf/puts/putchar, scanf with &x, text in char arrays, strlen/strcmp,
+     <stdio.h> <stdlib.h> <math.h> <string.h> <stdbool.h> <limits.h>; four C
+     examples (Factorial hand-written); C selectable.
 3. Later stages after C3 (planned, not built): Java ArrayList, more String methods,
    switch, try/catch, simple classes; C++ structs and classes, basic pointers, map.
 
@@ -60,8 +63,8 @@ Phase 2 so far:
   Same trace shape, caps, crash and list rules as Python. JavaScript versions of the
   four examples; only Factorial has hand-written explanations (section 6 texts
   adapted).
-- Language select: "Java", "C++", "C (coming soon)" (selecting C shows "Coming
-  soon"); strip "C · coming soon" until C works.
+- Language select: Python, JavaScript, Java, C++, C — all exact traces; the strip
+  shows a green "· exact trace" pill for each (no yellow pill left).
 
 Not built: the items above, accounts, share links (the buttons show "Coming soon"),
 Screen 5.
@@ -166,6 +169,12 @@ Playwright tests. Static build for GitHub Pages.
   variables. return 0 in main is a "main() is done and returns 0" step. Text +
   number needs to_string() (message on Home). Unsupported: pointers, new/delete,
   structs/classes, templates, maps, switch, try/catch, unsigned, other #includes.
+- C rules: printf pattern that does not match its value is a crash ("The printf
+  pattern does not match this value."); scanf without & stays on Home ("scanf
+  needs &x to store a value in x."); char arrays show as text in frames ("Sam");
+  & is allowed only as a scanf argument. A temp-variable swap is one swap step in
+  C and C++ too. scanf/cin reading several values: "We read "Sam", 15 and 1.75
+  with scanf and store them in name, age and h."
 - List changes read item by item in every language: "nums[0] changes from 5 to 2.",
   "3 is added to the end of squares.", "4 is taken off the end of squares." List
   methods (append, push, pop, sort...) count as changes (assign kind).

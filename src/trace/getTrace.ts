@@ -9,6 +9,7 @@ import { BUBBLE_SORT_TRACE } from '../examples/bubbleSortTrace';
 import { FACTORIAL_JS_TRACE } from '../examples/factorialJsTrace';
 import { FACTORIAL_JAVA_TRACE } from '../examples/factorialJavaTrace';
 import { FACTORIAL_CPP_TRACE } from '../examples/factorialCppTrace';
+import { FACTORIAL_C_TRACE } from '../examples/factorialCTrace';
 type TraceLanguage = Trace['language'];
 import { pythonRunner } from '../runner/pythonRunner';
 import { analyzeJavaScript, runJavaScript } from '../runner/jsRunner';
@@ -30,6 +31,7 @@ const FIXTURES: Trace[] = [
   FACTORIAL_JS_TRACE,
   FACTORIAL_JAVA_TRACE,
   FACTORIAL_CPP_TRACE,
+  FACTORIAL_C_TRACE,
 ];
 
 export function fixtureFor(source: string, language: TraceLanguage = 'python'): Trace | undefined {
@@ -46,8 +48,8 @@ export async function checkSource(
   language: TraceLanguage = 'python',
 ): Promise<{ ok: true; inputCalls: number } | { ok: false; message: string; line: number }> {
   if (fixtureFor(source, language)) return { ok: true, inputCalls: 0 };
-  if (language === 'java' || language === 'cpp') {
-    const result = language === 'java' ? await analyzeJava(source) : await analyzeCpp(source);
+  if (language === 'java' || language === 'cpp' || language === 'c') {
+    const result = language === 'java' ? await analyzeJava(source) : await analyzeCpp(source, language);
     return result.ok ? { ok: true, inputCalls: result.readsInput ? 1 : 0 } : { ok: false, message: result.error.message, line: result.error.line };
   }
   if (language === 'javascript') {
@@ -70,7 +72,7 @@ export async function getTrace(
   const raw: RawRunResult =
     language === 'javascript' ? await runJavaScript(source)
     : language === 'java' ? await runJavaProgram(source, inputs.join('\n'))
-    : language === 'cpp' ? await runCppProgram(source, inputs.join('\n'))
+    : language === 'cpp' || language === 'c' ? await runCppProgram(source, inputs.join('\n'), language)
     : await pythonRunner.run(source, inputs);
   if (raw.status === 'syntax-error' && raw.error) {
     return { kind: 'error', message: raw.error.message, line: raw.error.line ?? undefined };

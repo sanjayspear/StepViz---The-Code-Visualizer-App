@@ -2,7 +2,7 @@
 // the other three as approved by the product owner; JavaScript versions of the
 // same four programs (Phase 2).
 
-export type CodeLanguage = 'python' | 'javascript' | 'java' | 'cpp';
+export type CodeLanguage = 'python' | 'javascript' | 'java' | 'cpp' | 'c';
 
 export type ExampleId = 'factorial' | 'bubble-sort' | 'fibonacci' | 'for-loop';
 
@@ -20,6 +20,8 @@ export interface Example {
   javaSource: string;
   /** C++ version of the same program */
   cppSource: string;
+  /** C version of the same program */
+  cSource: string;
 }
 
 export const EXAMPLES: Example[] = [
@@ -69,6 +71,20 @@ int factorial(int n) {
 int main() {
     int result = factorial(3);
     cout << result << endl;
+    return 0;
+}`,
+    cSource: `#include <stdio.h>
+
+int factorial(int n) {
+    if (n == 0) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+int main() {
+    int result = factorial(3);
+    printf("%d\\n", result);
     return 0;
 }`,
   },
@@ -127,6 +143,26 @@ int main() {
     cout << endl;
     return 0;
 }`,
+    cSource: `#include <stdio.h>
+
+int main() {
+    int nums[4] = {5, 2, 8, 1};
+    int n = 4;
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n - i - 1; j++) {
+            if (nums[j] > nums[j + 1]) {
+                int temp = nums[j];
+                nums[j] = nums[j + 1];
+                nums[j + 1] = temp;
+            }
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        printf("%d ", nums[i]);
+    }
+    printf("\\n");
+    return 0;
+}`,
   },
   {
     id: 'fibonacci',
@@ -159,6 +195,18 @@ int main() {
     int a = 0, b = 1;
     for (int i = 0; i < 5; i++) {
         cout << a << endl;
+        int next = a + b;
+        a = b;
+        b = next;
+    }
+    return 0;
+}`,
+    cSource: `#include <stdio.h>
+
+int main() {
+    int a = 0, b = 1;
+    for (int i = 0; i < 5; i++) {
+        printf("%d\\n", a);
         int next = a + b;
         a = b;
         b = next;
@@ -199,6 +247,16 @@ int main() {
     cout << total << endl;
     return 0;
 }`,
+    cSource: `#include <stdio.h>
+
+int main() {
+    int total = 0;
+    for (int i = 1; i <= 3; i++) {
+        total = total + i;
+    }
+    printf("%d\\n", total);
+    return 0;
+}`,
   },
 ];
 
@@ -208,12 +266,13 @@ export function sourceOf(example: Example, language: CodeLanguage): string {
   if (language === 'javascript') return example.jsSource;
   if (language === 'java') return example.javaSource;
   if (language === 'cpp') return example.cppSource;
+  if (language === 'c') return example.cSource;
   return example.source;
 }
 
 /** The example whose source (in either language) is exactly the given text, if any. */
 export function exampleForSource(source: string): Example | undefined {
-  return EXAMPLES.find((e) => [e.source, e.jsSource, e.javaSource, e.cppSource].includes(source));
+  return EXAMPLES.find((e) => [e.source, e.jsSource, e.javaSource, e.cppSource, e.cSource].includes(source));
 }
 
 /** Title for the Step-through top bar. */

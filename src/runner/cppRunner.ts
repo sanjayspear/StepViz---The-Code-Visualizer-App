@@ -1,13 +1,15 @@
-// Main-thread side of the C++ runner: a fresh worker per call, terminated
+// Main-thread side of the C++ (and C) runner: a fresh worker per call, terminated
 // afterwards, with the same watchdog as the other runners.
 import type { RawRunResult, SyntaxErrorInfo, TreeFromWorker, TreeToWorker } from './protocol';
 import { MAX_SECONDS, MAX_STEPS } from './pythonRunner';
 
 const WATCHDOG_GRACE_MS = 1500;
 
-const files = () => ({
+type Dialect = 'cpp' | 'c';
+
+const files = (dialect: Dialect) => ({
   engine: new URL('tree-sitter/web-tree-sitter.wasm', document.baseURI).href,
-  grammar: new URL('tree-sitter/tree-sitter-cpp.wasm', document.baseURI).href,
+  grammar: new URL(`tree-sitter/tree-sitter-${dialect}.wasm`, document.baseURI).href,
 });
 
 function inWorker<T extends TreeFromWorker>(msg: TreeToWorker, timeoutMs: number): Promise<T | null> {
@@ -33,18 +35,19 @@ function inWorker<T extends TreeFromWorker>(msg: TreeToWorker, timeoutMs: number
 
 export async function analyzeCpp(
   source: string,
+  dialect: Dialect = 'cpp',
 ): Promise<{ ok: true; readsInput: boolean } | { ok: false; error: SyntaxErrorInfo }> {
   const reply = await inWorker<Extract<TreeFromWorker, { type: 'analyze-result' }>>(
-    { type: 'analyze', source, files: files() },
+    { type: 'analyze', source, files: files(dialect), dialect },
     15_000,
   );
   if (!reply) throw new Error('The C++ worker did not answer.');
   return reply.result;
 }
 
-export async function runCppProgram(source: string, input = ''): Promise<RawRunResult> {
+export async function runCppProgram(source: string, input = '', dialect: Dialect = 'cpp'): Promise<RawRunResult> {
   const reply = await inWorker<Extract<TreeFromWorker, { type: 'run-result' }>>(
-    { type: 'run', source, maxSteps: MAX_STEPS, maxSeconds: MAX_SECONDS, files: files(), input },
+    { type: 'run', source, maxSteps: MAX_STEPS, maxSeconds: MAX_SECONDS, files: files(dialect), input, dialect },
     MAX_SECONDS * 1000 + WATCHDOG_GRACE_MS + 5000, // + time to load tree-sitter
   );
   return reply ? reply.result : { status: 'cap', steps: [], error: null };

@@ -34,8 +34,8 @@ test('Java is selectable: examples switch to Java, the strip says "Java · exact
     'JavaScript · exact trace',
     'Java · exact trace',
     'C++ · exact trace',
+    'C · exact trace',
   ]);
-  await expect(page.locator('.pill--yellow')).toHaveText('C · coming soon');
 });
 
 test('Java Factorial plays its hand-written steps with main() at the bottom', async ({ page }) => {

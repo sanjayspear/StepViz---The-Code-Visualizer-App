@@ -30,7 +30,8 @@ const ERROR_SENTENCES: Record<string, string> = {
   InputMismatchException: 'The input was not the kind of value the program expected.',
   NumberFormatException: 'This text is not a number.',
   // C++ (StepViz stops where real C++ would quietly give garbage)
-  DivideByZero: "C++ can't divide a whole number by zero.",
+  DivideByZero: "{lang} can't divide a whole number by zero.",
+  BadFormat: 'The printf pattern does not match this value.',
   IndexOutOfRange: 'This position is outside the list.',
   out_of_range: 'This position is outside the list.',
   Uninitialized: 'This box was used before it was given a value.',
@@ -42,7 +43,8 @@ const LANGUAGE_NAMES = { python: 'Python', javascript: 'JavaScript', java: 'Java
 
 /** A plain-words sentence for an error type. */
 export function errorSentence(type: string, language: keyof typeof LANGUAGE_NAMES = 'python'): string {
-  return ERROR_SENTENCES[type] ?? `${LANGUAGE_NAMES[language] ?? 'Python'} stopped with an error.`;
+  const name = LANGUAGE_NAMES[language] ?? 'Python';
+  return (ERROR_SENTENCES[type] ?? '{lang} stopped with an error.').replace('{lang}', name);
 }
 
 /** The raw Python message, e.g. "ZeroDivisionError: division by zero". */

@@ -454,7 +454,7 @@ test.describe('16. Colors, fonts and copy match sections 2 to 6', () => {
       'JavaScript',
       'Java',
       'C++',
-      'C (coming soon)',
+      'C',
     ]);
     const cm = page.locator('.cm-editor');
     expect(await style(cm, 'background-color')).toBe('rgb(23, 23, 43)');
@@ -496,12 +496,12 @@ test.describe('16. Colors, fonts and copy match sections 2 to 6', () => {
       'JavaScript · exact trace',
       'Java · exact trace',
       'C++ · exact trace',
-      'C · coming soon',
+      'C · exact trace',
     ]);
     expect(await style(page.locator('.pill--green').first(), 'background-color')).toBe('rgb(221, 243, 238)');
     expect(await style(page.locator('.pill--green').first(), 'color')).toBe('rgb(15, 95, 85)');
-    expect(await style(page.locator('.pill--yellow'), 'background-color')).toBe('rgb(255, 243, 191)');
-    expect(await style(page.locator('.pill--yellow'), 'color')).toBe('rgb(107, 79, 0)');
+    // Every language now has an exact trace, so no yellow "coming soon" pill is left.
+    await expect(page.locator('.pill--yellow')).toHaveCount(0);
   });
 
   test('Step-through, with all section 6 texts', async ({ page }) => {
@@ -729,17 +729,17 @@ test('For loop, Fibonacci and Bubble sort play their hand-written explanations; 
   await expect(page.locator('.life-box__text')).toHaveText(/^Like /);
 });
 
-test('empty editor and other languages', async ({ page }) => {
+test('empty editor; every language in the list can be visualized', async ({ page }) => {
   await openHome(page);
   await setCode(page, '');
   await expect(visualizeButton(page)).toBeDisabled();
   await expect(page.locator('.editor-card__helper')).toHaveText('Paste some code first');
   await page.getByRole('button', { name: 'Factorial' }).click();
-  await page.locator('select').selectOption('c');
-  await expect(page.locator('.editor-card__helper')).toHaveText('Coming soon');
-  await expect(visualizeButton(page)).toBeDisabled();
-  await page.locator('select').selectOption('python');
-  await expect(visualizeButton(page)).toBeEnabled();
+  for (const lang of ['javascript', 'java', 'cpp', 'c', 'python']) {
+    await page.locator('select').selectOption(lang);
+    await expect(page.locator('.editor-card__helper')).toHaveCount(0);
+    await expect(visualizeButton(page)).toBeEnabled();
+  }
 });
 
 test('pasted code is explained step by step, with "In real life" lines that Beginner mode can hide', async ({ page }) => {

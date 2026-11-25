@@ -6,15 +6,15 @@ import { EXAMPLES, exampleForSource, sourceOf, type CodeLanguage } from '../../e
 import { CodeEditor } from './CodeEditor';
 import './Home.css';
 
-export type Language = 'python' | 'javascript' | 'java' | 'cpp' | 'c';
+export type Language = CodeLanguage;
 
 const LANGUAGES: { value: Language; label: string }[] = [
   { value: 'python', label: 'Python' },
   { value: 'javascript', label: 'JavaScript' },
-  // An exact trace for C is being built; it loses "(coming soon)" when it works.
+  // Every language here has an exact trace.
   { value: 'java', label: 'Java' },
   { value: 'cpp', label: 'C++' },
-  { value: 'c', label: 'C (coming soon)' },
+  { value: 'c', label: 'C' },
 ];
 
 const FEATURES: { icon: IconName; tone: 'yellow' | 'green' | 'accent'; title: string; text: string }[] = [
@@ -77,13 +77,13 @@ export function Home({
   useEffect(() => {
     if (showInput) inputRef.current?.focus();
   }, [showInput]);
-  const codeLanguage: CodeLanguage = language === 'c' ? 'python' : language;
+  const codeLanguage: CodeLanguage = language;
   const selectedExample = exampleForSource(code);
   const selected = selectedExample && sourceOf(selectedExample, codeLanguage) === code ? selectedExample.id : undefined;
 
   const isEmpty = code.trim() === '';
-  // Python, JavaScript, Java and C++ have an exact trace; C is coming.
-  const comingSoon = language === 'c';
+  // All languages in the list have an exact trace. (Kept for languages added later.)
+  const comingSoon = !LANGUAGES.some((l) => l.value === language);
   const disabled = isEmpty || comingSoon || busy;
 
   let helper: string | null = null;
@@ -232,7 +232,7 @@ export function Home({
           <span className="pill pill--green">JavaScript · exact trace</span>
           <span className="pill pill--green">Java · exact trace</span>
           <span className="pill pill--green">C++ · exact trace</span>
-          <span className="pill pill--yellow">C · coming soon</span>
+          <span className="pill pill--green">C · exact trace</span>
         </section>
       </main>
     </div>

@@ -10,6 +10,7 @@ const FILES = [
   ['web-tree-sitter', 'web-tree-sitter.wasm'],
   ['tree-sitter-java', 'tree-sitter-java.wasm'],
   ['tree-sitter-cpp', 'tree-sitter-cpp.wasm'],
+  ['tree-sitter-c', 'tree-sitter-c.wasm'],
 ];
 mkdirSync(dest, { recursive: true });
 for (const [pkg, file] of FILES) {
