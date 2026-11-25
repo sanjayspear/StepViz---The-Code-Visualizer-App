@@ -33,11 +33,44 @@ export interface TraceStep {
     what: string;
     /** "In real life" comparison; empty when there is none */
     life: string;
+    /**
+     * Replaces "Step X of N" in the kicker, e.g. "Pass 1, comparison 1".
+     * Only in hand-written traces.
+     */
+    label?: string;
   };
+  /** Loops-and-lists view (Screen 3): the list on this step. */
+  list?: {
+    /** short value text per item, index 0 first */
+    values: string[];
+    /** positions being looked at on this step (yellow) */
+    compare?: number[];
+    /** two positions about to swap (curved double arrow); the values are before the swap */
+    swap?: [number, number];
+  };
+}
+
+/**
+ * Present when the program has a list that changes inside a loop (spec section 4):
+ * Screen 3 shows the list instead of the call stack.
+ */
+export interface ListView {
+  /** variable name of the list, e.g. "nums" */
+  list: string;
+  /** first and last line of the outer loop (for "Skip to next pass") */
+  outerLine: number;
+  outerEndLine: number;
+  /** loop variables shown as cards under the code, outer first; the last one moves */
+  loopVars: string[];
+  /** top bar text; default "Loops view" */
+  note?: string;
+  /** card labels, e.g. { i: "i (pass)" }; default: the variable name */
+  varLabels?: Record<string, string>;
 }
 
 export interface Trace {
   language: 'python';
   source: string;
   steps: TraceStep[];
+  listView?: ListView;
 }

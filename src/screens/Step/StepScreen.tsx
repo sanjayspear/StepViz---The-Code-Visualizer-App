@@ -8,6 +8,7 @@ import { useBeginnerMode } from '../../hooks/useBeginnerMode';
 import { PHONE_QUERY, useMediaQuery } from '../../hooks/useMediaQuery';
 import type { Trace, TraceFrame } from '../../trace/types';
 import { rawErrorText } from '../../trace/explain';
+import { ListPanel, LoopVarCards, passStarts } from './ListPanel';
 import './StepScreen.css';
 
 interface Props {
@@ -56,11 +57,14 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const step = trace.steps[pb.index];
+  const listView = trace.listView;
+  const nextPass = passStarts(trace).find((k) => k > pb.index);
   const lines = trace.source.split('\n');
   const output = step.output.replace(/\n$/, '');
   const errorText = step.error ? rawErrorText(step.error) : '';
   const showLife = beginner && step.explain.life !== '';
   const stepLabel = `Step ${pb.index + 1} of ${total}`;
+  const kickerLabel = step.explain.label ?? stepLabel;
   const progress = total > 0 ? ((pb.index + 1) / total) * 100 : 0;
 
   // Move focus to the title when the screen opens (screen reader context).
@@ -92,7 +96,7 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [pb, menuOpen]);
 
-  // Phone menu: close on a click outside it, and when leaving the phone layout.
+  // Menu: close on a click outside it, and when the layout changes.
   useEffect(() => {
     if (!menuOpen) return;
     const onDown = (e: PointerEvent) => {
@@ -102,8 +106,19 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
     return () => document.removeEventListener('pointerdown', onDown);
   }, [menuOpen]);
   useEffect(() => {
-    if (!phone) setMenuOpen(false);
+    setMenuOpen(false);
   }, [phone]);
+
+  const skipButton = listView && (
+    <button
+      type="button"
+      className="ctrl-btn ctrl-btn--skip"
+      onClick={() => nextPass !== undefined && pb.goTo(nextPass)}
+      disabled={nextPass === undefined}
+    >
+      Skip to next pass
+    </button>
+  );
 
   const beginnerButton = (
     <button type="button" className="outline-btn" aria-pressed={beginner} onClick={toggleBeginner}>
@@ -150,6 +165,29 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
                 {menuOpen && (
                   <div className="topbar-menu__panel" id="step-menu">
                     {badge}
+                    {listView && <p className="topbar-menu__note">{listView.note ?? 'Loops view'}</p>}
+                    {beginnerButton}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : listView ? (
+            <>
+              <p className="step-topbar__note">{listView.note ?? 'Loops view'}</p>
+              <ComingSoonButton className="outline-btn">Share link</ComingSoonButton>
+              <div className="topbar-menu" ref={menuRef}>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label="Menu"
+                  aria-expanded={menuOpen}
+                  aria-controls="step-menu"
+                  onClick={() => setMenuOpen((o) => !o)}
+                >
+                  <Icon name="more" size={22} />
+                </button>
+                {menuOpen && (
+                  <div className="topbar-menu__panel" id="step-menu">
                     {beginnerButton}
                   </div>
                 )}
@@ -165,7 +203,7 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
       </header>
 
       <main className="step-main">
-        <div className="step-grid">
+        <div className={`step-grid${listView ? ' step-grid--list' : ''}`}>
           <section className="code-panel" aria-labelledby="code-heading">
             <h2 id="code-heading" className={phone ? 'visually-hidden' : 'code-panel__heading'}>
               Code
@@ -186,8 +224,9 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
                 ))}
               </ol>
             </div>
-            {/* On phone the output box appears once something is printed. */}
-            {(!phone || output !== '' || errorText !== '') && (
+            {listView && <LoopVarCards view={listView} step={step} />}
+            {/* On phone and in the loops view the output box appears once something is printed. */}
+            {((!phone && !listView) || output !== '' || errorText !== '') && (
               <div className="output-box">
                 <h3 className="output-box__label">Output</h3>
                 <pre className="output-box__text" data-testid="output">
@@ -202,6 +241,12 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
             )}
           </section>
 
+          {listView ? (
+            <div className="list-column">
+              <ListPanel trace={trace} index={pb.index} maxBar={phone ? 120 : 200} />
+              {phone && skipButton}
+            </div>
+          ) : (
           <section className="stack-card" aria-labelledby="stack-title">
             <div className="stack-card__head">
               <h2 id="stack-title" className="stack-card__title">
@@ -230,11 +275,12 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
               })}
             </ol>
           </section>
+          )}
         </div>
 
         <section className={`explain-card${showLife ? '' : ' explain-card--single'}`} aria-live="polite">
           <div>
-            <p className="explain-card__kicker">{phone ? stepLabel : `What is happening · ${stepLabel}`}</p>
+            <p className="explain-card__kicker">{phone ? kickerLabel : `What is happening · ${kickerLabel}`}</p>
             <p className="explain-card__what">{step.explain.what}</p>
           </div>
           {showLife &&
@@ -277,6 +323,7 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
             <button type="button" className="ctrl-btn ctrl-btn--next" onClick={pb.next} disabled={pb.isLast}>
               Next step
             </button>
+            {!phone && skipButton}
             {!phone && (
               <button type="button" className="speed-btn" onClick={pb.cycleSpeed}>
                 Speed {pb.speed}×

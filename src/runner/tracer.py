@@ -210,6 +210,136 @@ def _frame_label(frame):
 
 
 # --------------------------------------------------------------------------
+# Loops and lists (Screen 3): which list to draw, which positions each line
+# looks at, and which lines swap two items.
+
+_SAFE_INDEX_NODES = (
+    ast.Expression, ast.Name, ast.Load, ast.Constant, ast.BinOp, ast.UnaryOp,
+    ast.Add, ast.Sub, ast.Mult, ast.FloorDiv, ast.Mod, ast.USub, ast.UAdd,
+)
+_LIST_MUTATORS = {"append", "insert", "pop", "remove", "sort", "reverse", "extend", "clear"}
+
+
+def _safe_index(node):
+    """An index made only of names, numbers and arithmetic (no calls), so it
+    can be evaluated again without side effects."""
+    return all(isinstance(n, _SAFE_INDEX_NODES) for n in ast.walk(node))
+
+
+def _subscript_of(node):
+    """(list name, index node) for `name[index]`, else None."""
+    if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and not isinstance(node.slice, ast.Slice):
+        return node.value.id, node.slice
+    return None
+
+
+class _ListPlan(ast.NodeVisitor):
+    def __init__(self):
+        self.loops = []            # enclosing loop nodes (same function scope)
+        self.candidates = []       # list names changed inside a loop, best first
+        self.weak = []             # names assigned inside a loop (may be lists)
+        self.loop_of = {}          # name -> (outer loop, inner loop)
+        self.reads = {}            # line -> [(name, compiled index)]
+        self.swaps = {}            # line -> (name, compiled a, compiled b)
+
+    def _candidate(self, name, strong=True):
+        bucket = self.candidates if strong else self.weak
+        if name not in bucket:
+            bucket.append(name)
+        self.loop_of.setdefault(name, (self.loops[0], self.loops[-1]))
+
+    def visit_FunctionDef(self, node):
+        saved, self.loops = self.loops, []
+        self.generic_visit(node)
+        self.loops = saved
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def _loop(self, node):
+        self.loops.append(node)
+        self.generic_visit(node)
+        self.loops.pop()
+
+    visit_For = visit_While = _loop
+
+    def _targets(self, targets):
+        for t in targets:
+            for n in ast.walk(t):
+                sub = _subscript_of(n)
+                if sub:
+                    self._candidate(sub[0])
+                elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+                    self._candidate(n.id, strong=False)
+
+    def visit_Assign(self, node):
+        if self.loops:
+            self._targets(node.targets)
+        self._check_swap(node)
+        self.generic_visit(node)
+
+    def visit_AugAssign(self, node):
+        if self.loops:
+            self._targets([node.target])
+        self.generic_visit(node)
+
+    def visit_Call(self, node):
+        f = node.func
+        if (
+            self.loops
+            and isinstance(f, ast.Attribute)
+            and isinstance(f.value, ast.Name)
+            and f.attr in _LIST_MUTATORS
+        ):
+            self._candidate(f.value.id)
+        self.generic_visit(node)
+
+    def visit_Subscript(self, node):
+        sub = _subscript_of(node)
+        if sub and _safe_index(sub[1]):
+            code = compile(ast.Expression(sub[1]), USER_FILE, "eval")
+            seen = self.reads.setdefault(node.lineno, [])
+            key = (sub[0], ast.unparse(sub[1]))
+            if key not in [k for k, _ in seen]:
+                seen.append((key, code))
+        self.generic_visit(node)
+
+    def _check_swap(self, node):
+        # nums[a], nums[b] = nums[b], nums[a]
+        if len(node.targets) != 1:
+            return
+        t, v = node.targets[0], node.value
+        if not (isinstance(t, ast.Tuple) and isinstance(v, ast.Tuple) and len(t.elts) == 2 == len(v.elts)):
+            return
+        subs = [_subscript_of(n) for n in (*t.elts, *v.elts)]
+        if not all(subs) or len({s[0] for s in subs}) != 1:
+            return
+        if not all(_safe_index(s[1]) for s in subs):
+            return
+        idx = [ast.unparse(s[1]) for s in subs]
+        if idx[0] == idx[3] and idx[1] == idx[2]:
+            compile_ = lambda n: compile(ast.Expression(n), USER_FILE, "eval")
+            self.swaps[node.lineno] = (subs[0][0], compile_(subs[0][1]), compile_(subs[1][1]))
+
+
+def _loop_var(loop):
+    if isinstance(loop, ast.For) and isinstance(loop.target, ast.Name):
+        return loop.target.id
+    return None
+
+
+def _eval_index(code, frame, length):
+    try:
+        i = eval(code, frame.f_globals, dict(frame.f_locals))
+    except Exception:
+        return None
+    if not isinstance(i, int) or isinstance(i, bool):
+        return None
+    if -length <= i < 0:
+        i += length
+    return i if 0 <= i < length else None
+
+
+# --------------------------------------------------------------------------
 # Running with the tracer
 
 
@@ -249,6 +379,10 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
     global_names = _GlobalNames()
     global_names.visit(tree)
     order = global_names.names
+
+    plan = _ListPlan()
+    plan.visit(tree)
+    list_names = plan.candidates + [n for n in plan.weak if n not in plan.candidates]
 
     out = io.StringIO()
     g = {"__name__": "__main__", "__builtins__": _safe_builtins(out, json.loads(inputs_json))}
@@ -301,12 +435,58 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
             if i == top and returning is not None and not error:
                 entry["returns"] = "returns " + _short(returning)
             frames.append(entry)
-        return {"line": line, "frames": frames, "output": out.getvalue()}
+        step = {"line": line, "frames": frames, "output": out.getvalue()}
+        if list_names:
+            lists, looks = {}, {}
+            for name in list_names:
+                frame = find_list_frame(name)
+                if frame is None:
+                    continue
+                value = frame.f_locals[name] if name in frame.f_locals else frame.f_globals[name]
+                lists[name] = [_short(v) for v in value]
+                idx = []
+                for (ref, _text), code in plan.reads.get(line, []):
+                    if ref == name:
+                        i = _eval_index(code, frame, len(value))
+                        if i is not None and i not in idx:
+                            idx.append(i)
+                if idx:
+                    looks[name] = idx
+            step["_lists"] = lists
+            step["_looks"] = looks
+        return step
 
-    def record(line, returning=None):
+    def find_list_frame(name):
+        """The newest frame where `name` is a list (locals first, then globals)."""
+        for frame, *_ in reversed(stack):
+            local = frame.f_locals
+            if name in local:
+                if isinstance(local[name], list):
+                    return frame
+            elif isinstance(frame.f_globals.get(name), list):
+                return frame
+        return None
+
+    def record(line, returning=None, swap=None):
         if len(steps) >= max_steps:
             raise StopRun("steps")
-        steps.append(snapshot(line, returning))
+        step = snapshot(line, returning)
+        if swap is not None:
+            step["_swap"] = swap
+        steps.append(step)
+
+    def record_swap_before(frame, line):
+        """A swap line is shown before it runs: the old list and an arrow."""
+        name, code_a, code_b = plan.swaps[line]
+        f = find_list_frame(name)
+        if f is None:
+            return False
+        value = f.f_locals[name] if name in f.f_locals else f.f_globals[name]
+        a, b = _eval_index(code_a, f, len(value)), _eval_index(code_b, f, len(value))
+        if a is None or b is None:
+            return False
+        record(line, swap={"list": name, "pair": [a, b]})
+        return True
 
     def local_trace(frame, event, arg):
         if time.monotonic() > deadline:
@@ -322,6 +502,8 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
                 record(entry[2])  # the previous line in this frame has finished
             entry[2] = frame.f_lineno
             entry[3] = False
+            if frame.f_lineno in plan.swaps and record_swap_before(frame, frame.f_lineno):
+                entry[2] = None  # already shown; the next step shows the swapped list
         elif event == "exception":
             entry[3] = True
             exc = arg[1] if isinstance(arg, tuple) and len(arg) > 1 else None
@@ -392,7 +574,46 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
     if status == "ok" and time.monotonic() > deadline:
         status = "cap"
 
-    return json.dumps({"status": status, "error": error, "steps": steps}, ensure_ascii=False)
+    list_view = _choose_list_view(plan, steps)
+    for step in steps:
+        lists = step.pop("_lists", None)
+        looks = step.pop("_looks", None)
+        swap = step.pop("_swap", None)
+        if list_view and lists and list_view["list"] in lists:
+            name = list_view["list"]
+            entry = {"values": lists[name]}
+            if looks and name in looks:
+                entry["compare"] = looks[name]
+            if swap and swap["list"] == name:
+                entry["swap"] = swap["pair"]
+                entry["compare"] = swap["pair"]
+            step["list"] = entry
+
+    result = {"status": status, "error": error, "steps": steps}
+    if list_view:
+        result["listView"] = list_view
+    return json.dumps(result, ensure_ascii=False)
+
+
+def _choose_list_view(plan, steps):
+    """Use the loops-and-lists view if a list changes inside a loop (spec section 4)."""
+    for name in plan.candidates + plan.weak:
+        outer, inner = plan.loop_of[name]
+        first, last = outer.lineno, outer.end_lineno
+        prev = None
+        for step in steps:
+            values = step.get("_lists", {}).get(name)
+            if values is not None and prev is not None and values != prev and first <= step["line"] <= last:
+                loop_vars = [v for v in (_loop_var(outer), _loop_var(inner)) if v]
+                return {
+                    "list": name,
+                    "outerLine": first,
+                    "outerEndLine": last,
+                    "loopVars": list(dict.fromkeys(loop_vars)),
+                }
+            if values is not None:
+                prev = values
+    return None
 
 
 def lock_down():

@@ -29,6 +29,7 @@
   --color-error-bg: #fde8e3;         /* Error frame bg (crash step) */
   --color-error-border: #b42318;     /* Error frame border */
   --color-error-text: #8a1c12;       /* Error text */
+  --color-bar: #a5a0e8;              /* List bars not being compared (Screen 3 screenshot) */
 
   /* Fonts */
   --font-heading: 'Space Grotesk', 'Inter', system-ui, sans-serif;

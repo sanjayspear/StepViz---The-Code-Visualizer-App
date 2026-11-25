@@ -683,7 +683,7 @@ test('speed cycles 0.5×, 1×, 2×', async ({ page }) => {
   await expect(speed).toHaveText('Speed 1×');
 });
 
-test('For loop and Fibonacci play their hand-written explanations; Bubble sort uses the generic one', async ({ page }) => {
+test('For loop, Fibonacci and Bubble sort play their hand-written explanations; edited code uses the generic one', async ({ page }) => {
   const cases = [
     { chip: 'For loop', title: 'For loop: sum of 1 to 3', steps: 9, life: 'Like setting a scoreboard to zero before the game starts.', output: '6' },
     { chip: 'Fibonacci', title: 'fibonacci(5)', steps: 17, life: 'Like writing the first two numbers of a pattern on a card.', output: '0\n1\n1\n2\n3' },
@@ -702,9 +702,19 @@ test('For loop and Fibonacci play their hand-written explanations; Bubble sort u
   await page.getByRole('button', { name: 'Bubble sort', exact: true }).click();
   await visualizeButton(page).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Bubble sort', { timeout: 60_000 });
-  await expect(page.locator('.explain-card__what')).toHaveText('Line 1 runs: nums = [5, 2, 8, 1]');
+  await expect(page.locator('.explain-card__what')).toHaveText(
+    'We make a list called nums with four numbers: 5, 2, 8 and 1. They are not in order yet.',
+  );
   await lastStep(page);
   await expect(page.getByTestId('output')).toHaveText('[1, 2, 5, 8]');
+  // Edited code is traced live and gets the generic explanation.
+  await page.getByRole('button', { name: 'New code' }).click();
+  await editor(page).click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.type(' # edited');
+  await visualizeButton(page).click();
+  await expect(page.locator('.explain-card__what')).toHaveText('Line 1 runs: nums = [5, 2, 8, 1]', { timeout: 60_000 });
+  await expect(page.locator('.life-box')).toHaveCount(0);
 });
 
 test('empty editor and other languages', async ({ page }) => {

@@ -19,11 +19,13 @@ export interface RawStep {
   }[];
   output: string;
   error?: { type: string; message: string };
+  list?: { values: string[]; compare?: number[]; swap?: [number, number] };
 }
 
 export interface RawRunResult {
   status: 'ok' | 'cap' | 'runtime-error' | 'syntax-error';
   steps: RawStep[];
+  listView?: import('../trace/types').ListView;
   error: null | { line: number | null; type?: string; message: string };
 }
 

@@ -10,19 +10,28 @@ relevant pages before changing any screen. Do not redesign, rename or reword any
 **Ask before adding anything that is not in the PDF.** If the PDF is unclear or
 something is missing, ask; do not guess.
 
-## Scope: Phase 1 only
+## Scope
 
-Build and maintain only:
+Phase 1 is done. Phase 2 is in progress, in stages: (g) Screen 3 and Bubble sort
+(done), (h) JavaScript exact trace, (i) optional AI explanations via a Cloudflare
+Worker (last). Phase 1 covers:
 
 - Screen 1: Home (paste code, language select, example chips, "Visualize my code")
 - Screen 2: Step-through (code panel, call stack, output, explanation, "In real life", controls)
 - Screen 4: phone layout of Screen 2 (and Screen 1 at phone width), below 900 px
 - Python only, exact trace, run fully in the browser (Pyodide in a Web Worker, `sys.settrace`). No backend.
-- Built-in examples: Factorial (section 6 fixture), For loop and Fibonacci (hand-written
-  explanations); Bubble sort and pasted code use the generic "Line N runs: ..." explanation.
+- Built-in examples: Factorial (section 6 fixture), For loop, Fibonacci and (Phase 2)
+  Bubble sort have hand-written explanations; pasted or edited code uses the generic
+  "Line N runs: ..." explanation.
 
-Not in Phase 1: Screen 3 (loops and arrays), JavaScript tracing, AI explanations,
-accounts, share links (the buttons show "Coming soon"), Screen 5.
+Phase 2 so far:
+
+- Screen 3 (loops and arrays): shown when a list changes inside a loop (`listView`
+  in the trace). Bubble sort is a hand-written fixture with kicker labels
+  ("Pass 1, comparison 1"); pasted code gets "Step X of N" and plain variable names.
+
+Not built: JavaScript tracing and AI explanations (next stages), accounts, share
+links (the buttons show "Coming soon"), Screen 5.
 The UI reads only the trace JSON (section 7, `src/trace/types.ts`) so those can be added later.
 
 ## Stack
@@ -58,6 +67,18 @@ Playwright tests. Static build for GitHub Pages.
 - Space toggles play only when focus is not on a button, link, select or text field.
 - "Loading Python…" on the button while Pyodide loads; input() prompt:
   "Your program asks for input. Type one line per input() call."
+- Screen 3: a swap line is shown before it runs (old list + curved arrow); the next
+  step shows the swapped list. History chips: "start [...]", "swapped 5 and 2" per
+  earlier swap, highlighted "now [...]" (+ " → swapping 5 and 2" on a swap step).
+  Top bar: "Loops view" note, Share link, Beginner mode in a ⋮ menu. Speed control
+  kept. Code panel about 55% / list 45% at desktop width. Phone: Skip to next pass
+  under the list. Uncompared bars use #A5A0E8 (from the screenshot).
+- Phase 2 decisions not built yet: JavaScript chips are JavaScript versions of the
+  same four programs (only Factorial hand-written). AI: optional "Explain with AI
+  (beta)" button, a first-use note "This sends your code to an AI service to write
+  the explanations. We don't store it.", no logging, 20 per visitor per day plus a
+  global daily cap in one config value, "AI-explained (beta)" tag, fallback text
+  "AI explanation isn't available right now." Key only as a Worker secret.
 
 ## Commands
 

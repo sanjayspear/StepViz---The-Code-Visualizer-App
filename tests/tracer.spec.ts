@@ -9,6 +9,7 @@ import { EXAMPLES } from '../src/examples/index';
 import type { RawRunResult } from '../src/runner/protocol';
 import { FOR_LOOP_TRACE } from '../src/examples/forLoopTrace';
 import { FIBONACCI_TRACE } from '../src/examples/fibonacciTrace';
+import { BUBBLE_SORT_TRACE } from '../src/examples/bubbleSortTrace';
 
 let py: PyodideAPI;
 let run: (source: string, inputs?: string, maxSteps?: number, maxSeconds?: number) => string;
@@ -111,13 +112,17 @@ test('input() reads the lines typed before running', () => {
   expect(result.steps.at(-1)!.output).toBe('Name? Sam\nHi Sam\n');
 });
 
-test('For loop and Fibonacci fixtures still match the live tracer', () => {
-  for (const fixture of [FOR_LOOP_TRACE, FIBONACCI_TRACE]) {
+test('For loop, Fibonacci and Bubble sort fixtures still match the live tracer', () => {
+  for (const fixture of [FOR_LOOP_TRACE, FIBONACCI_TRACE, BUBBLE_SORT_TRACE]) {
     const live = runJson(fixture.source);
     expect(live.status).toBe('ok');
-    expect(live.steps.map(({ line, frames, output }) => ({ line, frames, output }))).toEqual(
-      fixture.steps.map(({ line, frames, output }) => ({ line, frames, output })),
+    expect(live.steps.map(({ line, frames, output, list }) => ({ line, frames, output, list }))).toEqual(
+      fixture.steps.map(({ line, frames, output, list }) => ({ line, frames, output, list })),
     );
+    if (fixture.listView) {
+      const { note: _note, varLabels: _labels, ...detected } = fixture.listView;
+      expect(live.listView).toEqual(detected);
+    }
     // Hand-written explanations: one per step, and no comparison is repeated.
     const lifes = fixture.steps.map((s) => s.explain.life);
     expect(new Set(lifes).size).toBe(lifes.length);
@@ -155,4 +160,25 @@ test('a crash on the first line records no steps; a caught error is not a crash'
   const caught = runJson('try:\n    1 / 0\nexcept ZeroDivisionError:\n    print("caught")');
   expect(caught.status).toBe('ok');
   expect(caught.steps.some((s) => s.error || s.frames.some((f) => f.status === 'error'))).toBe(false);
+});
+
+test('list view: chosen when a list changes inside a loop; swaps are shown before they run', () => {
+  const result = runJson(source('bubble-sort')) as RawRunResult & { listView?: unknown };
+  expect(result.listView).toEqual({ list: 'nums', outerLine: 2, outerEndLine: 5, loopVars: ['i', 'j'] });
+  const swaps = result.steps.filter((s) => s.list?.swap);
+  expect(swaps.map((s) => [s.line, s.list!.values.join(','), s.list!.swap])).toEqual([
+    [5, '5,2,8,1', [0, 1]],
+    [5, '2,5,8,1', [2, 3]],
+    [5, '2,5,1,8', [1, 2]],
+    [5, '2,1,5,8', [0, 1]],
+  ]);
+  // The step after each swap shows the swapped list.
+  const afterFirst = result.steps[result.steps.indexOf(swaps[0]) + 1];
+  expect(afterFirst.list!.values).toEqual(['2', '5', '8', '1']);
+  // Comparison line highlights the two positions it reads.
+  expect(result.steps.find((s) => s.line === 4)!.list!.compare).toEqual([0, 1]);
+  // No list view for programs whose lists do not change in a loop.
+  expect((runJson(source('factorial')) as { listView?: unknown }).listView).toBeUndefined();
+  expect((runJson(source('for-loop')) as { listView?: unknown }).listView).toBeUndefined();
+  expect((runJson('xs = [1, 2, 3]\nfor x in xs:\n    print(x)') as { listView?: unknown }).listView).toBeUndefined();
 });

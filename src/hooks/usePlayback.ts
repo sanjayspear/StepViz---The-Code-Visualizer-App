@@ -51,6 +51,15 @@ export function usePlayback(total: number) {
     setPlaying(true);
   }, [playing, index, last]);
 
+  /** Jump to a step (pauses first, like the other buttons). */
+  const goTo = useCallback(
+    (target: number) => {
+      setPlaying(false);
+      setIndex(Math.max(0, Math.min(target, last)));
+    },
+    [last],
+  );
+
   const cycleSpeed = useCallback(() => {
     setSpeed((s) => SPEEDS[(SPEEDS.indexOf(s) + 1) % SPEEDS.length]);
   }, []);
@@ -66,5 +75,6 @@ export function usePlayback(total: number) {
     restart,
     togglePlay,
     cycleSpeed,
+    goTo,
   };
 }
