@@ -662,6 +662,8 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
                 return local_trace
             record(entry[2], kind="catch", detail=catch_detail(exc, False))
             entry[2] = None
+        if event == "line" and entry[5] and line not in finally_lines:
+            entry[5] = False  # the finally part swallowed the error (break / return / continue in it)
         if event == "line" and not entry[5]:  # the program carried on, so any exception was caught
             state["crash"] = None
             state["crash_exc"] = None

@@ -54,6 +54,10 @@ test('Python: only a finally part runs first; the crash stays on the line that f
   const inFn = python('def f():\n    try:\n        return 1 / 0\n    finally:\n        print("f")\n\nb = 2\nf()');
   expect(inFn.steps.map((s) => s.kind)).not.toContain('return');
   expect(inFn.steps.at(-1)).toMatchObject({ line: 3, kind: 'crash' });
+  // A finally part that swallows the error (break): the program goes on normally, return steps included.
+  const swallow = python('def g():\n    for i in range(1):\n        try:\n            1 / 0\n        finally:\n            break\n    return 5\n\nr = g()\nprint(r)');
+  expect(swallow.status).toBe('ok');
+  expect(swallow.steps.filter((s) => s.kind === 'return').map((s) => s.line)).toEqual([7]);
 });
 
 test('Python: a loop left by an error starts from its first round again', () => {
