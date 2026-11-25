@@ -23,6 +23,14 @@
 // <limits.h>; printf, puts, putchar, scanf (with &x), strlen, strcmp; text in
 // char arrays ("Sam" plus '\0'); no string type, vector, cout, cin or references.
 //
+// C4: structs and classes (C++) and structs (C): members (public/private), member
+// values written in the struct, constructors (with : member lists), methods
+// (inside the class or as int Dog::getAge() { }), const methods, this->x,
+// {1, 2} / {.x = 1} / Dog d("Rex", 3) / Dog("Rex", 3), typedef struct (C).
+// Structs are values: copied when assigned or passed by value; references share.
+// Vectors and arrays of structs; for (auto& p : pts) works on the items themselves.
+// Not yet: inheritance, virtual, operator overloading, static members, destructors.
+//
 // StepViz is stricter than a real compiler where real C++ would quietly give
 // garbage: an index outside a list, a variable used before it has a value and
 // whole-number division by zero all stop the program with a plain-words crash.
@@ -46,16 +54,40 @@ import {
 // Values
 
 type Prim = 'int' | 'long' | 'double' | 'bool' | 'char' | 'string';
-type CType = Prim | 'vector' | 'array' | 'void' | 'auto' | 'exception';
+type CType = Prim | 'vector' | 'array' | 'void' | 'auto' | 'exception' | 'struct';
 
 /** A C++ value. char values hold the character; lists hold their items; an exception holds its what() text. */
 interface CVal {
   t: CType;
-  v: number | boolean | string | CVal[] | null;
+  v: number | boolean | string | CVal[] | null | Map<string, CVal>;
   elem?: Prim;
-  /** exception: its class (runtime_error, out_of_range...) */
+  /** exception: its class (runtime_error, out_of_range...); struct: its struct or class name */
   cls?: string;
 }
+
+/** A struct or class of the program: its fields (in order), constructors and methods. */
+interface CStruct {
+  name: string;
+  isClass: boolean;
+  fields: { name: string; type: DeclType; size: Node | null | undefined; def: Node | null; isPrivate: boolean }[];
+  ctors: Node[];
+  methods: Map<string, Node>;
+  privateMethods: Set<string>;
+}
+/** The program's structs and classes (set by checkSubset, like dialect). */
+let structs = new Map<string, CStruct>();
+/** struct Point / Point / typedef name -> the struct's name, or null. */
+function structName(typeNode: Node | null): string | null {
+  if (!typeNode) return null;
+  if (typeNode.type === 'struct_specifier' || typeNode.type === 'class_specifier') {
+    const n = typeNode.childForFieldName('name')?.text;
+    return n && structs.has(n) ? n : null;
+  }
+  const text = typeNode.text.replace(/^const\s+/, '').replace(/^struct\s+/, '');
+  return structs.has(text) ? text : null;
+}
+/** Vectors and arrays of structs keep the struct name as their item type. */
+const isStructItem = (elem: Prim | undefined) => !!elem && structs.has(elem);
 
 /** The standard exceptions StepViz knows, each with its parent class. */
 const EXCEPTION_PARENT: Record<string, string | null> = {
@@ -128,6 +160,8 @@ export function formatCpp(x: unknown): string | undefined {
       return 'nothing';
     case 'exception':
       return `${x.cls}: ${x.v}`;
+    case 'struct':
+      return structText(x, 0);
     case 'vector':
     case 'array':
       if (x.elem === 'char') {
@@ -138,6 +172,13 @@ export function formatCpp(x: unknown): string | undefined {
     default:
       return String(x.v);
   }
+}
+
+/** How a struct shows: Point {x: 1, y: ?} (a struct inside it, one level deep: Point {…}). */
+function structText(x: CVal, depth: number): string {
+  if (depth > 1) return `${x.cls} {…}`;
+  const parts = [...(x.v as Map<string, CVal>)].map(([k, v]) => `${k}: ${v.t === 'struct' ? structText(v, depth + 1) : formatCpp(v) ?? '?'}`);
+  return `${x.cls} {${parts.join(', ')}}`;
 }
 
 /** The text held in a char array: the letters up to '\0'. */
@@ -231,8 +272,6 @@ const FEATURES: Record<string, string> = {
   abstract_pointer_declarator: 'pointers',
   new_expression: 'new',
   delete_expression: 'delete',
-  class_specifier: 'classes',
-  struct_specifier: 'structs',
   union_specifier: 'unions',
   enum_specifier: 'enums',
   template_declaration: 'templates',
@@ -240,12 +279,11 @@ const FEATURES: Record<string, string> = {
   namespace_definition: 'namespaces',
   goto_statement: 'goto',
   labeled_statement: 'labels',
-  field_declaration_list: 'structs',
   preproc_def: '#define',
   preproc_function_def: '#define',
   preproc_ifdef: '#ifdef',
   preproc_if: '#if',
-  type_definition: 'typedef',
+  type_definition: 'typedef inside functions',
   alias_declaration: 'using aliases',
   sizeof_expression: 'sizeof',
   comma_expression: 'the comma operator',
@@ -262,6 +300,66 @@ interface Program {
   globals: Node[];
 }
 
+/** Read a struct or class body: fields (public or private), constructors, methods. */
+function readStruct(spec: Node, name: string): CStruct {
+  const isClass = spec.type === 'class_specifier';
+  if (named(spec).some((c) => c.type === 'base_class_clause')) throw unsupported(spec, 'inheritance');
+  const info: CStruct = { name, isClass, fields: [], ctors: [], methods: new Map(), privateMethods: new Set() };
+  let isPrivate = isClass; // class members are private until public:, struct members public
+  for (const m of named(spec.childForFieldName('body'))) {
+    if (m.type === 'access_specifier') {
+      if (/protected/.test(m.text)) throw unsupported(m, 'protected');
+      isPrivate = /private/.test(m.text);
+      continue;
+    }
+    if (/^(static|virtual|friend|inline)\b/.test(m.text) || m.type === 'friend_declaration') {
+      throw unsupported(m, /^static/.test(m.text) ? 'static members' : /^virtual/.test(m.text) ? 'virtual methods' : /^friend/.test(m.text) || m.type === 'friend_declaration' ? 'friends' : m.text.split(/\s/)[0]);
+    }
+    if (m.type === 'field_declaration') {
+      const d = m.childForFieldName('declarator');
+      if (d?.type === 'function_declarator') {
+        // int getAge();  defined later as int Dog::getAge() { ... }
+        if (isPrivate) info.privateMethods.add(d.childForFieldName('declarator')!.text);
+        continue;
+      }
+      const typeNode = m.childForFieldName('type');
+      if (typeNode && (typeNode.type === 'struct_specifier' || typeNode.type === 'class_specifier') && typeNode.childForFieldName('body')) throw unsupported(m, 'structs inside structs');
+      for (const fd of m.childrenForFieldName('declarator')) {
+        if (!fd) continue;
+        let node = fd;
+        let size: Node | null | undefined;
+        if (node.type === 'array_declarator') {
+          size = node.childForFieldName('size') ?? null;
+          node = node.childForFieldName('declarator')!;
+        }
+        if (node.type !== 'field_identifier') throw unsupported(fd, node.type === 'pointer_declarator' ? 'pointers' : 'this kind of member');
+        info.fields.push({ name: node.text, type: typeOf(typeNode), size, def: m.childForFieldName('default_value'), isPrivate });
+      }
+      continue;
+    }
+    if (m.type === 'function_definition' || m.type === 'declaration') {
+      const decl = m.childForFieldName('declarator');
+      const inner = decl?.type === 'function_declarator' ? decl.childForFieldName('declarator') : null;
+      if (!inner) throw unsupported(m, 'this kind of member');
+      if (inner.type === 'destructor_name') throw unsupported(m, 'destructors');
+      if (inner.type === 'operator_name') throw unsupported(m, 'operator overloading');
+      if (m.type === 'declaration') {
+        // Dog(string n, int a);  defined later as Dog::Dog(...)
+        continue;
+      }
+      if (inner.text === name) info.ctors.push(m);
+      else {
+        if (info.methods.has(inner.text)) throw unsupported(m, 'two methods with the same name');
+        info.methods.set(inner.text, m);
+        if (isPrivate) info.privateMethods.add(inner.text);
+      }
+      continue;
+    }
+    throw unsupported(m, FEATURES[m.type] ?? m.type.replace(/_/g, ' '));
+  }
+  return info;
+}
+
 function functionName(def: Node): string {
   const decl = def.childForFieldName('declarator')!;
   return decl.childForFieldName('declarator')!.text;
@@ -270,8 +368,38 @@ function functionName(def: Node): string {
 function checkSubset(tree: Tree): Program {
   const functions = new Map<string, Node>();
   const globals: Node[] = [];
+  structs = new Map();
+  const outOfClass: Node[] = [];
+  const addStruct = (spec: Node, name: string) => {
+    if (structs.has(name)) throw unsupported(spec, 'two structs with the same name');
+    structs.set(name, readStruct(spec, name));
+  };
   for (const n of named(tree.rootNode)) {
     switch (n.type) {
+      case 'struct_specifier':
+      case 'class_specifier': {
+        const name = n.childForFieldName('name')?.text;
+        if (!name || !n.childForFieldName('body')) throw unsupported(n, 'this kind of struct');
+        if (dialect === 'c' && n.type === 'class_specifier') throw unsupported(n, 'classes');
+        addStruct(n, name);
+        continue;
+      }
+      case 'type_definition': {
+        // typedef struct { ... } Point;  /  typedef struct Point Point;
+        const t = n.childForFieldName('type');
+        const alias = n.childForFieldName('declarator');
+        if (t?.type !== 'struct_specifier' || alias?.type !== 'type_identifier') throw unsupported(n, 'typedef');
+        if (t.childForFieldName('body')) {
+          addStruct(t, alias.text);
+          const tag = t.childForFieldName('name')?.text;
+          if (tag && tag !== alias.text) structs.set(tag, structs.get(alias.text)!);
+        } else {
+          const tag = t.childForFieldName('name')?.text ?? '';
+          if (!structs.has(tag)) throw unsupported(n, 'typedef');
+          structs.set(alias.text, structs.get(tag)!);
+        }
+        continue;
+      }
       case 'preproc_include': {
         const path = n.childForFieldName('path')?.text ?? '';
         if (!(dialect === 'c' ? C_INCLUDES : INCLUDES).has(path)) throw unsupported(n, `#include ${path}`);
@@ -282,16 +410,33 @@ function checkSubset(tree: Tree): Program {
         continue;
       case 'function_definition': {
         const name = functionName(n);
+        if (/::/.test(name)) {
+          outOfClass.push(n); // int Dog::getAge() { ... }
+          continue;
+        }
         if (functions.has(name)) throw unsupported(n, 'two functions with the same name');
         functions.set(name, n);
         continue;
       }
       case 'declaration':
         if (n.childForFieldName('declarator')?.type === 'function_declarator') throw unsupported(n, 'function declarations without a body');
+        if (n.childForFieldName('type')?.childForFieldName('body')) throw unsupported(n, 'a struct and a variable in one line');
         globals.push(n);
         continue;
       default:
         throw unsupported(n, FEATURES[n.type] ?? n.type.replace(/_/g, ' '));
+    }
+  }
+  for (const def of outOfClass) {
+    const q = def.childForFieldName('declarator')!.childForFieldName('declarator')!;
+    const owner = structs.get(q.childForFieldName('scope')?.text ?? '');
+    const member = q.childForFieldName('name')?.text ?? '';
+    if (!owner) throw unsupported(def, `the function ${q.text}`);
+    if (member === owner.name) owner.ctors.push(def);
+    else if (q.childForFieldName('name')?.type === 'destructor_name') throw unsupported(def, 'destructors');
+    else {
+      if (owner.methods.has(member)) throw unsupported(def, 'two methods with the same name');
+      owner.methods.set(member, def);
     }
   }
   const main = functions.get('main');
@@ -312,6 +457,11 @@ function checkSubset(tree: Tree): Program {
     if (feature && !scanfAddress && !catchText) throw unsupported(n, feature);
     if (dialect === 'c' && n.type === 'reference_declarator') throw unsupported(n, 'references (&)');
     if (n.type === 'unary_expression' && n.childForFieldName('operator')?.type === '&') throw unsupported(n, 'pointers');
+    // Inside functions: struct Point p (a type) is fine; a struct definition is not.
+    if ((n.type === 'struct_specifier' || n.type === 'class_specifier') && n.childForFieldName('body')) throw unsupported(n, 'structs inside functions');
+    if (n.type === 'field_expression' && n.childForFieldName('operator')?.type === '->' && n.childForFieldName('argument')?.type !== 'this') {
+      throw unsupported(n, 'pointers (->)');
+    }
     if (n.type === 'template_type') {
       const name = n.childForFieldName('name')?.text;
       if (name !== 'vector') throw unsupported(n, name ?? 'templates');
@@ -324,6 +474,10 @@ function checkSubset(tree: Tree): Program {
   };
   for (const f of functions.values()) visit(f);
   for (const g of globals) visit(g);
+  for (const st of new Set(structs.values())) {
+    for (const m of [...st.ctors, ...st.methods.values()]) visit(m);
+    for (const fd of st.fields) if (fd.def) visit(fd.def);
+  }
   return { main, functions, globals };
 }
 
@@ -333,9 +487,13 @@ function checkSubset(tree: Tree): Program {
 interface DeclType {
   t: CType;
   elem?: Prim;
+  /** struct: its name */
+  cls?: string;
 }
 
 function primOf(n: Node | null): Prim | 'void' | 'auto' {
+  const sname = structName(n);
+  if (sname) return sname as Prim; // vector<Point>: the struct name is the item type
   const text = (n?.text ?? 'void').replace(/^const\s+/, '').replace(/^std::/, '');
   if (n?.type === 'placeholder_type_specifier' || text === 'auto') return 'auto';
   if (['int', 'short'].includes(text)) return 'int';
@@ -356,6 +514,8 @@ function typeOf(typeNode: Node | null): DeclType {
     return { t: 'vector', elem };
   }
   if (typeNode?.type === 'qualified_identifier' && /vector/.test(typeNode.text)) return typeOf(typeNode.childForFieldName('name'));
+  const sname = structName(typeNode);
+  if (sname) return { t: 'struct', cls: structs.get(sname)!.name };
   return { t: primOf(typeNode) };
 }
 
@@ -394,7 +554,7 @@ const declarators = (s: Node) => s.childrenForFieldName('declarator').filter((d)
 // Loops-and-lists view
 
 const LOOP_TYPES = new Set(['for_statement', 'for_range_loop', 'while_statement', 'do_statement']);
-const MUTATORS = new Set(['push_back', 'pop_back', 'clear', 'insert', 'erase']);
+const MUTATORS = new Set(['push_back', 'pop_back', 'clear', 'insert', 'erase', 'emplace_back']);
 
 const subscriptBase = (n: Node | null): string | null =>
   n?.type === 'subscript_expression' && n.childForFieldName('argument')?.type === 'identifier' ? n.childForFieldName('argument')!.text : null;
@@ -521,6 +681,7 @@ const UNSET = Symbol('unset');
 interface Cell {
   t: CType;
   elem?: Prim;
+  cls?: string;
   v: CVal | typeof UNSET;
 }
 
@@ -593,7 +754,8 @@ const declaredNames = (stmts: Node[]): { name: string; type: DeclType; arrayLen?
     const type = typeOf(s.childForFieldName('type'));
     for (const d of declarators(s)) {
       const info = declaratorInfo(d);
-      out.push({ name: info.name, type: info.arraySize !== undefined ? { t: 'array', elem: type.t as Prim } : type });
+      const elem = (type.t === 'struct' ? type.cls : type.t) as Prim;
+      out.push({ name: info.name, type: info.arraySize !== undefined ? { t: 'array', elem } : type });
     }
   }
   return out;
@@ -607,6 +769,10 @@ class Interp {
   private globals: Scope = new Scope(null);
   private input: Input;
   private stream = { fixed: false, precision: 6, boolalpha: false };
+  /** The struct whose method or constructor is running (for private members and members without this->). */
+  private currentStruct: CStruct | null = null;
+  /** The const method that is running, if any (it may not change its object). */
+  private constMethod: string | null = null;
 
   constructor(
     private program: Program,
@@ -719,7 +885,19 @@ class Interp {
   // ---- statements ---------------------------------------------------------------
 
   private targetName(n: Node): string {
+    // p.x = ... / this->age = ... / pts[0].x = ...: the struct changes.
+    if (n.type === 'field_expression') {
+      let o = n;
+      while (o.type === 'field_expression' || o.type === 'subscript_expression') o = o.childForFieldName('argument')!;
+      return o.type === 'this' ? 'this' : o.text;
+    }
+    if (n.type === 'identifier' && !this.scope.lookup(n.text) && this.scope.lookup('this')) return 'this';
     return subscriptBase(n) ?? n.text;
+  }
+
+  /** Where input goes: s.age keeps its full name (the explainer reads the member), a[i] is the list a. */
+  private inputTarget(n: Node): string {
+    return n.type === 'field_expression' && n.childForFieldName('argument')?.type === 'identifier' ? n.text : this.targetName(n);
   }
 
   private infoOf(s: Node): StepInfo {
@@ -738,7 +916,7 @@ class Interp {
           const { head, items } = chain(e, '<<');
           if (isStream(head, 'cout')) return { k: 'print' };
           const input = chain(e, '>>');
-          if (isStream(input.head, 'cin')) return { k: 'input', t: input.items.map((i) => this.targetName(i)) };
+          if (isStream(input.head, 'cin')) return { k: 'input', t: input.items.map((i) => this.inputTarget(i)) };
           void items;
         }
         if (e.type === 'call_expression') {
@@ -747,7 +925,7 @@ class Interp {
           if (/^(std::)?getline$/.test(f.text) && args[1]) return { k: 'input', t: [args[1].text] };
           if (['printf', 'puts', 'putchar'].includes(f.text)) return { k: 'print' };
           if (f.text === 'scanf') {
-            return { k: 'input', t: args.slice(1).map((a) => (a.type === 'pointer_expression' ? this.targetName(a.childForFieldName('argument')!) : this.targetName(a))) };
+            return { k: 'input', t: args.slice(1).map((a) => (a.type === 'pointer_expression' ? this.inputTarget(a.childForFieldName('argument')!) : this.inputTarget(a))) };
           }
           if (/^(std::)?swap$/.test(f.text)) {
             return { k: 'assign', t: [...new Set(args.map((a) => this.targetName(a)))], s: true };
@@ -995,7 +1173,16 @@ class Interp {
         continue;
       }
       if (info.arraySize !== undefined) {
-        const elem = type.t as Prim;
+        const elem = (type.t === 'struct' ? type.cls : type.t) as Prim;
+        if (isStructItem(elem)) {
+          const st = structs.get(elem)!;
+          const given = info.value ? named(info.value).map((e) => this.structFrom(e, st, info.name)) : [];
+          const size = info.arraySize ? this.num(this.eval(info.arraySize)) : given.length;
+          if (given.length > size) throw new CompileError(lineOf(d), `${info.name} has room for ${size} items, not ${given.length}.`);
+          while (given.length < size) given.push(info.value || isGlobal ? this.structFromValues(st, [], d) : this.construct(d, st, []));
+          binding.cell = { t: 'array', elem, v: { t: 'array', elem, v: given } };
+          continue;
+        }
         const fromText = info.value?.type === 'string_literal' || info.value?.type === 'concatenated_string';
         if (fromText && elem !== 'char') throw new CompileError(lineOf(d), `${info.name} is a list of ${elem}, so it can't hold text.`);
         const items = !info.value
@@ -1016,6 +1203,14 @@ class Interp {
         binding.cell.v = { t: 'vector', elem: type.elem, v: items };
         continue;
       }
+      if (type.t === 'struct') {
+        const st = structs.get(type.cls!)!;
+        // Point p;  Point p = {1, 2};  Point p{1, 2};  Dog d("Rex", 3);  Dog d = Dog("Rex", 3);  Point q = p; (a copy)
+        if (!info.value) binding.cell.v = isGlobal && !st.ctors.length ? this.structFromValues(st, [], d) : this.construct(d, st, []);
+        else if (info.value.type === 'argument_list') binding.cell.v = this.construct(d, st, named(info.value));
+        else binding.cell.v = this.structFrom(info.value, st, info.name);
+        continue;
+      }
       if (info.value) {
         const value = info.value.type === 'initializer_list' ? this.eval(named(info.value)[0]) : this.eval(info.value);
         if (type.t === 'auto') binding.cell = { t: value.t, elem: value.elem, v: this.copy(value) };
@@ -1026,6 +1221,7 @@ class Interp {
   }
 
   private vectorFrom(value: Node, elem: Prim): CVal[] {
+    if (value.type === 'initializer_list' && isStructItem(elem)) return named(value).map((e) => this.structFrom(e, structs.get(elem)!, 'this list'));
     if (value.type === 'initializer_list') return named(value).map((e) => this.convert(this.eval(e), { t: elem }, e, 'this list'));
     const v = this.eval(value);
     if (v.t !== 'vector') throw new CompileError(lineOf(value), 'A vector needs a list of values like {1, 2, 3}.');
@@ -1041,9 +1237,184 @@ class Interp {
     return int(0);
   }
 
-  /** Lists and text are copied when assigned or passed by value. */
+  /** Lists, text and structs are copied when assigned or passed by value (a struct copies its arrays too). */
   private copy(v: CVal): CVal {
-    return v.t === 'vector' ? { ...v, v: [...(v.v as CVal[])] } : v;
+    if (v.t === 'vector') return { ...v, v: (v.v as CVal[]).map((x) => this.copy(x)) };
+    if (v.t === 'struct') {
+      const fields = new Map<string, CVal>();
+      for (const [k, x] of v.v as Map<string, CVal>) fields.set(k, x.t === 'array' ? { ...x, v: (x.v as CVal[]).map((y) => this.copy(y)) } : this.copy(x));
+      return { ...v, v: fields };
+    }
+    return v;
+  }
+
+  /** The type of one item of a vector or array: a value type, or a struct. */
+  private itemType(elem: Prim | undefined): DeclType {
+    return isStructItem(elem) ? { t: 'struct', cls: structs.get(elem!)!.name } : { t: elem ?? 'int' };
+  }
+
+  // ---- structs and classes ---------------------------------------------------------
+
+  /** A struct with every member at its start: no value yet (or 0 when `zero`), then the values written in the struct. */
+  private blank(st: CStruct, zero: boolean): CVal {
+    const fields = new Map<string, CVal>();
+    for (const f of st.fields) {
+      let v: CVal;
+      if (f.size !== undefined) {
+        const elem = (f.type.t === 'struct' ? f.type.cls : f.type.t) as Prim;
+        const n = f.size ? this.num(this.eval(f.size)) : 0;
+        v = { t: 'array', elem, v: Array.from({ length: n }, () => (isStructItem(elem) ? this.blank(structs.get(elem)!, zero) : zero ? this.zeroOf(elem) : UNSET_VAL)) };
+      } else if (f.type.t === 'struct') v = this.blank(structs.get(f.type.cls!)!, zero);
+      else if (f.type.t === 'vector') v = { t: 'vector', elem: f.type.elem, v: [] };
+      else if (f.type.t === 'string') v = strv('');
+      else v = zero ? this.zeroOf(f.type.t as Prim) : UNSET_VAL;
+      fields.set(f.name, v);
+    }
+    const obj: CVal = { t: 'struct', cls: st.name, v: fields };
+    // int count = 0; written in the struct: set as the object is made.
+    for (const f of st.fields) {
+      if (!f.def) continue;
+      const value = f.def.type === 'initializer_list' && f.type.t === 'struct' ? this.structFrom(f.def, structs.get(f.type.cls!)!, f.name) : this.eval(f.def);
+      fields.set(f.name, this.copy(this.convert(value, f.type, f.def, f.name)));
+    }
+    return obj;
+  }
+
+  /** A struct from {1, 2}, {.x = 1}, another struct, or Dog("Rex", 3). */
+  private structFrom(n: Node, st: CStruct, name: string): CVal {
+    if (n.type === 'initializer_list') {
+      if (st.ctors.length) return this.construct(n, st, named(n));
+      return this.structFromValues(st, named(n), n);
+    }
+    return this.copy(this.convert(this.eval(n), { t: 'struct', cls: st.name }, n, name));
+  }
+
+  /** {1, 2} for a struct without constructors: members in order (or by name, .x = 1); the rest start at 0. */
+  private structFromValues(st: CStruct, items: Node[], at: Node): CVal {
+    if (items.length > st.fields.length) throw new CompileError(lineOf(at), `${st.name} has ${st.fields.length} members, not ${items.length}.`);
+    const obj = this.blank(st, true);
+    const fields = obj.v as Map<string, CVal>;
+    items.forEach((item, i) => {
+      let node = item;
+      let field = st.fields[i];
+      if (item.type === 'initializer_pair') {
+        const fname = named(item.childForFieldName('designator') ?? named(item)[0])[0]?.text ?? '';
+        field = st.fields.find((f) => f.name === fname)!;
+        if (!field) throw new CompileError(lineOf(item), `${st.name} has no member called ${fname}.`);
+        node = item.childForFieldName('value')!;
+      }
+      let value: CVal;
+      if (field.size !== undefined && node.type === 'initializer_list') {
+        const elem = (field.type.t === 'struct' ? field.type.cls : field.type.t) as Prim;
+        const current = fields.get(field.name)!;
+        const slots = current.v as CVal[];
+        named(node).forEach((e, k) => {
+          if (k >= slots.length) throw new CompileError(lineOf(e), `${field.name} has room for ${slots.length} items.`);
+          slots[k] = isStructItem(elem) ? this.structFrom(e, structs.get(elem)!, field.name) : this.convert(this.eval(e), { t: elem }, e, field.name);
+        });
+        return;
+      } else if (field.size !== undefined && (node.type === 'string_literal' || node.type === 'concatenated_string')) {
+        const text = this.eval(node).v as string;
+        const slots = fields.get(field.name)!.v as CVal[];
+        if (text.length + 1 > slots.length) throw new CompileError(lineOf(node), `${field.name} has room for ${slots.length - 1} letters.`);
+        [...text, '\u0000'].forEach((c, k) => (slots[k] = chr(c)));
+        return;
+      } else if (field.type.t === 'struct') value = this.structFrom(node, structs.get(field.type.cls!)!, field.name);
+      else if (field.type.t === 'vector') value = { t: 'vector', elem: field.type.elem, v: this.vectorFrom(node, field.type.elem!) };
+      else value = this.convert(this.eval(node), field.type, node, field.name);
+      fields.set(field.name, value);
+    });
+    return obj;
+  }
+
+  /** Make an object: run the constructor that fits the values (Dog d("Rex", 3)); without constructors, members have no value yet. */
+  private construct(at: Node, st: CStruct, argNodes: Node[]): CVal {
+    if (!st.ctors.length) {
+      if (argNodes.length) throw new CompileError(lineOf(at), `${st.name} has no constructor that takes ${argNodes.length} value${argNodes.length === 1 ? '' : 's'}.`);
+      return this.blank(st, false);
+    }
+    const paramsOf = (c: Node) => named(c.childForFieldName('declarator')!.childForFieldName('parameters')).filter((p) => p.type === 'parameter_declaration');
+    let fitting = st.ctors.filter((c) => paramsOf(c).length === argNodes.length);
+    if (fitting.length > 1) {
+      // Several with the same number of values: the one whose types fit (no conversions needed).
+      const values = argNodes.map((a) => this.eval(a));
+      const exact = fitting.filter((c) => paramsOf(c).every((p, i) => typeOf(p.childForFieldName('type')).t === values[i].t));
+      if (exact.length) fitting = exact;
+    }
+    const ctor = fitting[0];
+    if (!ctor) {
+      throw new CompileError(lineOf(at), `${st.name} has no constructor that takes ${argNodes.length ? `${argNodes.length} value${argNodes.length === 1 ? '' : 's'}` : 'no values'}.`);
+    }
+    const obj = this.blank(st, false);
+    return this.callFn(at, ctor, argNodes, obj, `${st.name}::${st.name}`, obj, st);
+  }
+
+  /** : name(n), age(a) before a constructor's body. */
+  private initMembers(ctor: Node, st: CStruct, obj: CVal) {
+    const list = named(ctor).find((c) => c.type === 'field_initializer_list');
+    const fields = obj.v as Map<string, CVal>;
+    for (const fi of named(list)) {
+      const fname = named(fi)[0]?.text ?? '';
+      const field = st.fields.find((f) => f.name === fname);
+      if (!field) throw new CompileError(lineOf(fi), `${st.name} has no member called ${fname}.`);
+      const args = named(named(fi)[1]);
+      let value: CVal;
+      if (field.type.t === 'struct') {
+        const inner = structs.get(field.type.cls!)!;
+        value = args.length === 1 && !inner.ctors.length ? this.structFrom(args[0], inner, fname) : this.construct(fi, inner, args);
+      } else if (field.type.t === 'vector') value = args.length ? { t: 'vector', elem: field.type.elem, v: this.vectorFrom(args[0], field.type.elem!) } : { t: 'vector', elem: field.type.elem, v: [] };
+      else if (!args.length) value = field.type.t === 'string' ? strv('') : this.zeroOf(field.type.t as Prim);
+      else value = this.convert(this.eval(args[0]), field.type, fi, fname);
+      fields.set(fname, this.copy(value));
+    }
+  }
+
+  /** A constructor is done: its return step shows the new object. */
+  private made(ctor: Node, obj: CVal): CVal {
+    const top = this.rt.stack[this.rt.stack.length - 1];
+    this.rt.hooks.ret(top.pending ?? lineOf(ctor), obj);
+    return obj;
+  }
+
+  /** p.x / this->age / pts[0].x: the struct, its member's name and type, with C++'s checks. */
+  private member(n: Node): { fields: Map<string, CVal>; name: string; type: DeclType; size: Node | null | undefined; isSelf: boolean } {
+    const objNode = n.childForFieldName('argument')!;
+    const name = n.childForFieldName('field')!.text;
+    const obj = this.eval(objNode);
+    if (obj.t !== 'struct') throw new CompileError(lineOf(n), `${objNode.text} is not a struct, so it has no member ${name}.`);
+    const st = structs.get(obj.cls!)!;
+    const field = st.fields.find((f) => f.name === name);
+    if (!field) throw new CompileError(lineOf(n), `${st.name} has no member called ${name}.`);
+    if (field.isPrivate && this.currentStruct?.name !== st.name) {
+      throw new CompileError(lineOf(n), `${name} is private in ${st.name}, so only code inside ${st.name} can use it.`);
+    }
+    const self = this.scope.lookup('this')?.cell.v;
+    return { fields: obj.v as Map<string, CVal>, name, type: field.type, size: field.size, isSelf: self === obj };
+  }
+
+  /** A member used without this-> inside a method (age instead of this->age). */
+  private implicitMember(id: Node): Binding | undefined {
+    const self = this.scope.lookup('this')?.cell.v;
+    if (!self || self === UNSET || self.t !== 'struct' || this.scope.lookup(id.text)) return undefined;
+    const fields = self.v as Map<string, CVal>;
+    if (!fields.has(id.text)) return undefined;
+    const st = structs.get(self.cls!)!;
+    const field = st.fields.find((f) => f.name === id.text)!;
+    const constMethod = this.constMethod;
+    // A cell that reads and writes the member in place.
+    const cell = {
+      t: field.size !== undefined ? ('array' as CType) : field.type.t,
+      elem: field.type.elem,
+      cls: field.type.cls,
+      get v() {
+        return fields.get(id.text)!;
+      },
+      set v(x: CVal) {
+        if (constMethod) throw new CompileError(lineOf(id), `${constMethod} is a const method, so it can't change ${id.text}.`);
+        fields.set(id.text, x);
+      },
+    };
+    return { cell: cell as Cell };
   }
 
   private truthy(v: CVal): boolean {
@@ -1069,6 +1440,8 @@ class Interp {
     try {
       let items: CVal[] | null = null;
       let itemBinding: Binding | null = null;
+      let isRef = false;
+      let listText = '';
       if (s.type === 'for_statement') {
         const init = s.childForFieldName('initializer');
         if (init?.type === 'declaration') {
@@ -1081,20 +1454,39 @@ class Interp {
         if (list.t !== 'vector' && list.t !== 'array' && list.t !== 'string') throw unsupported(s, 'this kind of range-for loop');
         items = list.t === 'string' ? [...(list.v as string)].map(chr) : (list.v as CVal[]);
         const declNode = s.childForFieldName('declarator')!;
-        const isRef = declNode.type === 'reference_declarator';
+        isRef = declNode.type === 'reference_declarator';
+        if (isRef && list.t === 'string') throw unsupported(s, 'range-for loops with & over text');
+        listText = s.childForFieldName('right')!.text;
         const type = typeOf(s.childForFieldName('type'));
-        itemBinding = { cell: { t: type.t === 'auto' ? list.elem ?? 'int' : type.t, v: UNSET } };
+        const itemT = type.t === 'auto' ? this.itemType(list.t === 'string' ? 'char' : list.elem) : type;
+        itemBinding = { cell: { ...itemT, v: UNSET } };
         this.scope.vars.set(v ?? 'item', itemBinding);
-        if (isRef) throw unsupported(s, 'range-for loops with &');
       }
       let first = true;
       let k = 0;
       for (;;) {
         if (items) {
           if (k >= items.length) break;
-          const item = items[k++];
-          if (item === UNSET_VAL) throw new CppCrash('Uninitialized', `item ${k - 1} has no value yet`);
-          itemBinding!.cell.v = this.convert(item, itemBinding!.cell, s, v ?? 'item');
+          const at = k++;
+          const item = items[at];
+          if (item === UNSET_VAL) throw new CppCrash('Uninitialized', `item ${at} has no value yet`);
+          if (isRef) {
+            // for (auto& p : pts): p is the item itself (changing p changes pts[at]).
+            const list = items;
+            const base = itemBinding!.cell;
+            const cell = {
+              t: base.t,
+              elem: base.elem,
+              cls: base.cls,
+              get v() {
+                return list[at];
+              },
+              set v(x: CVal) {
+                list[at] = x;
+              },
+            };
+            this.scope.vars.set(v ?? 'item', { cell: cell as Cell, refOf: `${listText}[${at}]` });
+          } else itemBinding!.cell.v = this.copy(this.convert(item, itemBinding!.cell, s, v ?? 'item'));
         } else if (s.type !== 'do_statement' || !first) {
           if (condNode && !this.truthy(this.eval(condNode))) break;
         }
@@ -1131,12 +1523,26 @@ class Interp {
   private call(node: Node, name: string, argNodes: Node[]): CVal {
     const f = this.program.functions.get(name);
     if (!f) throw unsupported(node, `the function ${name}`);
-    const params = named(f.childForFieldName('declarator')!.childForFieldName('parameters')).filter((p) => p.type === 'parameter_declaration');
+    return this.callFn(node, f, argNodes, null, name, null, null);
+  }
+
+  /**
+   * Run a function, a method (with `self`: this, the first variable of its frame)
+   * or a constructor (with `making`: the new object; its member list runs first).
+   */
+  private callFn(node: Node, f: Node, argNodes: Node[], self: CVal | null, label: string, making: CVal | null, st: CStruct | null): CVal {
+    const declarator = f.childForFieldName('declarator')!;
+    const params = named(declarator.childForFieldName('parameters')).filter((p) => p.type === 'parameter_declaration');
+    const shown = label.replace(/^\w+::/, '');
     if (params.length !== argNodes.length) {
-      throw new CompileError(lineOf(node), `${name} needs ${params.length} value${params.length === 1 ? '' : 's'}, not ${argNodes.length}.`);
+      throw new CompileError(lineOf(node), `${shown} needs ${params.length} value${params.length === 1 ? '' : 's'}, not ${argNodes.length}.`);
     }
     const scope = new Scope(this.globals, true);
     const names: string[] = [];
+    if (self) {
+      scope.vars.set('this', { cell: { t: 'struct', cls: self.cls, v: self } });
+      names.push('this');
+    }
     params.forEach((p, i) => {
       const decl = p.childForFieldName('declarator');
       const info = decl ? declaratorInfo(decl) : { name: `arg${i}`, reference: false, arraySize: undefined, value: null };
@@ -1152,22 +1558,33 @@ class Interp {
         const a = this.eval(arg);
         if (a.t !== 'array') throw new CompileError(lineOf(arg), `${info.name} needs an array.`);
         scope.vars.set(info.name, { cell: { t: 'array', elem: a.elem, v: a } }); // arrays are not copied
+      } else if (type.t === 'struct' && arg.type === 'initializer_list') {
+        scope.vars.set(info.name, { cell: { ...type, v: this.structFrom(arg, structs.get(type.cls!)!, info.name) } });
       } else {
         scope.vars.set(info.name, { cell: { ...type, v: this.copy(this.convert(this.eval(arg), type, arg, info.name)) } });
       }
       names.push(info.name);
     });
-    const returnType = typeOf(f.childForFieldName('type'));
+    const returnType = making ? ({ t: 'void' } as DeclType) : typeOf(f.childForFieldName('type'));
     const saved = this.scope;
+    const savedStruct = this.currentStruct;
+    const savedConst = this.constMethod;
     this.scope = scope;
-    this.rt.hooks.enter(name, this.namesId(names), this.getters(names));
+    this.currentStruct = st;
+    // int getAge() const { ... }: the method may not change its object.
+    const methodName = declarator.childForFieldName('declarator')!.text.replace(/^\w+::/, '');
+    this.constMethod = named(declarator).some((c) => c.type === 'type_qualifier' && c.text === 'const') ? methodName : null;
+    this.rt.hooks.enter(label, this.namesId(names), this.getters(names), self ? 1 : 0);
     try {
+      if (making && st) this.initMembers(f, st, making);
       this.execBody(f.childForFieldName('body')!);
-      if (returnType.t !== 'void' && name !== 'main') throw new CompileError(lineOf(f), `${name} must return a value.`);
+      if (making) return this.made(f, making);
+      if (returnType.t !== 'void' && label !== 'main') throw new CompileError(lineOf(f), `${shown} must return a value.`);
       return VOID;
     } catch (e) {
       if (e instanceof ReturnSignal) {
-        const value = returnType.t === 'void' ? VOID : this.convert(e.value, returnType, node, name);
+        if (making) return this.made(f, making);
+        const value = returnType.t === 'void' ? VOID : this.copy(this.convert(e.value, returnType, node, shown));
         this.rt.hooks.ret(e.line, value.t === 'vector' || value.t === 'array' ? value.v : value);
         return value;
       }
@@ -1177,15 +1594,21 @@ class Interp {
       this.scope = scope;
       this.rt.hooks.leave();
       this.scope = saved;
+      this.currentStruct = savedStruct;
+      this.constMethod = savedConst;
     }
   }
 
   // ---- expressions ----------------------------------------------------------------
 
   /** Assignment conversions (C++ converts numbers silently; text and lists must match). */
-  private convert(v: CVal, to: { t: CType; elem?: Prim }, at: Node, name: string): CVal {
+  private convert(v: CVal, to: { t: CType; elem?: Prim; cls?: string }, at: Node, name: string): CVal {
     if (v === UNSET_VAL) throw new CppCrash('Uninitialized', `${name} was given a value that has no value yet`);
     const t = to.t;
+    if (t === 'struct' || v.t === 'struct') {
+      if (t === 'auto' || (t === 'struct' && v.t === 'struct' && v.cls === to.cls)) return v;
+      return this.mismatch(v, to, at, name);
+    }
     if (t === 'auto' || v.t === t) return v.t === 'vector' && v.elem !== to.elem && to.elem ? this.mismatch(v, to, at, name) : v;
     if (NUMERIC.has(t) && NUMERIC.has(v.t)) {
       const x = this.num(v);
@@ -1199,8 +1622,8 @@ class Interp {
     return this.mismatch(v, to, at, name);
   }
 
-  private mismatch(v: CVal, to: { t: CType; elem?: Prim }, at: Node, name: string): never {
-    const what = to.t === 'vector' ? `vector<${to.elem}>` : to.t;
+  private mismatch(v: CVal, to: { t: CType; elem?: Prim; cls?: string }, at: Node, name: string): never {
+    const what = to.t === 'vector' ? `vector<${to.elem}>` : to.t === 'struct' ? to.cls! : to.t;
     throw new CompileError(lineOf(at), `${name} is ${/^[aeiou]/.test(what) ? 'an' : 'a'} ${what} box, so it can't hold ${formatCpp(v)}.`);
   }
 
@@ -1259,6 +1682,14 @@ class Interp {
     }
     const a = this.eval(n.childForFieldName('left')!);
     const b = this.eval(n.childForFieldName('right')!);
+    if (a.t === 'struct' || b.t === 'struct') {
+      const s = (a.t === 'struct' ? a : b) as CVal;
+      const first = structs.get(s.cls!)!.fields[0]?.name ?? 'x';
+      if (['==', '!=', '<', '<=', '>', '>='].includes(op)) {
+        throw new CompileError(lineOf(n), `${LANG_NAME()} can't compare two ${s.cls} values with ${op}: compare their parts, like a.${first} ${op} b.${first}.`);
+      }
+      throw new CompileError(lineOf(n), `${op} does not work on ${s.cls} values: use their parts, like a.${first}.`);
+    }
     if (a.t === 'string' || b.t === 'string') {
       if (op === '+') {
         if ((a.t !== 'string' && a.t !== 'char') || (b.t !== 'string' && b.t !== 'char')) {
@@ -1317,6 +1748,10 @@ class Interp {
       case 'vector':
       case 'array':
         throw unsupported(at, 'printing a whole list with cout');
+      case 'struct': {
+        const first = structs.get(v.cls!)!.fields[0]?.name ?? 'x';
+        throw new CompileError(lineOf(at), `cout can't print a ${v.cls} directly: print its parts, like ${at.text}.${first}.`);
+      }
       default:
         if (v === UNSET_VAL) throw new CppCrash('Uninitialized', 'a value was printed before it was given one');
         return String(v.v);
@@ -1351,11 +1786,12 @@ class Interp {
   }
 
   private lvalueType(t: Node): CType {
+    if (t.type === 'field_expression') return this.member(t).type.t;
     if (t.type === 'subscript_expression') {
       const list = this.eval(t.childForFieldName('argument')!);
       return list.elem ?? (list.t === 'string' ? 'char' : 'int');
     }
-    const b = this.scope.lookup(t.text);
+    const b = this.scope.lookup(t.text) ?? this.implicitMember(t);
     if (!b) throw new CompileError(lineOf(t), `${t.text} is used but never declared.`);
     return b.cell.t;
   }
@@ -1383,22 +1819,30 @@ class Interp {
       const { list, index } = this.element(target);
       if (list.t === 'string') throw unsupported(target, 'changing one letter of text');
       const items = list.v as CVal[];
-      items[index] = this.convert(value, { t: list.elem ?? 'int' }, target, target.text);
+      items[index] = this.copy(this.convert(value, this.itemType(list.elem), target, target.text));
       return items[index];
+    }
+    if (target.type === 'field_expression') {
+      const m = this.member(target);
+      if (m.isSelf && this.constMethod) throw new CompileError(lineOf(target), `${this.constMethod} is a const method, so it can't change ${m.name}.`);
+      if (m.size !== undefined) throw new CompileError(lineOf(target), `${LANG_NAME()} can't give a whole array a new value: change its items one by one.`);
+      const stored = this.copy(this.convert(value, m.type, target, target.text));
+      m.fields.set(m.name, stored);
+      return stored;
     }
     if (target.type === 'parenthesized_expression') return this.assignTo(named(target)[0], value);
     if (target.type !== 'identifier') throw unsupported(target, 'this kind of assignment');
-    const b = this.scope.lookup(target.text);
+    const b = this.scope.lookup(target.text) ?? this.implicitMember(target);
     if (!b) throw new CompileError(lineOf(target), `${target.text} is used but never declared.`);
     if (b.cell.t === 'vector') {
       if (value.t !== 'vector') this.mismatch(value, b.cell, target, target.text);
       b.cell.v = this.copy(value);
-    } else b.cell.v = this.convert(value, b.cell, target, target.text);
+    } else b.cell.v = this.copy(this.convert(value, b.cell, target, target.text));
     return b.cell.v;
   }
 
   private readVar(id: Node): CVal {
-    const b = this.scope.lookup(id.text);
+    const b = this.scope.lookup(id.text) ?? this.implicitMember(id);
     if (!b) {
       if (/^(std::)?(endl|cout|cin)$/.test(id.text)) throw unsupported(id, `${id.text} here`);
       if (id.text === 'INT_MAX') return int(2147483647);
@@ -1410,6 +1854,12 @@ class Interp {
   }
 
   private readTarget(n: Node): CVal {
+    if (n.type === 'field_expression') {
+      const m = this.member(n);
+      const v = m.fields.get(m.name)!;
+      if (v === UNSET_VAL) throw new CppCrash('Uninitialized', `${n.text} was used before it was given a value`);
+      return v;
+    }
     if (n.type === 'subscript_expression') {
       const { list, index } = this.element(n);
       if (list.t === 'string') return chr((list.v as string)[index]);
@@ -1498,7 +1948,13 @@ class Interp {
         return this.convert(this.eval(n.childForFieldName('value')!), t, n, 'this value');
       }
       case 'subscript_expression':
+      case 'field_expression':
         return this.readTarget(n);
+      case 'this': {
+        const self = this.scope.lookup('this');
+        if (!self) throw new CompileError(lineOf(n), "this can only be used inside a struct's own methods and constructors.");
+        return self.cell.v as CVal;
+      }
       case 'call_expression':
         return this.invoke(n);
       default:
@@ -1525,10 +1981,26 @@ class Interp {
       if (obj.t === 'string') return this.stringMethod(n, obj, method, args());
       if (obj.t === 'exception' && method === 'what' && !argNodes.length) return strv(obj.v as string);
       if (obj.t === 'vector') return this.vectorMethod(n, objNode, obj, method, argNodes);
+      if (obj.t === 'struct') {
+        const st = structs.get(obj.cls!)!;
+        const m = st.methods.get(method);
+        if (!m) throw new CompileError(lineOf(n), `${st.name} has no method called ${method}.`);
+        if (st.privateMethods.has(method) && this.currentStruct?.name !== st.name) {
+          throw new CompileError(lineOf(n), `${method} is private in ${st.name}, so only code inside ${st.name} can use it.`);
+        }
+        const label = objNode.type === 'identifier' ? `${objNode.text}.${method}` : objNode.type === 'this' ? method : `${st.name}::${method}`;
+        return this.callFn(n, m, argNodes, obj, label, null, st);
+      }
       throw unsupported(n, `.${method}()`);
     }
 
     const name = f.text.replace(/^std::/, '');
+    // A method of this struct, called inside another one (bark() instead of this->bark()).
+    const own = this.currentStruct?.methods.get(name);
+    const self = this.scope.lookup('this')?.cell.v;
+    if (own && self && self !== UNSET && !this.program.functions.has(name)) return this.callFn(n, own, argNodes, self, name, null, this.currentStruct);
+    // Dog("Rex", 3) as a value: a new object.
+    if (structs.has(name) && dialect === 'cpp') return this.construct(n, structs.get(name)!, argNodes);
     if (this.program.functions.has(name)) return this.call(n, name, argNodes);
     switch (name) {
       case 'printf': {
@@ -1575,6 +2047,7 @@ class Interp {
         const owner = (c: Node) => (c?.type === 'call_expression' ? c.childForFieldName('function')?.childForFieldName('argument')?.text : null);
         if (!owner(begin) || owner(begin) !== owner(end)) throw unsupported(n, 'sort like this');
         const list = this.eval(begin.childForFieldName('function')!.childForFieldName('argument')!);
+        if (isStructItem(list.elem)) throw new CompileError(lineOf(n), `sort can't put ${list.elem} values in order by itself.`);
         (list.v as CVal[]).sort((x, y) => (x.t === 'string' ? String(x.v).localeCompare(String(y.v)) : this.num(x) - this.num(y)));
         return VOID;
       }
@@ -1761,7 +2234,12 @@ class Interp {
     const args = () => argNodes.map((a) => this.eval(a));
     switch (method) {
       case 'push_back':
-        items.push(this.convert(args()[0], { t: vec.elem ?? 'int' }, n, objNode.text));
+        if (isStructItem(vec.elem)) items.push(this.structFrom(argNodes[0], structs.get(vec.elem!)!, objNode.text));
+        else items.push(this.convert(args()[0], { t: vec.elem ?? 'int' }, n, objNode.text));
+        return VOID;
+      case 'emplace_back':
+        if (!isStructItem(vec.elem)) throw unsupported(n, 'vector.emplace_back() here');
+        items.push(this.construct(n, structs.get(vec.elem!)!, argNodes));
         return VOID;
       case 'pop_back':
         if (!items.length) throw new CppCrash('IndexOutOfRange', 'pop_back on an empty list');

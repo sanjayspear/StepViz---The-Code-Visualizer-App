@@ -225,9 +225,14 @@ const LIFE: Record<SubKind, string[]> = {
 // --------------------------------------------------------------------------
 // Values in sentences
 
+/** The class a constructor frame makes: "new Dog(...)" (Java) or "Dog::Dog(...)" (C++). */
+function madeBy(frameName: string): RegExpExecArray | null {
+  return /^new (\w+)\(/.exec(frameName) ?? /^(\w+)::\1\(/.exec(frameName);
+}
+
 /** Fields of an object text like 'Dog {name: "Rex", age: 3}' or '{a: 1}', or null if it is not one (or cut short). */
 function objectFields(v: string): { cls: string; keys: string[]; values: string[] } | null {
-  const m = /^(\w+ )?\{(.*)\}$/.exec(v);
+  const m = /^(\w+ )?\{(.*)\}$/.exec(v.replace(/ \(same box as [^)]*\)$/, ''));
   if (!m) return null;
   const items = listItems(`[${m[2]}]`);
   if (!items) return null;
@@ -348,13 +353,21 @@ function whatVariants(sub: SubKind, f: Facts): string[] {
     }
     case 'input': {
       // Several values read at once: scanf("%s %d", ...) or cin >> a >> b.
-      const read = (d.targets ?? []).filter((t) => t in f.top.vars);
+      // s.age: the member's value inside the struct's text.
+      const valueOf = (t: string): string | undefined => {
+        if (t in f.top.vars) return f.top.vars[t];
+        const [base, member] = t.split('.');
+        const o = member && base in f.top.vars ? objectFields(f.top.vars[base]) : null;
+        return o && o.keys.includes(member) ? o.values[o.keys.indexOf(member)] : undefined;
+      };
+      const read = (d.targets ?? []).filter((t) => valueOf(t) !== undefined);
       if (read.length > 1) {
         const list = (xs: string[]) => `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
-        return [`We read ${list(read.map((t) => sayValue(f.top.vars[t])))} with ${f.words.input} and store them in ${list(read)}.`];
+        return [`We read ${list(read.map((t) => sayValue(valueOf(t)!)))} with ${f.words.input} and store them in ${list(read)}.`];
       }
       const name = d.targets?.[0];
-      const value = name && name in f.top.vars ? sayValue(f.top.vars[name]) : undefined;
+      const raw = name ? valueOf(name) : undefined;
+      const value = raw !== undefined ? sayValue(raw) : undefined;
       if (!name || value === undefined) return [`We read the next value with ${f.words.input}.`];
       return [`We read ${value} with ${f.words.input} and store it in ${name}.`, `${name} gets ${value}, the next value from the input.`];
     }
@@ -413,7 +426,7 @@ function whatVariants(sub: SubKind, f: Facts): string[] {
         .filter(([k]) => k !== 'this')
         .map(([k, v]) => `${k} = ${sayValue(v)}`)
         .join(', ');
-      const made = /^new (\w+)\(/.exec(callee);
+      const made = madeBy(callee);
       if (made) {
         return args
           ? [`We make a new ${made[1]} object. ${callee} starts in a new box with ${args}.`, `A new ${made[1]} object is being made: ${callee} gets its own box with ${args}.`]
@@ -428,7 +441,7 @@ function whatVariants(sub: SubKind, f: Facts): string[] {
     }
     case 'return': {
       const value = sayValue((f.top.returns ?? '').replace(/^returns /, ''));
-      const made = /^new (\w+)\(/.exec(f.top.name);
+      const made = madeBy(f.top.name);
       if (made) return [`The new ${made[1]} object is ready: ${value}. This box is removed on the next step.`, `${f.top.name} is done and hands back the new ${made[1]} object.`];
       return [`${f.top.name} is done and returns ${value}. Its box is removed on the next step.`, `${f.top.name} hands back ${value}. Its box will disappear next.`];
     }
@@ -467,7 +480,7 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
     const value = prevTop.returns.replace(/^returns /, '');
     if (f.top.vars[targets[0]] === value) {
       const v = sayValue(value);
-      const made = /^new (\w+)\(/.exec(prevTop.name);
+      const made = madeBy(prevTop.name);
       if (made) {
         return { sub: 'assign-from-call', variants: [`The new ${made[1]} object is stored in ${targets[0]}.`, `${targets[0]} now holds the new ${made[1]} object.`] };
       }

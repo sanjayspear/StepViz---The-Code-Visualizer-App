@@ -170,7 +170,7 @@ test('problems found before running stay on Home with a line number', () => {
   expect(msg(main('    int x = 1;\n    int* p = &x;'))).toBe("Line 9: StepViz can't run pointers in C++ yet.");
   expect(msg('#include <map>\n' + main('    int x = 1;'))).toBe("Line 1: StepViz can't run #include <map> in C++ yet.");
   expect(msg(HEAD + 'void f() {}')).toBe('Line 1: StepViz needs an int main() function to start the program.');
-  expect(msg(main('    struct P { int x; };'))).toBe("Line 8: StepViz can't run structs in C++ yet.");
+  expect(msg(main('    struct P { int x; };'))).toBe("Line 8: StepViz can't run structs inside functions in C++ yet.");
   expect(msg(main('    int x = 1;\n    int y = sizeof(x);'))).toBe("Line 9: StepViz can't run sizeof in C++ yet.");
   expect(msg(main('    string s = "a" + 5;'))).toBe('Line 8: Text can only be joined with text here. Use to_string() for numbers.');
   expect(msg(main('    y = 5;'))).toBe('Line 8: y is used but never declared.');

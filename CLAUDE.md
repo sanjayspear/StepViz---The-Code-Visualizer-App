@@ -51,7 +51,9 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      languages now show caught errors alike.
    - K1 (done): simple Java classes (fields, constructors, methods, this,
      private, toString, objects in arrays/lists).
-   - Planned, not built: C++ structs and classes, basic pointers, map.
+   - C4 (done): C++ structs and classes, C structs (typedef, designated
+     initializers), vectors/arrays of structs, range-for with &.
+   - Planned, not built: basic pointers, map (C++).
 
 Phase 1 covers:
 
@@ -252,6 +254,24 @@ Playwright tests. Static build for GitHub Pages.
   implements, static variables, inner (non-static) classes, generic classes,
   anonymous classes, this(...)/super(...), Object (so equals(Object) can't be
   written; == and the default equals compare objects, as in Java).
+- C++/C structs (C4, my call under the owner's delegation): same object text as
+  Java (p = Point {x: 1, y: 2}; a member with no value yet shows ?). C++ objects
+  are values: Point b = a copies, references show "(same box as a)", for (auto& q
+  : pts) shows "q = ... (same box as pts[0])" (range-for with & now works for all
+  vectors and arrays, not text). Constructor frame: "Dog::Dog("Rex", 3)" (not
+  "new", which means something else in C++), this first; member lists (: name(n))
+  run before the body. Methods: "d.birthday()"; inside a method without this->:
+  "bark()". Rules like the compiler: "C++ can't compare two Point values with ==:
+  compare their parts, like a.x == b.x."; "cout can't print a Point directly:
+  print its parts, like a.x."; "Point has 2 members, not 3."; "age is private in
+  Dog, so only code inside Dog can use it."; "getAge is a const method, so it
+  can't change age."; "Dog has no constructor that takes no values."; "sort can't
+  put Point values in order by itself." A member read before it has a value: the
+  usual Uninitialized crash. Input into a member reads "We read 16 with scanf and
+  store it in s.age." Unsupported: inheritance, virtual, operator overloading,
+  static members, friends, destructors, protected, structs inside functions, ->
+  except this->. Known limit: a member value written in the struct that uses
+  another member (int b = a + 1;) is not supported correctly.
 - List changes read item by item in every language: "nums[0] changes from 5 to 2.",
   "3 is added to the end of squares.", "4 is taken off the end of squares.",
   "7 is put in at position 1 of xs.", "1 is taken out of xs at position 0.",
@@ -289,14 +309,15 @@ Paused on 2026-11-25.
 - L1 (2026-11-25): Java ArrayList + Collections + more String/Character methods (tests in `tests/arraylist-java.spec.ts`).
 - T1 (2026-11-25): try/catch in Java and C++, step kind catch (tests in `tests/trycatch-java.spec.ts`, `tests/trycatch-cpp.spec.ts`).
 - T2 (2026-11-25): catch steps for Python and JavaScript (tests in `tests/trycatch-tracer.spec.ts`).
-- K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`; 169 tests pass).
+- K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
+- C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`; 174 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.
 - `wip/ai-explanations`: the older paused in-browser AI (WebLLM + Qwen). Superseded by `wip/llama-ai`; keep for reference only.
 
 ### Next step
-Continue the later stages in order: (1) Java ArrayList + more String methods (done, L1), (2) try/catch in Java and C++ (done, T1) and the catch kind for Python and JavaScript (done, T2); (3) simple Java classes (done, K1); next: (4) C++ structs/classes (same object text as Java), then basic pointers and map (pointers need a way to show "points to": decide, keeping the existing layout).
+Continue the later stages in order: (1) Java ArrayList + more String methods (done, L1), (2) try/catch in Java and C++ (done, T1) and the catch kind for Python and JavaScript (done, T2); (3) simple Java classes (done, K1); (4) C++ structs/classes (done, C4); next: basic pointers and map in C++ (pointers need a way to show "points to": decide, keeping the existing layout).
 
 ### Decisions to remember
 - The PDF is the source of truth; ask before adding anything not in it. Work in stages, commit each, push only when asked.
@@ -312,5 +333,5 @@ Continue the later stages in order: (1) Java ArrayList + more String methods (do
 - AI branch only: open Ollama (installed in /Applications, Llama 3.2 3B downloaded); nothing else needed on localhost.
 
 ### What the product owner still owes
-- Review of C3 and S1 (both live on the site), and L1 + T1 + T2 + K1 (not pushed); the owner said "you only review and continue", so I review each stage myself.
+- Review of C3 and S1 (both live on the site), and L1 + T1 + T2 + K1 + C4 (not pushed); the owner said "you only review and continue", so I review each stage myself.
 - Whether to push to GitHub.
