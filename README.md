@@ -54,6 +54,7 @@ npm test
   the built Java worker in a browser; `tests/java-app.spec.ts`: Java in the app
 - `tests/cpp.spec.ts`: the C++ interpreter under Node; `tests/cpp-app.spec.ts`: C++ in the app
 - `tests/c.spec.ts`: C mode under Node; `tests/c-app.spec.ts`: C in the app
+- `tests/switch.spec.ts`: switch in JavaScript, Java, C++ and C
 
 Run one file or one test:
 

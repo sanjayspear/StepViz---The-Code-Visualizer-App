@@ -36,6 +36,9 @@ type SubKind =
   | 'return'
   | 'return-nothing'
   | 'swap'
+  | 'switch-case'
+  | 'switch-default'
+  | 'switch-none'
   | 'other';
 
 /** Everyday comparisons, each tagged with the sub-kind it fits. */
@@ -172,6 +175,27 @@ const LIFE: Record<SubKind, string[]> = {
     'Like two people swapping seats in one move.',
     'Like switching two cards in your hand.',
     'Like moving two cups so the smaller one comes first.',
+  ],
+  'switch-case': [
+    'Like a lift going straight to the floor you pressed.',
+    'Like sorting a letter into the box with the right number.',
+    'Like a menu where you jump straight to the dish you ordered.',
+    'Like a train taking the track for its destination.',
+    'Like turning to the chapter whose number you were given.',
+  ],
+  'switch-default': [
+    'Like a "for everything else" box when no labelled box fits.',
+    'Like ordering the house special because your dish is not on the menu.',
+    'Like a lost-property desk taking anything that has no owner.',
+    'Like the last door in a hallway that opens for everyone.',
+    'Like a teacher saying "if none of these apply, do this".',
+  ],
+  'switch-none': [
+    'Like pressing a lift button for a floor that does not exist: nothing happens.',
+    'Like checking every box on a list and finding none that fits.',
+    'Like a vending machine ignoring a code it does not know.',
+    'Like looking for your name on a list and not finding it.',
+    'Like a key that fits none of the doors, so you walk on.',
   ],
   other: [
     'Like following the next instruction in a recipe.',
@@ -367,6 +391,17 @@ function whatVariants(sub: SubKind, f: Facts): string[] {
     }
     case 'return-nothing':
       return [`${f.top.name} is done and gives nothing back. Its box is removed on the next step.`, `${f.top.name} has finished its work. Its box will disappear next.`];
+    case 'switch-case':
+    case 'switch-default':
+    case 'switch-none': {
+      const c = cond ?? 'the value';
+      const value = cond && cond in f.top.vars ? sayValue(f.top.vars[cond]) : undefined;
+      const is = value !== undefined ? `${c} is ${value}` : `The switch checks ${c}`;
+      if (sub === 'switch-none') return [`${is} and no case matches, so the whole switch is skipped.`];
+      if (sub === 'switch-default') return [`${is} and no case matches, so the default part runs.`];
+      const label = d.caseLabel!;
+      return [`${is}, so the switch jumps to case ${label}.`, `The switch looks at ${c}${value !== undefined ? ` (${value})` : ''} and goes to case ${label}.`];
+    }
     case 'swap': {
       const [a, b] = f.step.list?.swap ?? [0, 0];
       const values = f.step.list?.values ?? [];
@@ -489,6 +524,10 @@ export function explainTrace(trace: Trace): TraceStep['explain'][] {
     } else if (kind === 'return') {
       const value = (f.top.returns ?? '').replace(/^returns /, '');
       sub = RETURN_NOTHING.has(value) || !value ? 'return-nothing' : 'return';
+      variants = whatVariants(sub, f);
+    } else if (kind === 'switch-case') {
+      const label = step.detail?.caseLabel;
+      sub = !label ? 'switch-none' : label === 'default' ? 'switch-default' : 'switch-case';
       variants = whatVariants(sub, f);
     } else if (kind === 'branch-skipped') {
       sub = step.detail?.toElse ? 'branch-else' : 'branch-skipped';

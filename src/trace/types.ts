@@ -95,6 +95,7 @@ export type StepKind =
   | 'call' // a function was called: a new frame
   | 'return' // a function returns
   | 'swap' // two list items are about to swap
+  | 'switch-case' // a switch jumps to a case (or, with no caseLabel, skips: nothing matched)
   | 'crash' // the program stopped with an error
   | 'other';
 
@@ -109,4 +110,6 @@ export interface StepDetail {
   targets?: string[];
   /** assigned at the same time, as in a, b = b, a + b */
   simultaneous?: boolean;
+  /** the case a switch jumped to ("3", "1 or 2", "default"); absent when nothing matched */
+  caseLabel?: string;
 }

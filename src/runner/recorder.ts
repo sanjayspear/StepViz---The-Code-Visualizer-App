@@ -84,6 +84,13 @@ function classify(
     case 'swap':
       kind = info.k;
       break;
+    case 'switch': {
+      kind = 'switch-case';
+      if (info.c) detail.condition = info.c;
+      const hit = info.cs?.find(([, a, b]) => next !== null && a <= next && next <= b);
+      if (hit) detail.caseLabel = hit[0];
+      break;
+    }
     default:
       kind = 'other';
   }

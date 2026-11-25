@@ -199,8 +199,6 @@ const FEATURES: Record<string, string> = {
   record_declaration: 'records',
   field_declaration: 'variables outside methods',
   constructor_declaration: 'constructors',
-  switch_expression: 'switch',
-  switch_statement: 'switch',
   try_statement: 'try/catch',
   try_with_resources_statement: 'try/catch',
   throw_statement: 'throw',
@@ -262,6 +260,13 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node> } {
     const visit = (n: Node) => {
       const feature = FEATURES[n.type];
       if (feature) throw unsupported(n, feature);
+      // switch works as a statement; a switch that gives a value (int y = switch ...) does not yet.
+      if (n.type === 'switch_expression' && !['block', 'switch_block_statement_group', 'switch_rule'].includes(n.parent?.type ?? '')) {
+        throw unsupported(n, 'switch as a value');
+      }
+      if (n.type === 'switch_label' && named(n).some((c) => !['decimal_integer_literal', 'character_literal', 'string_literal', 'unary_expression', 'identifier'].includes(c.type))) {
+        throw unsupported(n, 'this kind of case');
+      }
       if (n.type === 'type_identifier' && !ALLOWED_TYPES.has(n.text)) throw unsupported(n, `the type ${n.text}`);
       if (n.type === 'array_type' && n.childForFieldName('element')?.type === 'array_type') throw unsupported(n, 'arrays of arrays');
       if (n.type === 'array_type' && /\]\s*\[/.test(n.text)) throw unsupported(n, 'arrays of arrays');
@@ -454,6 +459,38 @@ const rangeOf = (n: Node | null): [number, number] | undefined => {
 };
 const inner = (n: Node | null) => (n?.type === 'parenthesized_expression' ? named(n)[0] : n!);
 
+/** One part of a switch: its case values (none for default), its statements, whether it is an arrow rule. */
+interface SwitchPart {
+  values: Node[];
+  isDefault: boolean;
+  body: Node[];
+  rule: boolean;
+}
+function switchParts(s: Node): SwitchPart[] {
+  return named(s.childForFieldName('body')).filter((g) => g.type === 'switch_block_statement_group' || g.type === 'switch_rule').map((g) => {
+    const labels = named(g).filter((c) => c.type === 'switch_label');
+    const body = named(g).filter((c) => c.type !== 'switch_label' && !c.type.endsWith('comment'));
+    return {
+      values: labels.flatMap((l) => named(l)),
+      isDefault: labels.some((l) => named(l).length === 0),
+      body: g.type === 'switch_rule' ? statementsOf(body[0] ?? null) : body,
+      rule: g.type === 'switch_rule',
+    };
+  });
+}
+/** [label, first line, last line] of each part with statements; empty parts join the next ("1 or 2"). */
+function switchCases(parts: { values: Node[]; isDefault: boolean; body: Node[] }[]): [string, number, number][] {
+  const out: [string, number, number][] = [];
+  let pending: string[] = [];
+  for (const p of parts) {
+    pending.push(...p.values.map((v) => v.text), ...(p.isDefault ? ['default'] : []));
+    if (!p.body.length) continue;
+    out.push([pending.join(' or '), lineOf(p.body[0]), p.body[p.body.length - 1].endPosition.row + 1]);
+    pending = [];
+  }
+  return out;
+}
+
 const SCANNER_READS = new Set(['nextInt', 'nextDouble', 'next', 'nextLine', 'nextBoolean', 'nextLong']);
 const isScannerRead = (e: Node | null) =>
   e?.type === 'method_invocation' && SCANNER_READS.has(e.childForFieldName('name')?.text ?? '') && !!e.childForFieldName('object');
@@ -634,6 +671,8 @@ class Interp {
         }
         return { k: 'other' };
       }
+      case 'switch_expression':
+        return { k: 'switch', c: inner(s.childForFieldName('condition')).text, cs: switchCases(switchParts(s)) };
       case 'if_statement': {
         const info: StepInfo = { k: 'branch', c: inner(s.childForFieldName('condition')).text };
         const b = rangeOf(s.childForFieldName('consequence'));
@@ -649,7 +688,7 @@ class Interp {
 
   /** The parts of a statement evaluated before its body (for array reads). */
   private headOf(s: Node): (Node | null)[] {
-    if (s.type === 'if_statement') return [s.childForFieldName('condition')];
+    if (s.type === 'if_statement' || s.type === 'switch_expression') return [s.childForFieldName('condition')];
     if (s.type === 'block') return [];
     return [s];
   }
@@ -688,6 +727,9 @@ class Interp {
         if (branch) this.execNested(branch);
         return;
       }
+      case 'switch_expression':
+        this.execSwitch(s);
+        return;
       case 'return_statement': {
         const e = named(s)[0];
         const value = e ? this.eval(e) : VOID;
@@ -702,6 +744,28 @@ class Interp {
         throw new ContinueSignal();
       default:
         throw unsupported(s, s.type.replace(/_/g, ' '));
+    }
+  }
+
+  /** switch: jump to the matching case (or default); without arrows, run on until break. */
+  private execSwitch(s: Node) {
+    const value = this.eval(inner(s.childForFieldName('condition')));
+    if (!['int', 'long', 'char', 'String'].includes(value.t)) throw new CompileError(lineOf(s), 'A switch needs a whole number, a char or text.');
+    const key = (x: JVal) => (x.t === 'char' ? (x.v as string).charCodeAt(0) : x.v);
+    const parts = switchParts(s);
+    let start = parts.findIndex((p) => p.values.some((v) => key(this.eval(v)) === key(value)));
+    if (start < 0) start = parts.findIndex((p) => p.isDefault);
+    if (start < 0) return;
+    const run = parts[start].rule ? parts[start].body : parts.slice(start).flatMap((p) => p.body);
+    const saved = this.scope;
+    this.scope = new Scope(saved);
+    for (const d of declaredIn(parts.flatMap((p) => p.body))) this.scope.vars.set(d.name, { ...d.type, v: UNSET });
+    try {
+      for (let i = 0; i < run.length; i++) this.exec(run[i], tempSwap(run, i));
+    } catch (e) {
+      if (!(e instanceof BreakSignal)) throw e;
+    } finally {
+      this.scope = saved;
     }
   }
 

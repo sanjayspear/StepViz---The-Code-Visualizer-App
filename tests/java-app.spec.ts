@@ -87,9 +87,9 @@ test('Scanner: the input box asks for input, and the program reads it', async ({
 test('Java errors: unsupported code and type problems stay on Home; a crash shows the error step', async ({ page }) => {
   await chooseJava(page);
   const wrap = (body: string) => `public class Main {\n    public static void main(String[] args) {\n${body}\n    }\n}`;
-  await setCode(page, wrap('        int x = 1;\n        switch (x) { case 1: break; }'));
+  await setCode(page, wrap('        int x = 1;\n        try { x = 2; } catch (Exception e) { }'));
   await visualize(page).click();
-  await expect(page.locator('.editor-card__error')).toHaveText("Line 4: StepViz can't run switch in Java yet.", { timeout: 30_000 });
+  await expect(page.locator('.editor-card__error')).toHaveText("Line 4: StepViz can't run try/catch in Java yet.", { timeout: 30_000 });
   await setCode(page, wrap('        int x = 2.5;'));
   await visualize(page).click();
   await expect(page.locator('.editor-card__error')).toHaveText("Line 3: x is an int box, so it can't hold 2.5.");

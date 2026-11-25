@@ -34,13 +34,15 @@ export interface JsListPlan {
  *  if body / else part or loop body, c = condition text, v = loop variable,
  *  t = names assigned, s = assigned at the same time (a, b = b, a + b). */
 export interface StepInfo {
-  k: 'define' | 'assign' | 'input' | 'print' | 'branch' | 'loop' | 'swap' | 'other';
+  k: 'define' | 'assign' | 'input' | 'print' | 'branch' | 'loop' | 'swap' | 'switch' | 'other';
   b?: [number, number];
   e?: [number, number];
   c?: string;
   v?: string;
   t?: string[];
   s?: boolean;
+  /** switch: [label, first line, last line] of each case that has statements */
+  cs?: [string, number, number][];
 }
 
 export interface Instrumented {
@@ -412,6 +414,19 @@ export function instrument(source: string): Instrumented | { error: JsSyntaxErro
         if (b) info.b = b;
         if (e) info.e = e;
         return info;
+      }
+      case 'SwitchStatement': {
+        // Empty cases fall through into the next case with statements: "1 or 2".
+        const cs: [string, number, number][] = [];
+        let pending: string[] = [];
+        for (const c of stmt.cases) {
+          pending.push(c.test ? text(c.test) : 'default');
+          const body = c.consequent.filter((x: N) => x.type !== 'EmptyStatement');
+          if (!body.length) continue;
+          cs.push([pending.join(' or '), body[0].loc.start.line, body[body.length - 1].loc.end.line]);
+          pending = [];
+        }
+        return { k: 'switch', c: text(stmt.discriminant), cs };
       }
       case 'VariableDeclaration': {
         const t = stmt.declarations.flatMap((d: N) => patternNames(d.id));

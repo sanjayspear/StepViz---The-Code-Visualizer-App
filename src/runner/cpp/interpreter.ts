@@ -208,7 +208,6 @@ const FEATURES: Record<string, string> = {
   namespace_definition: 'namespaces',
   try_statement: 'try/catch',
   throw_statement: 'throw',
-  switch_statement: 'switch',
   goto_statement: 'goto',
   labeled_statement: 'labels',
   field_declaration_list: 'structs',
@@ -519,6 +518,21 @@ const rangeOf = (n: Node | null): [number, number] | undefined => {
   const s = statementsOf(n);
   return s.length ? [lineOf(s[0]), s[s.length - 1].endPosition.row + 1] : undefined;
 };
+/** [label, first line, last line] of each case with statements; empty cases join the next ("1 or 2"). */
+function switchCases(s: Node): [string, number, number][] {
+  const out: [string, number, number][] = [];
+  let pending: string[] = [];
+  for (const c of named(s.childForFieldName('body')).filter((x) => x.type === 'case_statement')) {
+    const value = c.childForFieldName('value');
+    pending.push(value ? value.text : 'default');
+    const body = named(c).filter((x) => x.id !== value?.id && x.type !== 'comment');
+    if (!body.length) continue;
+    out.push([pending.join(' or '), lineOf(body[0]), body[body.length - 1].endPosition.row + 1]);
+    pending = [];
+  }
+  return out;
+}
+
 const conditionOf = (s: Node): Node => {
   const c = s.childForFieldName('condition')!;
   if (c.type === 'condition_clause') return c.childForFieldName('value') ?? named(c)[0];
@@ -714,6 +728,8 @@ class Interp {
         }
         return { k: 'other' };
       }
+      case 'switch_statement':
+        return { k: 'switch', c: conditionOf(s).text, cs: switchCases(s) };
       case 'if_statement': {
         const info: StepInfo = { k: 'branch', c: conditionOf(s).text };
         const b = rangeOf(s.childForFieldName('consequence'));
@@ -729,7 +745,7 @@ class Interp {
   }
 
   private headOf(s: Node): (Node | null)[] {
-    if (s.type === 'if_statement') return [conditionOf(s)];
+    if (s.type === 'if_statement' || s.type === 'switch_statement') return [conditionOf(s)];
     if (s.type === 'compound_statement') return [];
     return [s];
   }
@@ -768,6 +784,9 @@ class Interp {
         if (branch) this.execNested(branch);
         return;
       }
+      case 'switch_statement':
+        this.execSwitch(s);
+        return;
       case 'return_statement': {
         const e = named(s)[0];
         const value = e ? this.eval(e) : VOID;
@@ -779,6 +798,34 @@ class Interp {
         throw new ContinueSignal();
       default:
         throw unsupported(s, s.type.replace(/_/g, ' '));
+    }
+  }
+
+  /** switch: jump to the matching case (or default), then run on until break. */
+  private execSwitch(s: Node) {
+    const value = this.eval(conditionOf(s));
+    if (!['int', 'long', 'char', 'bool'].includes(value.t)) throw new CompileError(lineOf(s), 'A switch needs a whole number or a char.');
+    const cases = named(s.childForFieldName('body')).filter((x) => x.type === 'case_statement');
+    const bodyOf = (c: Node) => {
+      const v = c.childForFieldName('value');
+      return named(c).filter((x) => x.id !== v?.id && x.type !== 'comment');
+    };
+    let start = cases.findIndex((c) => {
+      const v = c.childForFieldName('value');
+      return !!v && this.num(this.eval(v)) === this.num(value);
+    });
+    if (start < 0) start = cases.findIndex((c) => !c.childForFieldName('value'));
+    if (start < 0) return;
+    const run = cases.slice(start).flatMap(bodyOf);
+    const saved = this.scope;
+    this.scope = new Scope(saved);
+    for (const d of declaredNames(cases.flatMap(bodyOf))) this.scope.vars.set(d.name, { cell: { ...d.type, v: UNSET } });
+    try {
+      for (let i = 0; i < run.length; i++) this.exec(run[i], tempSwap(run, i));
+    } catch (e) {
+      if (!(e instanceof BreakSignal)) throw e;
+    } finally {
+      this.scope = saved;
     }
   }
 

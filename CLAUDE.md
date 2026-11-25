@@ -38,8 +38,12 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      printf/puts/putchar, scanf with &x, text in char arrays, strlen/strcmp,
      <stdio.h> <stdlib.h> <math.h> <string.h> <stdbool.h> <limits.h>; four C
      examples (Factorial hand-written); C selectable.
-3. Later stages after C3 (planned, not built): Java ArrayList, more String methods,
-   switch, try/catch, simple classes; C++ structs and classes, basic pointers, map.
+3. Later stages after C3:
+   - S1 (done): switch in Java (statement form, incl. arrow cases and several
+     labels; "switch as a value" stays unsupported), C++, C and JavaScript; new
+     step kind switch-case (detail.caseLabel, absent when nothing matched).
+   - Planned, not built: Java ArrayList, more String methods, try/catch, simple
+     classes; C++ structs and classes, basic pointers, map.
 
 Phase 1 covers:
 
@@ -118,7 +122,10 @@ Playwright tests. Static build for GitHub Pages.
   from Hugging Face only), no accounts, no daily limits, accuracy guard, CSP allows
   only self + huggingface.co + *.hf.co.
 - Explainer rules: kinds are define, assign, input, print, branch-taken,
-  branch-skipped, loop-start, loop-next, loop-end, call, return, swap, crash, other.
+  branch-skipped, loop-start, loop-next, loop-end, call, return, swap,
+  switch-case, crash, other. switch: "day is 3, so the switch jumps to case 3.";
+  empty cases join the next ("case 1 or 7"); "day is 4 and no case matches, so
+  the default part runs." / "... so the whole switch is skipped."
   "b stays 1" when a value does not change; lists of more than 6 items and text over
   20 characters are summarised in sentences ("a list of 8 numbers", "a long piece of
   text"), frames keep real values. While loops: "Checking the condition again: total

@@ -171,7 +171,7 @@ test('problems found before running stay on Home with a line number', () => {
   expect(msg('#include <map>\n' + main('    int x = 1;'))).toBe("Line 1: StepViz can't run #include <map> in C++ yet.");
   expect(msg(HEAD + 'void f() {}')).toBe('Line 1: StepViz needs an int main() function to start the program.');
   expect(msg(main('    struct P { int x; };'))).toBe("Line 8: StepViz can't run structs in C++ yet.");
-  expect(msg(main('    int x = 1;\n    switch (x) { case 1: break; }'))).toBe("Line 9: StepViz can't run switch in C++ yet.");
+  expect(msg(main('    int x = 1;\n    try { x = 2; } catch (...) { }'))).toBe("Line 9: StepViz can't run try/catch in C++ yet.");
   expect(msg(main('    string s = "a" + 5;'))).toBe('Line 8: Text can only be joined with text here. Use to_string() for numbers.');
   expect(msg(main('    y = 5;'))).toBe('Line 8: y is used but never declared.');
 });
