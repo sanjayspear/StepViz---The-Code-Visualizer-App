@@ -52,7 +52,7 @@ export function runJs(source: string, opts: RunOptions): RawRunResult {
     } else {
       status = 'runtime-error';
       const err = e instanceof Error ? e : null;
-      error = recordCrash(rt, err?.name ?? 'Error', err ? err.message : short(e));
+      error = recordCrash(rt, err?.name ?? 'Error', err ? err.message : short(e), rt.jsThrownDetail(e));
     }
   }
   return finishRun(rt, inst.plan, status, error);

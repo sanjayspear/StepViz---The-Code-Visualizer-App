@@ -46,9 +46,11 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      autoboxing, Collections, more String methods, Character methods.
    - T1 (done): try/catch in Java (with finally, throw, throws) and C++ (throw of
      exceptions and plain values, catch (...), throw;); new step kind catch.
-   - Planned, not built: the catch kind for Python and JavaScript (they still
-     record the failing line as an ordinary step), simple Java classes; C++
-     structs and classes, basic pointers, map.
+   - T2 (done): the catch kind for Python (tracer.py: except headers get no step)
+     and JavaScript (instrumenter rewrites try/catch/finally and throw); all five
+     languages now show caught errors alike.
+   - Planned, not built: simple Java classes; C++ structs and classes, basic
+     pointers, map.
 
 Phase 1 covers:
 
@@ -223,6 +225,12 @@ Playwright tests. Static build for GitHub Pages.
   is a const char*, not caught by string); catch (exception e) by value gives
   what() "std::exception". Unsupported: Java try-with-resources, exceptions with a
   cause, printStackTrace; C++ custom exception classes, throw; outside a catch.
+  Python says "except part" and "raises" ("The program raises a ValueError with
+  the message "neg", and the except part takes over."); the others say "catch
+  part" and "throws". Python's except header lines get no step (like Java/C++
+  catch lines); the try line itself keeps its step in Python and JavaScript, as
+  before. JavaScript: names starting with __sv stay on Home ("Line 2: names
+  starting with __sv are used by StepViz. Please choose another name.").
 - List changes read item by item in every language: "nums[0] changes from 5 to 2.",
   "3 is added to the end of squares.", "4 is taken off the end of squares.",
   "7 is put in at position 1 of xs.", "1 is taken out of xs at position 0.",
@@ -258,14 +266,15 @@ Paused on 2026-11-25.
 - C3: C mode of the C++ interpreter (printf/scanf, char arrays, four examples). All 5 languages are exact traces; no "coming soon" left.
 - S1: switch in Java, C++, C and JavaScript (new step kind switch-case).
 - L1 (2026-11-25): Java ArrayList + Collections + more String/Character methods (tests in `tests/arraylist-java.spec.ts`).
-- T1 (2026-11-25): try/catch in Java and C++, step kind catch (tests in `tests/trycatch-java.spec.ts`, `tests/trycatch-cpp.spec.ts`; 156 tests pass).
+- T1 (2026-11-25): try/catch in Java and C++, step kind catch (tests in `tests/trycatch-java.spec.ts`, `tests/trycatch-cpp.spec.ts`).
+- T2 (2026-11-25): catch steps for Python and JavaScript (tests in `tests/trycatch-tracer.spec.ts`; 163 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.
 - `wip/ai-explanations`: the older paused in-browser AI (WebLLM + Qwen). Superseded by `wip/llama-ai`; keep for reference only.
 
 ### Next step
-Continue the later stages in order: (1) Java ArrayList + more String methods (done, L1), (2) try/catch in Java and C++ (done, T1); next: the catch kind for Python and JavaScript (small, keeps all languages alike), then (3) simple Java classes, (4) C++ structs/classes, basic pointers, map. Stages 3 and 4 need a new way to show objects/pointers/maps: ask about layout and wording first.
+Continue the later stages in order: (1) Java ArrayList + more String methods (done, L1), (2) try/catch in Java and C++ (done, T1) and the catch kind for Python and JavaScript (done, T2); next: (3) simple Java classes, (4) C++ structs/classes, basic pointers, map. Stages 3 and 4 need a new way to show objects/pointers/maps: ask about layout and wording first.
 
 ### Decisions to remember
 - The PDF is the source of truth; ask before adding anything not in it. Work in stages, commit each, push only when asked.
@@ -281,5 +290,5 @@ Continue the later stages in order: (1) Java ArrayList + more String methods (do
 - AI branch only: open Ollama (installed in /Applications, Llama 3.2 3B downloaded); nothing else needed on localhost.
 
 ### What the product owner still owes
-- Review of C3 and S1 (both live on the site), and L1 + T1 (not pushed).
-- Go-ahead for the next stage (catch kind for Python and JavaScript, then simple Java classes, which needs a layout for objects).
+- Review of C3 and S1 (both live on the site), and L1 + T1 + T2 (not pushed).
+- Go-ahead for the next stage (simple Java classes), and how objects should look on screen.

@@ -250,6 +250,11 @@ function findBlocked(ast: N): JsSyntaxError | null {
       const line = n.loc.start.line;
       found = { line, message: `Line ${line}: import is not available in StepViz.` };
     }
+    // Names starting with __sv belong to StepViz's own step recording.
+    if (n.type === 'Identifier' && n.name.startsWith('__sv')) {
+      const line = n.loc.start.line;
+      found = { line, message: `Line ${line}: names starting with __sv are used by StepViz. Please choose another name.` };
+    }
     return undefined;
   });
   return found;
@@ -263,6 +268,7 @@ export function instrument(source: string): Instrumented | { error: JsSyntaxErro
   if (blocked) return { error: blocked };
 
   const nameSets: string[][] = [];
+  let finallyCount = 0;
   const nameSetId = (names: string[]) => {
     const key = JSON.stringify(names);
     const found = nameSets.findIndex((s) => JSON.stringify(s) === key);
@@ -637,10 +643,49 @@ export function instrument(source: string): Instrumented | { error: JsSyntaxErro
       case 'ForOfStatement':
         transformLoop(stmt, scope);
         return;
-      case 'TryStatement':
+      case 'TryStatement': {
         transformBlock(stmt.block, scope);
-        if (stmt.handler) transformBlock(stmt.handler.body, scope, stmt.handler.param ? patternNames(stmt.handler.param) : []);
-        if (stmt.finalizer) transformBlock(stmt.finalizer, scope);
+        if (stmt.handler) {
+          // catch (e) { ... }  ->  catch (__svC) { __sv.caughtJs(__svC); let e = __svC; ... }
+          const h = stmt.handler;
+          const param = h.param;
+          transformBlock(h.body, scope, param ? patternNames(param) : []);
+          h.param = id('__svC');
+          const bind = param
+            ? [{ type: 'VariableDeclaration', kind: 'let', declarations: [{ type: 'VariableDeclarator', id: param, init: id('__svC') }] }]
+            : [];
+          h.body.body = [exprStmt(call('caughtJs', [id('__svC')])), ...bind, ...h.body.body];
+        }
+        if (stmt.finalizer) {
+          // An error that leaves the try: hold its crash step while the finally part runs.
+          //   { let k = null; try { <try/catch> } catch (__svH) { k = __sv.holdJs(__svH); throw __svH; }
+          //     finally { ...; __sv.resumeJs(k); } }
+          transformBlock(stmt.finalizer, scope);
+          const k = `__svF${finallyCount++}`;
+          const body = stmt.handler ? block([{ type: 'TryStatement', block: stmt.block, handler: stmt.handler, finalizer: null }]) : stmt.block;
+          const finalizer = block([...stmt.finalizer.body, exprStmt(call('resumeJs', [id(k)]))]);
+          const guarded = {
+            type: 'TryStatement',
+            block: body,
+            handler: {
+              type: 'CatchClause',
+              param: id('__svH'),
+              body: block([
+                exprStmt({ type: 'AssignmentExpression', operator: '=', left: id(k), right: call('holdJs', [id('__svH')]) }),
+                { type: 'ThrowStatement', argument: id('__svH') },
+              ]),
+            },
+            finalizer,
+          };
+          const decl = { type: 'VariableDeclaration', kind: 'let', declarations: [{ type: 'VariableDeclarator', id: id(k), init: lit(null) }] };
+          for (const key of Object.keys(stmt)) if (key !== 'loc') delete stmt[key];
+          Object.assign(stmt, { type: 'BlockStatement', body: [decl, guarded] });
+        }
+        return;
+      }
+      case 'ThrowStatement':
+        transformExpressions(stmt, scope, ['argument']);
+        stmt.argument = call('throwing', [stmt.argument]);
         return;
       case 'SwitchStatement':
         transformExpressions(stmt, scope, ['discriminant']);

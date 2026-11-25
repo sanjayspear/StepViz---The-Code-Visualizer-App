@@ -7,12 +7,12 @@ import type { StepKind, Trace, TraceFrame, TraceStep } from './types';
 
 type Lang = 'python' | 'javascript' | 'java' | 'cpp' | 'c';
 
-const WORDS: Record<Lang, { lang: string; print: string; input: string; fn: string }> = {
-  python: { lang: 'Python', print: 'print', input: 'input()', fn: 'function' },
-  javascript: { lang: 'JavaScript', print: 'console.log', input: 'the input', fn: 'function' },
-  java: { lang: 'Java', print: 'System.out.println', input: 'Scanner', fn: 'method' },
-  cpp: { lang: 'C++', print: 'cout', input: 'cin', fn: 'function' },
-  c: { lang: 'C', print: 'printf', input: 'scanf', fn: 'function' },
+const WORDS: Record<Lang, { lang: string; print: string; input: string; fn: string; catchPart: string; throws: string }> = {
+  python: { lang: 'Python', print: 'print', input: 'input()', fn: 'function', catchPart: 'except part', throws: 'raises' },
+  javascript: { lang: 'JavaScript', print: 'console.log', input: 'the input', fn: 'function', catchPart: 'catch part', throws: 'throws' },
+  java: { lang: 'Java', print: 'System.out.println', input: 'Scanner', fn: 'method', catchPart: 'catch part', throws: 'throws' },
+  cpp: { lang: 'C++', print: 'cout', input: 'cin', fn: 'function', catchPart: 'catch part', throws: 'throws' },
+  c: { lang: 'C', print: 'printf', input: 'scanf', fn: 'function', catchPart: 'catch part', throws: 'throws' },
 };
 
 /** What-variants and real-life lines are chosen per sub-kind (a finer kind). */
@@ -550,7 +550,7 @@ export function explainTrace(trace: Trace): TraceStep['explain'][] {
       if (d?.thrown) {
         const type = d.errorType;
         const what = type ? `${/^[aeiou]/i.test(type) ? 'an' : 'a'} ${type}${d.errorMessage ? ` with the message "${d.errorMessage}"` : ''}` : `the value ${d.errorMessage ?? ''}`;
-        return { what: `The program throws ${what}, and no catch part takes it, so the program stops.`, life: '' };
+        return { what: `The program ${words.throws} ${what}, and no ${words.catchPart} takes it, so the program stops.`, life: '' };
       }
       return { what: errorSentence(step.error?.type ?? '', lang), life: '' };
     }
@@ -579,15 +579,19 @@ export function explainTrace(trace: Trace): TraceStep['explain'][] {
         const a = type && /^[aeiou]/i.test(type) ? 'an' : 'a';
         const what = type ? `${a} ${type}${d.errorMessage ? ` with the message "${d.errorMessage}"` : ''}` : `the value ${d.errorMessage ?? ''}`;
         variants = d.finallyOnly
-          ? [`The program throws ${what}. Nothing catches it here, so the finally part runs first.`]
-          : [`The program throws ${what}, and the catch part takes over.`, `This line throws ${what}. Instead of stopping, the program jumps to the catch part.`];
+          ? [`The program ${words.throws} ${what}. Nothing catches it here, so the finally part runs first.`]
+          : [
+              `The program ${words.throws} ${what}, and the ${words.catchPart} takes over.`,
+              `This line ${words.throws} ${what}. Instead of stopping, the program jumps to the ${words.catchPart}.`,
+            ];
       } else if (d.finallyOnly) {
         sub = 'catch';
         variants = [`${errorSentence(type ?? '', lang)} Nothing catches it here, so the finally part runs first.`];
       } else {
         sub = 'catch';
         const problem = errorSentence(type ?? '', lang);
-        variants = [`${problem} Instead of stopping, the program jumps to the catch part.`, `${problem} The catch part takes over, so the program does not stop.`];
+        const part = words.catchPart;
+        variants = [`${problem} Instead of stopping, the program jumps to the ${part}.`, `${problem} The ${part} takes over, so the program does not stop.`];
       }
     } else if (kind === 'branch-skipped') {
       sub = step.detail?.toElse ? 'branch-else' : 'branch-skipped';

@@ -389,6 +389,24 @@ def _line_kinds(tree, source):
     return info
 
 
+def _try_lines(tree):
+    """Lines of try statements: except headers, except bodies, finally bodies, raise statements."""
+    headers, handlers, finals, raises = set(), set(), set(), set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Try):
+            for h in node.handlers:
+                headers.add(h.lineno)
+                rng = _block_range(h.body)
+                if rng:
+                    handlers.update(range(rng[0], rng[1] + 1))
+            rng = _block_range(node.finalbody)
+            if rng:
+                finals.update(range(rng[0], rng[1] + 1))
+        elif isinstance(node, ast.Raise):
+            raises.add(node.lineno)
+    return headers, handlers, finals, raises
+
+
 def _in_range(line, rng):
     return line is not None and rng is not None and rng[0] <= line <= rng[1]
 
@@ -486,22 +504,41 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
     plan = _ListPlan()
     plan.visit(tree)
     kinds = _line_kinds(tree, source)
+    except_headers, except_lines, finally_lines, raise_lines = _try_lines(tree)
     list_names = plan.candidates + [n for n in plan.weak if n not in plan.candidates]
 
     out = io.StringIO()
     g = {"__name__": "__main__", "__builtins__": _safe_builtins(out, json.loads(inputs_json))}
 
     steps = []
-    # Each entry: [frame, label, pending_line, raised, active_loops]. Bottom to
+    # Each entry: [frame, label, pending_line, raised, active_loops, unwinding]. Bottom to
     # top; index 0 is the module (Global). pending_line is the line that is
     # running in that frame and gets its step when it finishes; active_loops
-    # holds the header lines of loops that have started (for loop-start/next).
+    # holds the header lines of loops that have started (for loop-start/next);
+    # unwinding: an uncaught error is running this frame's finally part.
     stack = []
     deadline = time.monotonic() + max_seconds
     # "crash": the step to show if an exception ends the program. Taken when
     # the exception first appears, in the frame where it happened; cleared
     # when the program carries on (the exception was caught).
     state = {"module": None, "crash": None, "crash_exc": None}
+
+    def catch_detail(exc, finally_only):
+        """The catch step's detail: the error's type, and its message when the program raised it itself."""
+        detail = {"errorType": type(exc).__name__} if exc is not None else {}
+        tb = getattr(exc, "__traceback__", None)
+        origin = None
+        while tb is not None:
+            if tb.tb_frame.f_code.co_filename == USER_FILE:
+                origin = tb.tb_lineno
+            tb = tb.tb_next
+        if origin in raise_lines:
+            detail["thrown"] = True
+            if str(exc):
+                detail["errorMessage"] = str(exc)
+        if finally_only:
+            detail["finallyOnly"] = True
+        return detail
 
     def global_vars():
         result = {}
@@ -607,7 +644,25 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
         if not stack or stack[-1][0] is not frame:
             return local_trace
         entry = stack[-1]
-        if event == "line":  # the program carried on, so any exception was caught
+        line = frame.f_lineno
+        if event == "line" and entry[3] and entry[2] is not None:
+            # An error is on its way through this frame. Python checks each except
+            # header (no step for those); the first line of an except body means it
+            # was caught, a finally line means only the finally part runs first.
+            if line in except_headers:
+                return local_trace
+            exc = state["crash_exc"]
+            # Loops the error jumped out of start from their first round next time.
+            entry[4] = {l for l in entry[4] if _in_range(line, (kinds.get(l) or {}).get("body"))}
+            if line in finally_lines and line not in except_lines:
+                record(entry[2], kind="catch", detail=catch_detail(exc, True))
+                entry[2] = line
+                entry[3] = False
+                entry[5] = True  # still on its way: no return step, and keep the crash step
+                return local_trace
+            record(entry[2], kind="catch", detail=catch_detail(exc, False))
+            entry[2] = None
+        if event == "line" and not entry[5]:  # the program carried on, so any exception was caught
             state["crash"] = None
             state["crash_exc"] = None
         if event == "line":
@@ -619,12 +674,21 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
                 entry[2] = None  # already shown; the next step shows the swapped list
         elif event == "exception":
             entry[3] = True
+            entry[5] = False
             exc = arg[1] if isinstance(arg, tuple) and len(arg) > 1 else None
             if state["crash_exc"] is not exc or state["crash"] is None:
                 state["crash"] = snapshot(frame.f_lineno, error=True)
                 state["crash"]["kind"] = "crash"
                 state["crash_exc"] = exc
         elif event == "return":
+            if entry[5]:
+                # The finally part is done and the error goes on: record its last line, no return step.
+                if entry[2] is not None:
+                    record_line(entry, None)
+                if frame is state["module"]:
+                    return None
+                stack.pop()
+                return local_trace
             if frame is state["module"]:
                 if entry[2] is not None and not entry[3]:
                     record_line(entry, None)  # the last line of the program
@@ -643,12 +707,12 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
             return None
         if state["module"] is None:
             state["module"] = frame
-            stack.append([frame, "Global", None, False, set()])
+            stack.append([frame, "Global", None, False, set(), False])
             return local_trace
         name = frame.f_code.co_name
         if name.startswith("<"):  # lambdas, generator expressions
             return None
-        stack.append([frame, _frame_label(frame), None, False, set()])
+        stack.append([frame, _frame_label(frame), None, False, set(), False])
         caller = frame.f_back
         record(caller.f_lineno if caller is not None else frame.f_lineno, kind="call")
         return local_trace
@@ -679,6 +743,9 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
         if crash is not None and steps:
             crash["output"] = out.getvalue()
             crash["error"] = {"type": error["type"], "message": error["message"]}
+            thrown = catch_detail(e, False)
+            if thrown.get("thrown"):
+                crash["detail"] = thrown  # the program's own raise that nothing caught
             steps.append(crash)
     finally:
         sys.settrace(None)

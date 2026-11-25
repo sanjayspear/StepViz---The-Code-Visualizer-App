@@ -184,6 +184,9 @@ export class Recorder {
   crash: RawStep | null = null;
   crashExc: unknown = undefined;
   hasCrash = false;
+  /** JavaScript: the value of the last throw statement (to tell the program's own throw from an engine error) */
+  private lastThrown: unknown = undefined;
+  private hasThrown = false;
   private deadline: number;
   private now: () => number;
 
@@ -420,6 +423,23 @@ export class Recorder {
       this.crashExc = held.crashExc;
       this.hasCrash = true;
     },
+    // ---- JavaScript try/catch (the instrumenter calls these) ----
+    /** throw x: remember x, so a catch can tell the program threw it itself. */
+    throwing: <T,>(value: T): T => {
+      this.lastThrown = value;
+      this.hasThrown = true;
+      return value;
+    },
+    /** First thing in a catch part. */
+    caughtJs: (e: unknown) => {
+      this.hooks.caught(this.jsCatchInfo(e, false));
+    },
+    /** An error leaves a try that has a finally part. */
+    holdJs: (e: unknown) => (e instanceof StopRun ? null : this.hooks.holdCrash(e, this.jsCatchInfo(e, true))),
+    /** End of that finally part. */
+    resumeJs: (held: { crash: RawStep | null; crashExc: unknown } | null) => {
+      if (held) this.hooks.resumeCrash(held);
+    },
     /** A loop left by an error: its next start is a first round again. */
     dropLoop: (line: number) => {
       this.stack[this.stack.length - 1].activeLoops.delete(line);
@@ -439,6 +459,25 @@ export class Recorder {
       this.output += `${logText(args)}\n`;
     },
   };
+
+  /** JavaScript: the crash detail when the program's own throw was not caught. */
+  jsThrownDetail(e: unknown): { errorType?: string; errorMessage?: string } | undefined {
+    const info = this.jsCatchInfo(e, false);
+    if (!info.th) return undefined;
+    return { ...(info.et ? { errorType: info.et } : {}), ...(info.em ? { errorMessage: info.em } : {}) };
+  }
+
+  private jsCatchInfo(e: unknown, finallyOnly: boolean): StepInfo {
+    const info: StepInfo = { k: 'catch' };
+    if (e instanceof Error) info.et = e.name;
+    if (this.hasThrown && e === this.lastThrown) {
+      info.th = true;
+      const message = e instanceof Error ? e.message : short(e);
+      if (message) info.em = message;
+    }
+    if (finallyOnly) info.fo = true;
+    return info;
+  }
 
   /** The last line of the program has finished. */
   finish() {
