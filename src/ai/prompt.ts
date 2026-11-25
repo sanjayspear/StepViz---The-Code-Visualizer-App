@@ -21,7 +21,8 @@ Reply with JSON only: {"what": "...", "life": "..."}
 - "life": one short everyday comparison that starts with "Like".
 - Use only the facts you are given. Only mention variable names and numbers that appear in the facts.
 - Do not mention step numbers. Do not invent values.
-- A correct plain description is given; say the same thing in your own friendly words.`;
+- A correct plain description is given. "what" must say the same thing in friendly words and add nothing new: no guesses about what happens later, no counts of rounds.
+- "life" must fit this exact event (making a box, changing a value, a loop round, printing...).`;
 
 const frameText = (f: TraceFrame) => {
   const vars = Object.entries(f.vars)
