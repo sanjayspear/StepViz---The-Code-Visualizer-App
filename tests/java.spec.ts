@@ -156,7 +156,7 @@ test('problems found before running stay on Home with a line number', () => {
   expect(msg('public class Main {\n    static void hi() {}\n}')).toBe('Line 1: StepViz needs a public class Main with a main method.');
   expect(msg(main('        int[][] a = {{1, 2}};'))).toBe("Line 3: StepViz can't run arrays of arrays in Java yet.");
   expect(msg(main('        int x = 1;\n        try { x = 2; } catch (Exception e) { }'))).toBe("Line 4: StepViz can't run try/catch in Java yet.");
-  expect(msg('import java.util.ArrayList;\n' + main('        int x = 1;'))).toBe("Line 1: StepViz can't run the import java.util.ArrayList in Java yet.");
+  expect(msg('import java.util.HashMap;\n' + main('        int x = 1;'))).toBe("Line 1: StepViz can't run the import java.util.HashMap in Java yet.");
   expect(msg(main('        Object o = new Object();'))).toMatch(/^Line 3: StepViz can't run (the type Object|new objects) in Java yet\.$/);
   expect(msg(main('        try { int x = 1; } catch (Exception e) { }'))).toBe("Line 3: StepViz can't run try/catch in Java yet.");
   expect(msg(main('        int x = 2.5;'))).toBe("Line 3: x is an int box, so it can't hold 2.5.");

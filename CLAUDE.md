@@ -42,8 +42,10 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
    - S1 (done): switch in Java (statement form, incl. arrow cases and several
      labels; "switch as a value" stays unsupported), C++, C and JavaScript; new
      step kind switch-case (detail.caseLabel, absent when nothing matched).
-   - Planned, not built: Java ArrayList, more String methods, try/catch, simple
-     classes; C++ structs and classes, basic pointers, map.
+   - L1 (done): Java ArrayList / List (generics with Integer, Double, String...),
+     autoboxing, Collections, more String methods, Character methods.
+   - Planned, not built: try/catch, simple classes; C++ structs and classes,
+     basic pointers, map.
 
 Phase 1 covers:
 
@@ -182,6 +184,21 @@ Playwright tests. Static build for GitHub Pages.
   & is allowed only as a scanf argument. A temp-variable swap is one swap step in
   C and C++ too. scanf/cin reading several values: "We read "Sam", 15 and 1.75
   with scanf and store them in name, age and h."
+- Java L1 rules (ArrayList, agreed as the next stage; wording to be reviewed): lists show
+  like arrays ([1, 2, 3]); list.remove(int) removes a position, remove(Integer/other
+  value) removes the first equal item, like Java; Integer objects compared with ==
+  ask "the same object?" (values -128..127 are shared, like Java's cache), .equals
+  compares values; unboxing null is a NullPointerException. A for-each over a list
+  follows Java's iterator (ConcurrentModificationException: "The list was changed
+  while a for-each loop was going through it."). Index crash: "This position is
+  outside the list." Arrays.asList / List.of only inside new ArrayList<>(...).
+  Home messages: "An ArrayList holds objects, not int values: write
+  ArrayList<Integer>.", "a holds Double values, so it can't hold 5.", "a is a list:
+  use a.size() for how many items it has.", "x is an Integer box, so it can't hold
+  2.5." Text sorts in Java order (by character codes: "B" before "a"; this also
+  fixed Arrays.sort). String methods that change nothing return the same object
+  (== shows it). Temp-variable swaps with get/set and Collections.swap are one
+  swap step. No new example chip (ask first).
 - List changes read item by item in every language: "nums[0] changes from 5 to 2.",
   "3 is added to the end of squares.", "4 is taken off the end of squares." List
   methods (append, push, pop, sort...) count as changes (assign kind).
@@ -210,13 +227,14 @@ Paused on 2026-11-25.
 - C1 + C2: C++ interpreter (functions, references, globals, vector, cin/cout, crashes, four examples).
 - C3: C mode of the C++ interpreter (printf/scanf, char arrays, four examples). All 5 languages are exact traces; no "coming soon" left.
 - S1: switch in Java, C++, C and JavaScript (new step kind switch-case).
+- L1 (2026-11-25): Java ArrayList + Collections + more String/Character methods (tests in `tests/arraylist-java.spec.ts`; 143 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.
 - `wip/ai-explanations`: the older paused in-browser AI (WebLLM + Qwen). Superseded by `wip/llama-ai`; keep for reference only.
 
 ### Next step
-Ask the product owner: run the Llama 3.1 8B comparison, or keep AI off. Then continue the later stages in order: (1) Java ArrayList + more String methods, (2) try/catch in Java and C++, (3) simple Java classes, (4) C++ structs/classes, basic pointers, map. Stages 3 and 4 need a new way to show objects/pointers/maps: ask about layout and wording first.
+Product owner reviews L1 (and its open wording questions: sentences for adding/removing in the middle of a list and clear(); an ArrayList example chip?). Ask: run the Llama 3.1 8B comparison, or keep AI off. Then continue the later stages in order: (1) Java ArrayList + more String methods (done, L1), (2) try/catch in Java and C++, (3) simple Java classes, (4) C++ structs/classes, basic pointers, map. Stages 3 and 4 need a new way to show objects/pointers/maps: ask about layout and wording first.
 
 ### Decisions to remember
 - The PDF is the source of truth; ask before adding anything not in it. Work in stages, commit each, push only when asked.
@@ -232,6 +250,6 @@ Ask the product owner: run the Llama 3.1 8B comparison, or keep AI off. Then con
 - AI branch only: open Ollama (installed in /Applications, Llama 3.2 3B downloaded); nothing else needed on localhost.
 
 ### What the product owner still owes
-- Review of C3 and S1 (both live on the site).
+- Review of C3 and S1 (both live on the site), and L1 (not pushed).
 - Decision on AI: try Llama 3.1 8B, or keep AI off.
-- Go-ahead for the next stage (Java ArrayList + String methods).
+- Go-ahead for the next stage (try/catch in Java and C++).

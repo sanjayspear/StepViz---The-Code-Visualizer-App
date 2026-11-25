@@ -14,6 +14,15 @@
 // Arrays.sort; Integer.parseInt, Double.parseDouble, String.valueOf;
 // Integer.MAX_VALUE/MIN_VALUE; Scanner(System.in) with nextInt, nextDouble,
 // next, nextLine, nextBoolean, hasNext, hasNextInt, hasNextLine.
+// L1: ArrayList<Integer> / List<String> (new ArrayList<>(), from Arrays.asList or
+// List.of, or a copy) with add, get, set, remove (position or value), size,
+// isEmpty, clear, contains, indexOf, addAll, equals; for-each over lists with
+// Java's iterator (ConcurrentModificationException); Integer/Double... boxes
+// (== on Integer objects compares objects, small ones are shared); Collections
+// sort, reverse, swap, max, min; String substring, indexOf, lastIndexOf,
+// contains, startsWith, endsWith, toUpperCase, toLowerCase, trim, strip,
+// isEmpty, isBlank, replace, repeat, concat, compareTo, equalsIgnoreCase, split,
+// toCharArray; String.join; Character.isDigit/isLetter/... and toUpperCase.
 import type { Node, Tree } from 'web-tree-sitter';
 import type { RawRunResult } from '../protocol';
 import { Input } from '../input';
@@ -34,20 +43,30 @@ import {
 // Values
 
 type Prim = 'int' | 'long' | 'double' | 'boolean' | 'char' | 'String';
-export type JType = Prim | 'null' | 'void' | 'array' | 'Scanner';
+export type JType = Prim | 'null' | 'void' | 'array' | 'list' | 'Scanner';
+
+/** Integer, Double... : the box types an ArrayList holds, and the value type inside. */
+const WRAPPERS: Record<string, Prim> = { Integer: 'int', Long: 'long', Double: 'double', Boolean: 'boolean', Character: 'char', String: 'String' };
+const WRAPPER_OF: Record<Prim, string> = { int: 'Integer', long: 'Long', double: 'Double', boolean: 'Boolean', char: 'Character', String: 'String' };
 
 /**
  * A Java value with its type. char values hold the character as a string.
  * Arrays: t = 'array', v = the elements, elem = element type.
- * Strings and arrays carry an identity (id), so == compares objects like Java:
- * the same text written in the program is one shared object; text built while
- * the program runs is a new object each time.
+ * ArrayList: t = 'list', v = the elements, elem = the value type inside the boxes
+ * (Integer -> 'int'), mod = how many times it was changed (for for-each loops).
+ * Strings, arrays, lists and boxed values carry an identity (id), so == compares
+ * objects like Java: the same text written in the program is one shared object;
+ * text built while the program runs is a new object each time. A boxed value
+ * (boxed: true) is an Integer, Double... object; small Integers are shared, like
+ * Java's cache (-128 to 127).
  */
 export interface JVal {
   t: JType;
   v: number | boolean | string | null | JVal[];
   elem?: Prim;
   id?: string | number;
+  boxed?: boolean;
+  mod?: number;
 }
 
 const isJVal = (x: unknown): x is JVal => typeof x === 'object' && x !== null && !Array.isArray(x) && 't' in x && 'v' in x;
@@ -86,11 +105,20 @@ export function javaString(val: JVal): string {
       const hash = (0x1b6d3586 + Number(val.id ?? 0) * 0x9e37) >>> 0;
       return `[${ARRAY_CODE[val.elem ?? 'int']}@${hash.toString(16)}`;
     }
+    case 'list':
+      return arrayText(val);
     case 'Scanner':
       return 'java.util.Scanner';
     default:
+      if (val.v === null) return 'null';
       return String(val.v);
   }
+}
+
+/** String.compareTo: the difference of the first different character codes, else of the lengths. */
+function compareText(a: string, b: string): number {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a.charCodeAt(i) - b.charCodeAt(i);
+  return a.length - b.length;
 }
 
 /** Arrays.toString: [1, 2, 3]. */
@@ -104,7 +132,7 @@ export function formatJava(x: unknown): string | undefined {
   if (x.t === 'String') return x.v === null ? 'null' : JSON.stringify(x.v);
   if (x.t === 'char') return `'${x.v}'`;
   if (x.t === 'void') return 'nothing';
-  if (x.t === 'array') return formatJava(x.v);
+  if (x.t === 'array' || x.t === 'list') return formatJava(x.v);
   if (x.t === 'Scanner') return 'Scanner';
   return javaString(x);
 }
@@ -114,6 +142,23 @@ const dbl = (n: number): JVal => ({ t: 'double', v: n });
 const bool = (b: boolean): JVal => ({ t: 'boolean', v: b });
 const str = (s: string, id: string | number = freshId()): JVal => ({ t: 'String', v: s, id });
 const VOID: JVal = { t: 'void', v: null };
+
+/** Autoboxing: an int becomes an Integer object. Small values share one object, like Java's cache. */
+function box(v: JVal): JVal {
+  if (v.boxed || v.t === 'String' || v.t === 'null') return v;
+  const n = v.t === 'char' ? (v.v as string).charCodeAt(0) : (v.v as number);
+  const cached =
+    v.t === 'boolean' || ((v.t === 'int' || v.t === 'long') && n >= -128 && n <= 127) || (v.t === 'char' && n <= 127);
+  return { t: v.t, v: v.v, boxed: true, id: cached ? `B:${v.t}:${String(v.v)}` : freshId() };
+}
+/** Unboxing: an Integer object gives its int (null cannot be unboxed). */
+function unbox(v: JVal): JVal {
+  if (!v.boxed || v.t === 'String') return v;
+  if (v.v === null) throw new JavaException('NullPointerException', `Cannot unbox a null ${WRAPPER_OF[v.t as Prim] ?? 'value'}`);
+  return { t: v.t, v: v.v };
+}
+/** Integer.equals, String.equals...: same kind of value and the same value. */
+const sameValue = (a: JVal, b: JVal) => (a.v === null || b.v === null ? a.v === b.v : a.t === b.t && a.v === b.v);
 const NULL: JVal = { t: 'null', v: null };
 
 /** Default value of a new array element. */
@@ -204,7 +249,6 @@ const FEATURES: Record<string, string> = {
   throw_statement: 'throw',
   lambda_expression: 'lambdas',
   method_reference: 'method references',
-  generic_type: 'generics',
   this: 'this',
   super: 'super',
   instanceof_expression: 'instanceof',
@@ -216,8 +260,29 @@ const FEATURES: Record<string, string> = {
   class_declaration: 'classes other than Main',
 };
 
-const IMPORTS = new Set(['java.util.Scanner', 'java.util.Arrays', 'java.util.*']);
-const ALLOWED_TYPES = new Set(['int', 'long', 'double', 'float', 'boolean', 'char', 'short', 'byte', 'String', 'void', 'Scanner']);
+const IMPORTS = new Set(['java.util.Scanner', 'java.util.Arrays', 'java.util.ArrayList', 'java.util.List', 'java.util.Collections', 'java.util.*']);
+const ALLOWED_TYPES = new Set([
+  'int', 'long', 'double', 'float', 'boolean', 'char', 'short', 'byte', 'String', 'void', 'Scanner',
+  'Integer', 'Long', 'Double', 'Boolean', 'Character', 'ArrayList', 'List',
+]);
+const LIST_TYPES = new Set(['ArrayList', 'List']);
+
+/** ArrayList<Integer>, List<String>, ArrayList<> (after new): checks the box type inside. */
+function checkGeneric(n: Node) {
+  const base = named(n)[0];
+  const args = named(named(n)[1]);
+  if (!base || !LIST_TYPES.has(base.text)) throw unsupported(n, `the type ${n.text}`);
+  if (args.length === 0 && n.parent?.type === 'object_creation_expression') return;
+  if (args.length !== 1) throw unsupported(n, `the type ${n.text}`);
+  const arg = args[0];
+  if (arg.type === 'generic_type') throw unsupported(n, 'lists of lists');
+  if (arg.type === 'array_type') throw unsupported(n, 'lists of arrays');
+  if (arg.type === 'integral_type' || arg.type === 'floating_point_type' || arg.type === 'boolean_type') {
+    const w = arg.text === 'char' ? 'Character' : arg.text === 'int' ? 'Integer' : arg.text.charAt(0).toUpperCase() + arg.text.slice(1);
+    throw new CompileError(lineOf(n), `An ${base.text} holds objects, not ${arg.text} values: write ${base.text}<${w}>.`);
+  }
+  if (!(arg.text in WRAPPERS)) throw unsupported(n, `the type ${n.text}`);
+}
 
 function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node> } {
   const root = tree.rootNode;
@@ -268,11 +333,29 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node> } {
         throw unsupported(n, 'this kind of case');
       }
       if (n.type === 'type_identifier' && !ALLOWED_TYPES.has(n.text)) throw unsupported(n, `the type ${n.text}`);
+      if (n.type === 'generic_type') {
+        checkGeneric(n);
+        return;
+      }
+      if (n.type === 'type_identifier' && LIST_TYPES.has(n.text)) throw unsupported(n, `${n.text} without the type of its items (like ${n.text}<Integer>)`);
+      if (n.type === 'array_type' && /^(Integer|Long|Double|Boolean|Character|ArrayList|List)\b/.test(n.text)) throw unsupported(n, `arrays of ${n.childForFieldName('element')!.text}`);
       if (n.type === 'array_type' && n.childForFieldName('element')?.type === 'array_type') throw unsupported(n, 'arrays of arrays');
       if (n.type === 'array_type' && /\]\s*\[/.test(n.text)) throw unsupported(n, 'arrays of arrays');
       if (n.type === 'array_creation_expression' && n.childrenForFieldName('dimensions').length > 1) throw unsupported(n, 'arrays of arrays');
-      if (n.type === 'object_creation_expression' && !/^new\s+Scanner\s*\(\s*System\.in\s*\)$/.test(n.text)) {
-        throw unsupported(n, 'new objects');
+      if (n.type === 'object_creation_expression') {
+        const type = n.childForFieldName('type');
+        const isList = type?.type === 'generic_type' && named(type)[0]?.text === 'ArrayList';
+        if (!isList && !/^new\s+Scanner\s*\(\s*System\.in\s*\)$/.test(n.text)) {
+          throw unsupported(n, type?.text === 'List' || named(type)[0]?.text === 'List' ? 'new List (write new ArrayList<>())' : 'new objects');
+        }
+        if (isList && named(n.childForFieldName('arguments')).length > 1) throw unsupported(n, 'this kind of new ArrayList');
+      }
+      // Arrays.asList(...) and List.of(...) make lists that cannot grow: only as the start of a new ArrayList.
+      if (n.type === 'method_invocation' && /^(Arrays\.asList|List\.of)$/.test(`${n.childForFieldName('object')?.text}.${n.childForFieldName('name')?.text}`)) {
+        const creation = n.parent?.parent;
+        if (n.parent?.type !== 'argument_list' || creation?.type !== 'object_creation_expression' || named(n.parent).length !== 1) {
+          throw unsupported(n, `${n.childForFieldName('object')!.text}.${n.childForFieldName('name')!.text} outside new ArrayList<>(...)`);
+        }
       }
       for (const c of named(n)) visit(c);
     };
@@ -297,6 +380,31 @@ function isConstant(n: Node): boolean {
 // statement reads, and swaps through a temp variable.
 
 const LOOP_TYPES = new Set(['for_statement', 'enhanced_for_statement', 'while_statement', 'do_statement']);
+/** ArrayList methods that change the list (list.add(5)), and Collections methods that do (Collections.sort(list)). */
+const LIST_CHANGERS = new Set(['add', 'set', 'remove', 'clear', 'addAll']);
+const LIST_CHANGERS_STATIC = new Set(['sort', 'reverse', 'swap']);
+
+/** list.get(i) -> ["list", i] */
+function listGet(n: Node | null): [string, Node] | null {
+  if (n?.type !== 'method_invocation' || n.childForFieldName('name')?.text !== 'get') return null;
+  const object = n.childForFieldName('object');
+  const args = named(n.childForFieldName('arguments'));
+  return object?.type === 'identifier' && args.length === 1 ? [object.text, args[0]] : null;
+}
+/** list.set(i, v) -> ["list", i, v] */
+function listSet(n: Node | null): [string, Node, Node] | null {
+  if (n?.type !== 'method_invocation' || n.childForFieldName('name')?.text !== 'set') return null;
+  const object = n.childForFieldName('object');
+  const args = named(n.childForFieldName('arguments'));
+  return object?.type === 'identifier' && args.length === 2 ? [object.text, args[0], args[1]] : null;
+}
+/** Collections.swap(list, i, j) -> [list, i, j] (index nodes) */
+function collectionsSwap(s: Node): [string, Node, Node] | null {
+  const e = s.type === 'expression_statement' ? named(s)[0] : null;
+  if (e?.type !== 'method_invocation' || e.childForFieldName('object')?.text !== 'Collections' || e.childForFieldName('name')?.text !== 'swap') return null;
+  const [list, x, y] = named(e.childForFieldName('arguments'));
+  return list?.type === 'identifier' && x && y && safeIndex(x) && safeIndex(y) ? [list.text, x, y] : null;
+}
 
 /** a[...] -> "a" */
 const arrayBase = (n: Node | null): string | null =>
@@ -349,9 +457,13 @@ function planLists(methods: Map<string, Node>): ListPlan {
         const base = arrayBase(named(n)[0]);
         if (base) note(base, loops);
       }
-      if (n.type === 'method_invocation' && n.childForFieldName('object')?.text === 'Arrays' && n.childForFieldName('name')?.text === 'sort') {
+      if (n.type === 'method_invocation') {
+        const object = n.childForFieldName('object');
+        const name = n.childForFieldName('name')?.text ?? '';
         const arg = named(n.childForFieldName('arguments'))[0];
-        if (arg?.type === 'identifier') note(arg.text, loops);
+        if ((object?.text === 'Arrays' && name === 'sort') || (object?.text === 'Collections' && LIST_CHANGERS_STATIC.has(name))) {
+          if (arg?.type === 'identifier') note(arg.text, loops);
+        } else if (object?.type === 'identifier' && LIST_CHANGERS.has(name)) note(object.text, loops);
       }
     }
     // (tree-sitter hands out a new wrapper per lookup: compare node ids, not objects)
@@ -362,10 +474,15 @@ function planLists(methods: Map<string, Node>): ListPlan {
   return { candidates, loopOf };
 }
 
-/** int temp = a[x]; a[x] = a[y]; a[y] = temp;  ->  [a, x, y] (index nodes) */
+/** int temp = a[x]; a[x] = a[y]; a[y] = temp;  ->  [a, x, y] (index nodes).
+ *  The same with a list: int temp = a.get(x); a.set(x, a.get(y)); a.set(y, temp); */
 function tempSwap(stmts: Node[], i: number): [string, Node, Node] | null {
   const [s1, s2, s3] = stmts.slice(i, i + 3);
+  const single = s1 ? collectionsSwap(s1) : null;
+  if (single) return single;
   if (!s1 || !s2 || !s3 || s2.type !== 'expression_statement' || s3.type !== 'expression_statement') return null;
+  const viaList = listTempSwap(s1, named(s2)[0], named(s3)[0]);
+  if (viaList) return viaList;
   let temp: string | null = null;
   let first: Node | null = null;
   if (s1.type === 'local_variable_declaration') {
@@ -394,6 +511,30 @@ function tempSwap(stmts: Node[], i: number): [string, Node, Node] | null {
   return [base, x, y];
 }
 
+function listTempSwap(s1: Node, e2: Node | undefined, e3: Node | undefined): [string, Node, Node] | null {
+  let temp: string | null = null;
+  let first: Node | null = null;
+  if (s1.type === 'local_variable_declaration') {
+    const ds = s1.childrenForFieldName('declarator');
+    if (ds.length !== 1) return null;
+    temp = ds[0]!.childForFieldName('name')!.text;
+    first = ds[0]!.childForFieldName('value');
+  } else if (s1.type === 'expression_statement' && named(s1)[0]?.type === 'assignment_expression') {
+    const a = named(s1)[0];
+    if (a.childForFieldName('operator')?.type !== '=' || a.childForFieldName('left')?.type !== 'identifier') return null;
+    temp = a.childForFieldName('left')!.text;
+    first = a.childForFieldName('right');
+  }
+  const get1 = listGet(first);
+  const set2 = listSet(e2 ?? null);
+  const set3 = listSet(e3 ?? null);
+  if (!temp || !get1 || !set2 || !set3) return null;
+  const get2 = listGet(set2[2]);
+  const [list, x] = get1;
+  if (!get2 || set2[0] !== list || get2[0] !== list || set3[0] !== list || set2[1].text !== x.text || set3[1].text !== get2[1].text || set3[2].text !== temp) return null;
+  return safeIndex(x) && safeIndex(get2[1]) ? [list, x, get2[1]] : null;
+}
+
 // --------------------------------------------------------------------------
 // The interpreter
 
@@ -401,6 +542,7 @@ const UNSET = Symbol('unset');
 interface Cell {
   t: JType;
   elem?: Prim;
+  box?: boolean;
   v: JVal | typeof UNSET;
 }
 
@@ -421,6 +563,8 @@ class Scope {
 interface DeclType {
   t: JType;
   elem?: Prim;
+  /** Integer, Double...: a box that holds an object (or null), not a plain value */
+  box?: boolean;
 }
 
 function primOf(text: string): Prim {
@@ -435,6 +579,11 @@ function declType(typeNode: Node | null, declarator?: Node | null): DeclType {
   const extraDims = declarator?.childForFieldName('dimensions');
   if (typeNode.type === 'array_type') return { t: 'array', elem: primOf(typeNode.childForFieldName('element')!.text) };
   if (extraDims) return { t: 'array', elem: primOf(typeNode.text) };
+  if (typeNode.type === 'generic_type') {
+    const arg = named(named(typeNode)[1])[0];
+    return { t: 'list', elem: arg ? WRAPPERS[arg.text] : undefined };
+  }
+  if (typeNode.text in WRAPPERS && typeNode.text !== 'String') return { t: WRAPPERS[typeNode.text], box: true };
   if (typeNode.text === 'Scanner') return { t: 'Scanner' };
   if (typeNode.text === 'void') return { t: 'void' };
   return { t: primOf(typeNode.text) };
@@ -580,7 +729,7 @@ class Interp {
     return names.map((n) => () => {
       const cell = scope.lookup(n);
       if (!cell || cell.v === UNSET) throw new Error('unset');
-      return cell.v.t === 'array' ? cell.v.v : cell.v;
+      return cell.v.t === 'array' || cell.v.t === 'list' ? cell.v.v : cell.v;
     });
   }
 
@@ -590,8 +739,9 @@ class Interp {
     const seen = new Set<string>();
     const scope = this.scope;
     const visit = (n: Node) => {
-      const base = arrayBase(n);
-      const index = n.childForFieldName?.('index');
+      const get = listGet(n);
+      const base = arrayBase(n) ?? get?.[0];
+      const index = get ? get[1] : n.childForFieldName?.('index');
       if (base && index && safeIndex(index) && !seen.has(n.text)) {
         seen.add(n.text);
         out.push([base, () => this.indexValue(index, scope)]);
@@ -664,10 +814,12 @@ class Interp {
           const object = e.childForFieldName('object')?.text;
           const name = e.childForFieldName('name')?.text;
           if (object === 'System.out') return { k: 'print' };
-          if (object === 'Arrays' && name === 'sort') {
+          if ((object === 'Arrays' && name === 'sort') || (object === 'Collections' && LIST_CHANGERS_STATIC.has(name ?? ''))) {
             const arg = named(e.childForFieldName('arguments'))[0];
             if (arg) return { k: 'assign', t: [arg.text] };
           }
+          // nums.add(5), nums.set(0, 2), nums.remove(1), nums.clear(): the list changes.
+          if (object && LIST_CHANGERS.has(name ?? '') && this.scope.lookup(object)?.t === 'list') return { k: 'assign', t: [object] };
         }
         return { k: 'other' };
       }
@@ -733,7 +885,7 @@ class Interp {
       case 'return_statement': {
         const e = named(s)[0];
         const value = e ? this.eval(e) : VOID;
-        this.rt.hooks.ret(lineOf(s), value.t === 'array' ? (value.v as JVal[]) : value);
+        this.rt.hooks.ret(lineOf(s), value.t === 'array' || value.t === 'list' ? (value.v as JVal[]) : value);
         throw new ReturnSignal(value);
       }
       case 'break_statement':
@@ -804,7 +956,7 @@ class Interp {
   private condition(n: Node): boolean {
     const v = this.eval(inner(n));
     if (v.t !== 'boolean') throw new CompileError(lineOf(n), 'A condition must be true or false.');
-    return v.v as boolean;
+    return unbox(v).v as boolean;
   }
 
   private execLoop(s: Node) {
@@ -833,9 +985,12 @@ class Interp {
           } else this.eval(init);
         }
       }
+      let list: JVal | null = null;
       if (s.type === 'enhanced_for_statement') {
         const array = this.eval(s.childForFieldName('value')!);
-        if (array.t !== 'array') throw unsupported(s, 'for-each loops over this value');
+        if (array.t !== 'array' && array.t !== 'list') throw unsupported(s, 'for-each loops over this value');
+        if (array.v === null) throw new JavaException('NullPointerException', 'Cannot loop over a null value');
+        if (array.t === 'list') list = array;
         items = array.v as JVal[];
         const type = declType(s.childForFieldName('type'));
         itemCell = { ...type, v: UNSET };
@@ -843,10 +998,17 @@ class Interp {
       }
       let first = true;
       let k = 0;
+      const startMod = list?.mod ?? 0;
       for (;;) {
         if (items) {
-          if (k >= items.length) break;
-          itemCell!.v = this.coerce(items[k++], { t: itemCell!.t, elem: itemCell!.elem }, s, s.childForFieldName('name')!.text);
+          // A list's for-each walks with Java's iterator: it stops when it reaches the size,
+          // and stops with a crash if the list was changed during the loop.
+          if (list) {
+            items = list.v as JVal[];
+            if (k === items.length) break; // hasNext(): the walk has not reached the size
+            if ((list.mod ?? 0) !== startMod) throw new JavaException('ConcurrentModificationException', '');
+          } else if (k >= items.length) break;
+          itemCell!.v = this.coerce(items[k++], itemCell!, s, s.childForFieldName('name')!.text);
         } else if (s.type !== 'do_statement' || !first) {
           if (condNode && !this.condition(condNode)) break;
         }
@@ -914,14 +1076,34 @@ class Interp {
   /** Assign rules: widening is fine; narrowing needs a cast. */
   private coerce(v: JVal, to: DeclType, at: Node, name: string): JVal {
     const t = to.t;
+    const what = t === 'array' ? `${to.elem} array` : t === 'list' ? `list of ${WRAPPER_OF[to.elem ?? 'int']}` : t;
     const cantHold = () =>
-      new CompileError(lineOf(at), `${name} is ${t === 'int' || t === 'array' ? 'an' : 'a'} ${t === 'array' ? `${to.elem} array` : t} box, so it can't hold ${formatJava(v)}.`);
+      new CompileError(lineOf(at), `${name} is ${t === 'int' || t === 'array' ? 'an' : 'a'} ${what} box, so it can't hold ${formatJava(v)}.`);
     if (t === 'array') {
       if (v.t === 'null') return { t: 'array', v: null as unknown as JVal[], elem: to.elem };
       if (v.t !== 'array' || v.elem !== to.elem) throw cantHold();
       return v;
     }
-    if (v.t === t) return v;
+    if (t === 'list') {
+      if (v.t === 'null') return { t: 'list', v: null as unknown as JVal[], elem: to.elem };
+      if (v.t !== 'list') throw cantHold();
+      if (v.elem === undefined && to.elem) {
+        // new ArrayList<>(): the items' type comes from the box it is stored in.
+        v.elem = to.elem;
+        v.v = (v.v as JVal[]).map((x) => this.listItem(x, v, at, name));
+      }
+      if (v.elem !== to.elem) {
+        throw new CompileError(lineOf(at), `${name} holds ${WRAPPER_OF[to.elem!]} values, so it can't hold a list of ${WRAPPER_OF[v.elem!]} values.`);
+      }
+      return v;
+    }
+    if (to.box) {
+      // Integer x = 5: Java boxes the value, but only into the box of its own type (not 5 into a Double).
+      if (v.t === 'null') return { t, v: null, boxed: true };
+      if (v.t === t) return box(v);
+      throw new CompileError(lineOf(at), `${name} is ${t === 'int' ? 'an' : 'a'} ${WRAPPER_OF[t as Prim]} box, so it can't hold ${formatJava(v)}.`);
+    }
+    if (v.t === t) return v.t === 'String' ? v : unbox(v);
     if (t === 'double' && NUMERIC.has(v.t)) return dbl(this.num(v));
     if (t === 'long' && (v.t === 'int' || v.t === 'char')) return { t: 'long', v: this.num(v) };
     if (t === 'int' && v.t === 'char') return int(this.num(v));
@@ -934,7 +1116,17 @@ class Interp {
   }
 
   private num(v: JVal): number {
+    if (v.v === null) throw new JavaException('NullPointerException', `Cannot unbox a null ${WRAPPER_OF[v.t as Prim] ?? 'value'}`);
     return v.t === 'char' ? (v.v as string).charCodeAt(0) : (v.v as number);
+  }
+
+  /** A value going into a list: boxed, and of the list's own type (Integer into ArrayList<Integer>). */
+  private listItem(x: JVal, list: JVal, at: Node, name: string): JVal {
+    if (x.t === 'null') return { t: list.elem!, v: null, boxed: true };
+    if (list.elem && x.t !== list.elem) {
+      throw new CompileError(lineOf(at), `${name} holds ${WRAPPER_OF[list.elem]} values, so it can't hold ${formatJava(x)}.`);
+    }
+    return box(x);
   }
 
   /** Binary numeric promotion: double > long > int. */
@@ -974,11 +1166,11 @@ class Interp {
     if (op === '&&' || op === '||') {
       const left = this.eval(n.childForFieldName('left')!);
       if (left.t !== 'boolean') throw new CompileError(lineOf(n), `${op} needs true or false on both sides.`);
-      if (op === '&&' && !left.v) return bool(false);
-      if (op === '||' && left.v) return bool(true);
+      if (op === '&&' && !unbox(left).v) return bool(false);
+      if (op === '||' && unbox(left).v) return bool(true);
       const right = this.eval(n.childForFieldName('right')!);
       if (right.t !== 'boolean') throw new CompileError(lineOf(n), `${op} needs true or false on both sides.`);
-      return right;
+      return unbox(right);
     }
     const a = this.eval(n.childForFieldName('left')!);
     const b = this.eval(n.childForFieldName('right')!);
@@ -990,8 +1182,10 @@ class Interp {
     }
     if (op === '==' || op === '!=') {
       let same: boolean;
-      if (NUMERIC.has(a.t) && NUMERIC.has(b.t)) same = this.num(a) === this.num(b);
-      else if (a.t === 'boolean' && b.t === 'boolean') same = a.v === b.v;
+      // Two Integer objects: == asks "the same object?", like Java (small ones are shared).
+      if (a.boxed && b.boxed && a.v !== null && b.v !== null) same = a.id === b.id;
+      else if (NUMERIC.has(a.t) && NUMERIC.has(b.t)) same = this.num(a) === this.num(b);
+      else if (a.t === 'boolean' && b.t === 'boolean' && a.v !== null && b.v !== null) same = a.v === b.v;
       else if (a.v === null || b.v === null) same = a.v === b.v;
       // Text and arrays: == asks "the same object?", like Java (use .equals() for the letters).
       else same = a.id !== undefined && a.id === b.id;
@@ -1059,7 +1253,7 @@ class Interp {
     if (t === 'long') return { t: 'long', v: Math.trunc(this.num(v)) };
     if (t === 'double') return dbl(this.num(v));
     if (t === 'char') return { t: 'char', v: String.fromCharCode(this.num(v) & 0xffff) };
-    if (t === v.t) return v;
+    if (t === v.t) return unbox(v);
     throw unsupported(at, 'this cast');
   }
 
@@ -1112,7 +1306,7 @@ class Interp {
         const v = this.eval(n.childForFieldName('operand')!);
         if (op === '!') {
           if (v.t !== 'boolean') throw new CompileError(lineOf(n), '! needs true or false.');
-          return bool(!v.v);
+          return bool(!unbox(v).v);
         }
         if (!NUMERIC.has(v.t)) throw new CompileError(lineOf(n), `${op} only works on numbers.`);
         const x = this.num(v);
@@ -1177,6 +1371,8 @@ class Interp {
         if (object.text === 'Integer' && (field === 'MAX_VALUE' || field === 'MIN_VALUE')) return int(field === 'MAX_VALUE' ? 2147483647 : -2147483648);
         if (field === 'length') {
           const arr = this.eval(object);
+          if (arr.t === 'list') throw new CompileError(lineOf(n), `${object.text} is a list: use ${object.text}.size() for how many items it has.`);
+          if (arr.t === 'String') throw new CompileError(lineOf(n), `${object.text} is text: use ${object.text}.length() with brackets.`);
           if (arr.t === 'array') {
             if (arr.v === null) throw new JavaException('NullPointerException', 'Cannot read the array length because it is null');
             return int((arr.v as JVal[]).length);
@@ -1184,8 +1380,30 @@ class Interp {
         }
         throw unsupported(n, `the field ${n.text}`);
       }
-      case 'object_creation_expression':
-        return { t: 'Scanner', v: null, id: freshId() };
+      case 'object_creation_expression': {
+        const type = n.childForFieldName('type')!;
+        if (type.type !== 'generic_type') return { t: 'Scanner', v: null, id: freshId() };
+        const arg = named(named(type)[1])[0];
+        const list: JVal = { t: 'list', v: [], elem: arg ? WRAPPERS[arg.text] : undefined, id: freshId(), mod: 0 };
+        const from = named(n.childForFieldName('arguments'))[0];
+        if (!from) return list;
+        // new ArrayList<>(Arrays.asList(1, 2, 3)) / (List.of(...)) / (other list) / (10 = room for 10)
+        const call = from.type === 'method_invocation' ? `${from.childForFieldName('object')?.text}.${from.childForFieldName('name')?.text}` : '';
+        if (call === 'Arrays.asList' || call === 'List.of') {
+          list.v = named(from.childForFieldName('arguments')).map((a) => this.listItem(this.eval(a), list, a, 'the list'));
+          return list;
+        }
+        const source = this.eval(from);
+        if (source.t === 'int') {
+          if ((source.v as number) < 0) throw new JavaException('IllegalArgumentException', `Illegal Capacity: ${source.v}`);
+          return list;
+        }
+        if (source.t !== 'list') throw unsupported(n, 'this kind of new ArrayList');
+        if (source.v === null) throw new JavaException('NullPointerException', 'Cannot copy a null list');
+        list.elem ??= source.elem;
+        list.v = (source.v as JVal[]).map((x) => this.listItem(x, list, from, 'the list'));
+        return list;
+      }
       case 'method_invocation':
         return this.invoke(n);
       default:
@@ -1223,14 +1441,27 @@ class Interp {
       if (fmt?.t !== 'String') throw new CompileError(lineOf(n), 'String.format needs a text pattern first.');
       return str(javaFormat(fmt.v as string, rest));
     }
-    if (object?.text === 'String' && name === 'valueOf' && argNodes.length === 1) return str(javaString(args()[0]));
-    if (object?.text === 'Integer' && name === 'parseInt' && argNodes.length === 1) {
-      const s = args()[0];
-      if (s.t !== 'String' || s.v === null || !/^[+-]?\d+$/.test(s.v as string) || Math.abs(Number(s.v)) > 2147483648) {
-        throw new JavaException('NumberFormatException', `For input string: "${s.v}"`);
-      }
-      return int(Number(s.v));
+    if (object?.text === 'String' && name === 'valueOf' && argNodes.length === 1) {
+      const v = args()[0];
+      return str(v.t === 'array' && v.elem === 'char' && v.v ? (v.v as JVal[]).map((c) => c.v).join('') : javaString(v));
     }
+    if (object?.text === 'String' && name === 'join' && argNodes.length >= 2) {
+      const [sep, ...rest] = args();
+      if (sep.t !== 'String') throw new CompileError(lineOf(n), 'String.join needs the text to put between the items first.');
+      const parts = rest.length === 1 && (rest[0].t === 'list' || rest[0].t === 'array') ? (rest[0].v as JVal[]) : rest;
+      if (parts.some((p) => p.t !== 'String')) throw new CompileError(lineOf(n), 'String.join joins text only.');
+      return str(parts.map(javaString).join(sep.v as string));
+    }
+    if (object?.text === 'Integer' && name === 'valueOf' && argNodes.length === 1) {
+      const v = args()[0];
+      if (v.t === 'String') return box(this.parseInt(v));
+      if (v.t !== 'int' && v.t !== 'char') throw new CompileError(lineOf(n), 'Integer.valueOf needs a whole number or text.');
+      return box(int(this.num(v)));
+    }
+    if (object?.text === 'Integer' && name === 'toString' && argNodes.length === 1) return str(javaString(unbox(args()[0])));
+    if (object?.text === 'Character') return this.character(n, name, args());
+    if (object?.text === 'Collections') return this.collections(n, name, args());
+    if (object?.text === 'Integer' && name === 'parseInt' && argNodes.length === 1) return this.parseInt(args()[0]);
     if (object?.text === 'Double' && name === 'parseDouble' && argNodes.length === 1) {
       const s = args()[0];
       const x = s.t === 'String' && s.v !== null ? Number((s.v as string).trim()) : NaN;
@@ -1243,7 +1474,7 @@ class Interp {
       if (name === 'toString') return str(a.v === null ? 'null' : arrayText(a));
       if (name === 'sort') {
         const items = a.v as JVal[];
-        items.sort((x, y) => (x.t === 'String' ? String(x.v).localeCompare(String(y.v)) : this.num(x) - this.num(y)));
+        items.sort((x, y) => this.compare(x, y));
         return VOID;
       }
       throw unsupported(n, `Arrays.${name}`);
@@ -1254,17 +1485,321 @@ class Interp {
     if (target.t === 'Scanner') return this.scan(n, name, argNodes.length);
     if (target.t === 'String') {
       if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "String.${name}()" because the value is null`);
-      const s = target.v as string;
-      const a = args();
-      if (name === 'length' && a.length === 0) return int(s.length);
-      if (name === 'charAt' && a.length === 1) {
-        const i = this.num(a[0]);
-        if (i < 0 || i >= s.length) throw new JavaException('StringIndexOutOfBoundsException', `Index ${i} out of bounds for length ${s.length}`);
-        return { t: 'char', v: s[i] };
-      }
-      if (name === 'equals' && a.length === 1) return bool(a[0].t === 'String' && a[0].v === s);
+      return this.stringMethod(n, target, name, args());
+    }
+    if (target.t === 'list') {
+      if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "List.${name}()" because the value is null`);
+      return this.listMethod(n, target, name, argNodes, args());
+    }
+    if (target.boxed && target.v !== null && argNodes.length <= 1) {
+      // Integer objects: equals compares the value and the kind (an Integer 5 is not a Double 5.0).
+      if (name === 'equals') return bool(sameValue(target, args()[0]));
+      if (name === 'intValue' || name === 'doubleValue') return this.castTo(name === 'intValue' ? 'int' : 'double', target, n);
+      if (name === 'toString') return str(javaString(target));
     }
     throw unsupported(n, `the method ${name}`);
+  }
+
+  private parseInt(s: JVal): JVal {
+    if (s.t !== 'String' || s.v === null || !/^[+-]?\d+$/.test(s.v as string) || Math.abs(Number(s.v)) > 2147483648) {
+      throw new JavaException('NumberFormatException', `For input string: "${s.v}"`);
+    }
+    return int(Number(s.v));
+  }
+
+  /** compareTo order, like Java: numbers by size, text by character codes ("B" before "a"). */
+  private compare(x: JVal, y: JVal): number {
+    if (x.v === null || y.v === null) throw new JavaException('NullPointerException', 'Cannot compare a null value');
+    if (x.t === 'String' && y.t === 'String') return compareText(x.v as string, y.v as string);
+    if (x.t === 'boolean') return Number(x.v) - Number(y.v);
+    return this.num(x) - this.num(y);
+  }
+
+  private stringMethod(n: Node, target: JVal, name: string, a: JVal[]): JVal {
+    const s = target.v as string;
+    const need = (count: number[], ...types: JType[][]) => {
+      if (!count.includes(a.length) || a.some((v, i) => types[i] && !types[i].includes(v.t))) {
+        throw new CompileError(lineOf(n), `${name} can't be used with these values.`);
+      }
+    };
+    const text = (v: JVal) => {
+      if (v.v === null) throw new JavaException('NullPointerException', `Cannot use null in String.${name}`);
+      return v.v as string;
+    };
+    // A method that changes nothing gives back the same object (like Java), anything else is new text.
+    const result = (t: string) => (t === s ? target : str(t));
+    const outOfText = (detail: string) => new JavaException('StringIndexOutOfBoundsException', detail);
+    const whole = ['int', 'char'] as JType[];
+    switch (name) {
+      case 'length':
+        need([0]);
+        return int(s.length);
+      case 'charAt': {
+        need([1], whole);
+        const i = this.num(a[0]);
+        if (i < 0 || i >= s.length) throw outOfText(`Index ${i} out of bounds for length ${s.length}`);
+        return { t: 'char', v: s[i] };
+      }
+      case 'equals':
+        need([1]);
+        return bool(a[0].t === 'String' && a[0].v === s);
+      case 'equalsIgnoreCase':
+        need([1]);
+        return bool(a[0].t === 'String' && a[0].v !== null && (a[0].v as string).toLowerCase() === s.toLowerCase());
+      case 'isEmpty':
+        need([0]);
+        return bool(s.length === 0);
+      case 'isBlank':
+        need([0]);
+        return bool(s.trim().length === 0);
+      case 'substring': {
+        need([1, 2], whole, whole);
+        const b = this.num(a[0]);
+        const e = a[1] ? this.num(a[1]) : s.length;
+        if (b < 0 || e > s.length || b > e) throw outOfText(`begin ${b}, end ${e}, length ${s.length}`);
+        return result(s.slice(b, e));
+      }
+      case 'indexOf':
+      case 'lastIndexOf': {
+        need([1, 2], ['String', 'char', 'int'], whole);
+        const what = a[0].t === 'String' ? text(a[0]) : a[0].t === 'char' ? (a[0].v as string) : String.fromCharCode(this.num(a[0]));
+        if (name === 'indexOf') return int(s.indexOf(what, a[1] ? Math.max(0, this.num(a[1])) : 0));
+        return int(a[1] ? (this.num(a[1]) < 0 ? -1 : s.lastIndexOf(what, this.num(a[1]))) : s.lastIndexOf(what));
+      }
+      case 'contains':
+        need([1], ['String']);
+        return bool(s.includes(text(a[0])));
+      case 'startsWith':
+        need([1], ['String']);
+        return bool(s.startsWith(text(a[0])));
+      case 'endsWith':
+        need([1], ['String']);
+        return bool(s.endsWith(text(a[0])));
+      case 'toUpperCase':
+        need([0]);
+        return result(s.toUpperCase());
+      case 'toLowerCase':
+        need([0]);
+        return result(s.toLowerCase());
+      case 'trim':
+        need([0]);
+        return result(s.replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, ''));
+      case 'strip':
+        need([0]);
+        return result(s.trim());
+      case 'concat':
+        need([1], ['String']);
+        return text(a[0]) === '' ? target : str(s + text(a[0]));
+      case 'repeat': {
+        need([1], ['int']);
+        const k = this.num(a[0]);
+        if (k < 0) throw new JavaException('IllegalArgumentException', `count is negative: ${k}`);
+        return k === 1 ? target : str(s.repeat(k));
+      }
+      case 'replace': {
+        need([2]);
+        const [x, y] = a;
+        if (x.t === 'char' && y.t === 'char') return result(s.split(x.v as string).join(y.v as string));
+        if (x.t === 'String' && y.t === 'String') return result(s.split(text(x)).join(text(y)));
+        throw new CompileError(lineOf(n), 'replace needs two chars or two pieces of text.');
+      }
+      case 'compareTo':
+        need([1], ['String']);
+        return int(compareText(s, text(a[0])));
+      case 'compareToIgnoreCase':
+        need([1], ['String']);
+        return int(compareText(s.toUpperCase().toLowerCase(), text(a[0]).toUpperCase().toLowerCase()));
+      case 'split': {
+        need([1], ['String']);
+        let parts: string[];
+        try {
+          parts = s.split(new RegExp(text(a[0])));
+        } catch {
+          throw unsupported(n, 'this split pattern');
+        }
+        // Java drops empty pieces at the end, and an empty first piece made by a zero-width match.
+        while (parts.length > 1 && parts[parts.length - 1] === '') parts.pop();
+        return { t: 'array', v: parts.map((p) => str(p)), elem: 'String', id: freshId() };
+      }
+      case 'toCharArray':
+        need([0]);
+        return { t: 'array', v: [...s].map((c) => ({ t: 'char' as const, v: c })), elem: 'char', id: freshId() };
+    }
+    throw unsupported(n, `the method ${name}`);
+  }
+
+  private listMethod(n: Node, list: JVal, name: string, argNodes: Node[], a: JVal[]): JVal {
+    const items = list.v as JVal[];
+    const listName = n.childForFieldName('object')!.text;
+    const changed = () => {
+      list.mod = (list.mod ?? 0) + 1;
+    };
+    const position = (i: number, size: number) => {
+      if (i < 0 || i >= size) throw new JavaException('IndexOutOfBoundsException', `Index ${i} out of bounds for length ${size}`);
+    };
+    // A plain int (not an Integer object) is a position: nums.remove(1) takes out the item at position 1.
+    const isPosition = (v: JVal) => (v.t === 'int' || v.t === 'char') && !v.boxed;
+    const count = (k: number) => {
+      if (a.length !== k) throw new CompileError(lineOf(n), `${listName}.${name} can't be used with ${a.length} value${a.length === 1 ? '' : 's'}.`);
+    };
+    switch (name) {
+      case 'size':
+        count(0);
+        return int(items.length);
+      case 'isEmpty':
+        count(0);
+        return bool(items.length === 0);
+      case 'get': {
+        count(1);
+        const i = this.num(a[0]);
+        position(i, items.length);
+        return items[i];
+      }
+      case 'set': {
+        count(2);
+        const i = this.num(a[0]);
+        position(i, items.length);
+        const old = items[i];
+        items[i] = this.listItem(a[1], list, argNodes[1], listName);
+        return old;
+      }
+      case 'add': {
+        if (a.length === 1) {
+          items.push(this.listItem(a[0], list, argNodes[0], listName));
+          changed();
+          return bool(true);
+        }
+        count(2);
+        if (!isPosition(a[0])) throw new CompileError(lineOf(n), `${listName}.add(position, value) needs a whole number first.`);
+        const i = this.num(a[0]);
+        if (i < 0 || i > items.length) throw new JavaException('IndexOutOfBoundsException', `Index: ${i}, Size: ${items.length}`);
+        items.splice(i, 0, this.listItem(a[1], list, argNodes[1], listName));
+        changed();
+        return VOID;
+      }
+      case 'addAll': {
+        count(1);
+        if (a[0].t !== 'list') throw unsupported(n, `${listName}.addAll with this value`);
+        if (a[0].v === null) throw new JavaException('NullPointerException', 'Cannot add a null list');
+        const more = (a[0].v as JVal[]).map((x) => this.listItem(x, list, argNodes[0], listName));
+        items.push(...more);
+        changed();
+        return bool(more.length > 0);
+      }
+      case 'remove': {
+        count(1);
+        if (isPosition(a[0])) {
+          const i = this.num(a[0]);
+          position(i, items.length);
+          const [old] = items.splice(i, 1);
+          changed();
+          return old;
+        }
+        const k = items.findIndex((x) => sameValue(x, a[0]));
+        if (k < 0) return bool(false);
+        items.splice(k, 1);
+        changed();
+        return bool(true);
+      }
+      case 'clear':
+        count(0);
+        items.length = 0;
+        changed();
+        return VOID;
+      case 'contains':
+        count(1);
+        return bool(items.some((x) => sameValue(x, a[0])));
+      case 'indexOf':
+        count(1);
+        return int(items.findIndex((x) => sameValue(x, a[0])));
+      case 'lastIndexOf': {
+        count(1);
+        let k = -1;
+        items.forEach((x, i) => {
+          if (sameValue(x, a[0])) k = i;
+        });
+        return int(k);
+      }
+      case 'equals': {
+        count(1);
+        const other = a[0];
+        if (other.t !== 'list' || other.v === null) return bool(false);
+        const b = other.v as JVal[];
+        return bool(b.length === items.length && items.every((x, i) => sameValue(x, b[i])));
+      }
+      case 'toString':
+        count(0);
+        return str(arrayText(list));
+    }
+    throw unsupported(n, `the method ${name} on a list`);
+  }
+
+  private collections(n: Node, name: string, a: JVal[]): JVal {
+    const list = a[0];
+    if (list?.t !== 'list') throw new CompileError(lineOf(n), `Collections.${name} needs a list.`);
+    if (list.v === null) throw new JavaException('NullPointerException', `Cannot use Collections.${name} on a null list`);
+    const items = list.v as JVal[];
+    switch (name) {
+      case 'sort':
+        if (a.length !== 1) break;
+        items.sort((x, y) => this.compare(x, y));
+        list.mod = (list.mod ?? 0) + 1;
+        return VOID;
+      case 'reverse':
+        if (a.length !== 1) break;
+        items.reverse();
+        return VOID;
+      case 'swap': {
+        if (a.length !== 3) break;
+        const i = this.num(a[1]);
+        const j = this.num(a[2]);
+        if (i < 0 || i >= items.length || j < 0 || j >= items.length) {
+          throw new JavaException('IndexOutOfBoundsException', `Index ${i < 0 || i >= items.length ? i : j} out of bounds for length ${items.length}`);
+        }
+        [items[i], items[j]] = [items[j], items[i]];
+        return VOID;
+      }
+      case 'max':
+      case 'min': {
+        if (a.length !== 1) break;
+        if (!items.length) throw new JavaException('NoSuchElementException', '');
+        return items.reduce((best, x) => {
+          const c = this.compare(x, best);
+          return (name === 'max' ? c > 0 : c < 0) ? x : best;
+        });
+      }
+    }
+    throw unsupported(n, `Collections.${name}`);
+  }
+
+  private character(n: Node, name: string, a: JVal[]): JVal {
+    if (a.length !== 1 || (a[0].t !== 'char' && a[0].t !== 'int')) throw new CompileError(lineOf(n), `Character.${name} needs a char.`);
+    const code = this.num(a[0]);
+    const c = String.fromCharCode(code);
+    const same = (x: string): JVal => (a[0].t === 'char' ? { t: 'char', v: x } : int(x.charCodeAt(0)));
+    switch (name) {
+      case 'isDigit':
+        return bool(/\p{Nd}/u.test(c));
+      case 'isLetter':
+        return bool(/\p{L}/u.test(c));
+      case 'isLetterOrDigit':
+        return bool(/[\p{L}\p{Nd}]/u.test(c));
+      case 'isUpperCase':
+        return bool(/\p{Lu}/u.test(c));
+      case 'isLowerCase':
+        return bool(/\p{Ll}/u.test(c));
+      case 'isWhitespace':
+        return bool(/[\t\n\u000b\f\r\u001c-\u001f ]/.test(c) || (/\s/.test(c) && !/[\u00a0\u2007\u202f]/.test(c)));
+      case 'toUpperCase':
+        return same(c.toUpperCase().length === 1 ? c.toUpperCase() : c);
+      case 'toLowerCase':
+        return same(c.toLowerCase().length === 1 ? c.toLowerCase() : c);
+      case 'getNumericValue':
+        return int(/[0-9]/.test(c) ? code - 48 : /[a-z]/i.test(c) ? c.toLowerCase().charCodeAt(0) - 87 : -1);
+      case 'toString':
+        return str(c);
+    }
+    throw unsupported(n, `Character.${name}`);
   }
 
   private scan(n: Node, name: string, argCount: number): JVal {
