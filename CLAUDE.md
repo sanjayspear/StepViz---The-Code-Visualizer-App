@@ -13,8 +13,8 @@ something is missing, ask; do not guess.
 ## Scope
 
 Phase 1 is done. Phase 2 is in progress, in stages: (g) Screen 3 and Bubble sort
-(done), (h) JavaScript exact trace, (i) optional AI explanations via a Cloudflare
-Worker (last). Phase 1 covers:
+(done), (h) JavaScript exact trace (done), (i) optional AI explanations via a
+Cloudflare Worker (last). Phase 1 covers:
 
 - Screen 1: Home (paste code, language select, example chips, "Visualize my code")
 - Screen 2: Step-through (code panel, call stack, output, explanation, "In real life", controls)
@@ -30,8 +30,15 @@ Phase 2 so far:
   in the trace). Bubble sort is a hand-written fixture with kicker labels
   ("Pass 1, comparison 1"); pasted code gets "Step X of N" and plain variable names.
 
-Not built: JavaScript tracing and AI explanations (next stages), accounts, share
-links (the buttons show "Coming soon"), Screen 5.
+- JavaScript exact trace: Acorn instruments the code (`src/runner/js/`), which runs in
+  a fresh locked-down worker per run (`js.worker.ts`: no network APIs, eval, string
+  timers or Function constructors; `import()` rejected at parse time; strict mode).
+  Same trace shape, caps, crash and list rules as Python. JavaScript versions of the
+  four examples; only Factorial has hand-written explanations (section 6 texts
+  adapted). Java and C++ still show "Coming soon".
+
+Not built: AI explanations (next stage), accounts, share links (the buttons show
+"Coming soon"), Screen 5.
 The UI reads only the trace JSON (section 7, `src/trace/types.ts`) so those can be added later.
 
 ## Stack
@@ -73,8 +80,11 @@ Playwright tests. Static build for GitHub Pages.
   Top bar: "Loops view" note, Share link, Beginner mode in a ⋮ menu. Speed control
   kept. Code panel about 55% / list 45% at desktop width. Phone: Skip to next pass
   under the list. Uncompared bars use #A5A0E8 (from the screenshot).
-- Phase 2 decisions not built yet: JavaScript chips are JavaScript versions of the
-  same four programs (only Factorial hand-written). AI: optional "Explain with AI
+- JavaScript: switching language swaps an unchanged example for the same example in
+  the other language; the student's own code is left alone. Loops report their header
+  line at the start of each round, and the last body line is recorded before the
+  loop's update runs (so `i` shows that round's value).
+- Phase 2 decisions not built yet: AI: optional "Explain with AI
   (beta)" button, a first-use note "This sends your code to an AI service to write
   the explanations. We don't store it.", no logging, 20 per visitor per day plus a
   global daily cap in one config value, "AI-explained (beta)" tag, fallback text

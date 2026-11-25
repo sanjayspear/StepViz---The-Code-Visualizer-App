@@ -723,7 +723,7 @@ test('empty editor and other languages', async ({ page }) => {
   await expect(visualizeButton(page)).toBeDisabled();
   await expect(page.locator('.editor-card__helper')).toHaveText('Paste some code first');
   await page.getByRole('button', { name: 'Factorial' }).click();
-  await page.locator('select').selectOption('javascript');
+  await page.locator('select').selectOption('java');
   await expect(page.locator('.editor-card__helper')).toHaveText('Coming soon');
   await expect(visualizeButton(page)).toBeDisabled();
   await page.locator('select').selectOption('python');

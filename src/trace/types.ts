@@ -69,7 +69,7 @@ export interface ListView {
 }
 
 export interface Trace {
-  language: 'python';
+  language: 'python' | 'javascript';
   source: string;
   steps: TraceStep[];
   listView?: ListView;

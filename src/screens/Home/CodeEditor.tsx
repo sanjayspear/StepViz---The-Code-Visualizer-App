@@ -1,14 +1,20 @@
 // CodeMirror 6 editor for the Home screen. Plain text look (no syntax colors),
 // as in the Screen 1 screenshot; Python indentation rules for typing.
 import { useEffect, useRef } from 'react';
-import { EditorState } from '@codemirror/state';
+import { Compartment, EditorState } from '@codemirror/state';
 import { EditorView, keymap, drawSelection } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { indentOnInput } from '@codemirror/language';
 import { python } from '@codemirror/lang-python';
+import { javascript } from '@codemirror/lang-javascript';
+import type { CodeLanguage } from '../../examples';
+
+const languageFor = (lang: CodeLanguage) => (lang === 'javascript' ? javascript() : python());
 
 interface Props {
   value: string;
+  /** Indentation rules for typing; no syntax colors either way. */
+  language?: CodeLanguage;
   onChange: (value: string) => void;
   ariaLabel: string;
   ariaDescribedBy?: string;
@@ -50,9 +56,10 @@ const theme = EditorView.theme(
   { dark: true },
 );
 
-export function CodeEditor({ value, onChange, ariaLabel, ariaDescribedBy }: Props) {
+export function CodeEditor({ value, onChange, ariaLabel, ariaDescribedBy, language = 'python' }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  const langCompartment = useRef(new Compartment());
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -68,7 +75,7 @@ export function CodeEditor({ value, onChange, ariaLabel, ariaDescribedBy }: Prop
           history(),
           drawSelection(),
           indentOnInput(),
-          python(),
+          langCompartment.current.of(languageFor(language)),
           EditorState.tabSize.of(4),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           EditorView.contentAttributes.of(contentAttrs),
@@ -87,6 +94,10 @@ export function CodeEditor({ value, onChange, ariaLabel, ariaDescribedBy }: Prop
     // The editor is created once; later value changes are pushed in below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: langCompartment.current.reconfigure(languageFor(language)) });
+  }, [language]);
 
   // Replace the text when it changes from outside (an example chip was clicked).
   useEffect(() => {

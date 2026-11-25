@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DEFAULT_EXAMPLE, titleForSource } from './examples';
+import { DEFAULT_EXAMPLE, exampleForSource, sourceOf, titleForSource, type CodeLanguage } from './examples';
 import { Home, type Language } from './screens/Home/Home';
 import { StepScreen } from './screens/Step/StepScreen';
 import { pythonRunner } from './runner/pythonRunner';
@@ -31,12 +31,24 @@ export default function App() {
     setInputText('');
   };
 
+  const codeLanguage: CodeLanguage = language === 'javascript' ? 'javascript' : 'python';
+
+  // Switching between Python and JavaScript swaps an unchanged example for the
+  // same example in the other language; the student's own code is left alone.
+  const changeLanguage = (next: Language) => {
+    setLanguage(next);
+    setError(null);
+    if (next !== 'python' && next !== 'javascript') return;
+    const example = exampleForSource(code);
+    if (example && (code === example.source || code === example.jsSource)) changeCode(sourceOf(example, next));
+  };
+
   const visualize = async () => {
     setBusy(true);
     setError(null);
-    if (!pythonRunner.isReady) setLoadingPython(true);
+    if (codeLanguage === 'python' && !pythonRunner.isReady) setLoadingPython(true);
     try {
-      const check = await checkSource(code);
+      const check = await checkSource(code, codeLanguage);
       setLoadingPython(false);
       if (!check.ok) {
         setError(check.message);
@@ -48,14 +60,18 @@ export default function App() {
         return;
       }
       const inputs = check.inputCalls > 0 ? inputText.split('\n') : [];
-      const outcome = await getTrace(code, inputs);
+      const outcome = await getTrace(code, inputs, codeLanguage);
       if (outcome.kind === 'error') {
         setError(outcome.message);
         return;
       }
       setTrace(outcome.trace);
     } catch {
-      setError('Python could not start. Please reload the page and try again.');
+      setError(
+        codeLanguage === 'javascript'
+          ? 'JavaScript could not start. Please reload the page and try again.'
+          : 'Python could not start. Please reload the page and try again.',
+      );
     } finally {
       setBusy(false);
       setLoadingPython(false);
@@ -71,7 +87,7 @@ export default function App() {
       code={code}
       onCodeChange={changeCode}
       language={language}
-      onLanguageChange={setLanguage}
+      onLanguageChange={changeLanguage}
       onVisualize={visualize}
       busy={busy}
       loadingPython={loadingPython}

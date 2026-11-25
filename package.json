@@ -20,7 +20,10 @@
     "@codemirror/view": "^6.43.15",
     "pyodide": "^314.0.8",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "acorn": "^8.19.0",
+    "astring": "^1.9.0",
+    "@codemirror/lang-javascript": "^6.2.5"
   },
   "devDependencies": {
     "@playwright/test": "1.65",

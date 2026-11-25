@@ -39,3 +39,12 @@ export type FromWorker =
   | { type: 'init-error'; message: string }
   | { type: 'analyze-result'; id: number; result: AnalyzeResult }
   | { type: 'run-result'; id: number; result: RawRunResult };
+
+// JavaScript worker (one fresh worker per message).
+export type JsToWorker =
+  | { type: 'analyze'; source: string }
+  | { type: 'run'; source: string; maxSteps: number; maxSeconds: number };
+
+export type JsFromWorker =
+  | { type: 'analyze-result'; result: { ok: true } | { ok: false; error: SyntaxErrorInfo } }
+  | { type: 'run-result'; result: RawRunResult };

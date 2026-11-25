@@ -1,12 +1,13 @@
 # StepViz
 
-Paste a Python program and watch it run one step at a time: the running line,
+Paste a Python or JavaScript program and watch it run one step at a time: the running line,
 variables, call stack and output, each step explained in plain English with a
 real-life comparison.
 
-Phase 1 of the product described in `StepViz_Build_Spec.pdf`. Everything runs in the
-browser: Python runs in [Pyodide](https://pyodide.org) inside a Web Worker with no
-network access. There is no backend.
+Phase 1 and part of Phase 2 of the product described in `StepViz_Build_Spec.pdf`. Everything runs in the
+browser: Python runs in [Pyodide](https://pyodide.org) and JavaScript is instrumented
+with [Acorn](https://github.com/acornjs/acorn), each inside a Web Worker with no network
+access. There is no backend.
 
 ## Requirements
 
@@ -43,8 +44,11 @@ npm test
 
 - `tests/tracer.spec.ts`: the Python tracer under Node (valid factorial trace, caps,
   syntax and runtime errors, blocked imports, `input()`, fixtures match the live tracer)
+- `tests/jstracer.spec.ts`: the JavaScript tracer under Node (same checks)
 - `tests/acceptance.spec.ts`: the 16-point acceptance checklist from section 9 of the
   spec, plus crash, `input()`, Beginner mode, keyboard and example checks
+- `tests/screen3.spec.ts`: the loops and lists view (Screen 3)
+- `tests/javascript.spec.ts`: JavaScript in the app (examples, errors, locked-down worker)
 
 Run one file or one test:
 

@@ -125,7 +125,9 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
       {beginner ? 'Beginner mode: on' : 'Beginner mode: off'}
     </button>
   );
-  const badge = <span className="step-badge">Python · exact trace</span>;
+  const badge = (
+    <span className="step-badge">{trace.language === 'javascript' ? 'JavaScript' : 'Python'} · exact trace</span>
+  );
 
   return (
     <div className="step-screen">

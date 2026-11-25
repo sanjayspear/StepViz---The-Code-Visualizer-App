@@ -19,11 +19,13 @@ const ERROR_SENTENCES: Record<string, string> = {
   TypeError: "These values can't be used together like this.",
   KeyError: 'This key is not in the dictionary.',
   ValueError: "This value can't be used here.",
+  // JavaScript
+  ReferenceError: 'This name was used before it was given a value.',
 };
 
-/** A plain-words sentence for a Python error type. */
-export function errorSentence(type: string): string {
-  return ERROR_SENTENCES[type] ?? 'Python stopped with an error.';
+/** A plain-words sentence for an error type. */
+export function errorSentence(type: string, language: 'python' | 'javascript' = 'python'): string {
+  return ERROR_SENTENCES[type] ?? `${language === 'javascript' ? 'JavaScript' : 'Python'} stopped with an error.`;
 }
 
 /** The raw Python message, e.g. "ZeroDivisionError: division by zero". */

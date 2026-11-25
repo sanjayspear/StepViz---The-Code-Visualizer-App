@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { Icon, type IconName } from '../../components/Icon';
 import { ComingSoonButton } from '../../components/ComingSoon';
-import { EXAMPLES, exampleForSource } from '../../examples';
+import { EXAMPLES, exampleForSource, sourceOf, type CodeLanguage } from '../../examples';
 import { CodeEditor } from './CodeEditor';
 import './Home.css';
 
@@ -75,10 +75,13 @@ export function Home({
   useEffect(() => {
     if (showInput) inputRef.current?.focus();
   }, [showInput]);
-  const selected = exampleForSource(code)?.id;
+  const codeLanguage: CodeLanguage = language === 'javascript' ? 'javascript' : 'python';
+  const selectedExample = exampleForSource(code);
+  const selected = selectedExample && sourceOf(selectedExample, codeLanguage) === code ? selectedExample.id : undefined;
 
   const isEmpty = code.trim() === '';
-  const comingSoon = language !== 'python';
+  // Python and JavaScript have an exact trace; the AI-explained languages are later.
+  const comingSoon = language !== 'python' && language !== 'javascript';
   const disabled = isEmpty || comingSoon || busy;
 
   let helper: string | null = null;
@@ -144,6 +147,7 @@ export function Home({
             <CodeEditor
               value={code}
               onChange={onCodeChange}
+              language={codeLanguage}
               ariaLabel="Your code"
               ariaDescribedBy={helper || error ? 'editor-message' : undefined}
             />
@@ -186,7 +190,7 @@ export function Home({
                     type="button"
                     className="chip"
                     aria-pressed={selected === ex.id}
-                    onClick={() => onCodeChange(ex.source)}
+                    onClick={() => onCodeChange(sourceOf(ex, codeLanguage))}
                   >
                     {ex.chip}
                   </button>
