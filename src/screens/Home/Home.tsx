@@ -42,13 +42,24 @@ interface Props {
   language: Language;
   onLanguageChange: (language: Language) => void;
   onVisualize: () => void;
-  /** True while Pyodide is loading or the code is running. */
+  /** True while the code is being checked or run. */
   busy?: boolean;
+  /** True while waiting for Pyodide to finish loading. */
+  loadingPython?: boolean;
   /** A friendly message under the editor (syntax error, step/time cap). */
   error?: string | null;
 }
 
-export function Home({ code, onCodeChange, language, onLanguageChange, onVisualize, busy = false, error }: Props) {
+export function Home({
+  code,
+  onCodeChange,
+  language,
+  onLanguageChange,
+  onVisualize,
+  busy = false,
+  loadingPython = false,
+  error,
+}: Props) {
   const chipsRef = useRef<HTMLDivElement>(null);
   const selected = exampleForSource(code)?.id;
 
@@ -151,8 +162,8 @@ export function Home({ code, onCodeChange, language, onLanguageChange, onVisuali
             </div>
 
             <button type="button" className="visualize-btn" disabled={disabled} onClick={onVisualize}>
-              {busy ? 'Loading Python…' : 'Visualize my code'}
-              {!busy && <Icon name="arrow-right" size={20} />}
+              {loadingPython ? 'Loading Python…' : 'Visualize my code'}
+              {!loadingPython && <Icon name="arrow-right" size={20} />}
             </button>
           </section>
 

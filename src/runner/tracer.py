@@ -1,0 +1,384 @@
+# StepViz Python tracer. Runs inside Pyodide, inside a Web Worker only.
+#
+# analyze(source)            -> JSON: syntax check + number of input() calls
+# run(source, inputs, ...)   -> JSON: the recorded steps (spec section 7)
+#
+# Steps show the state AFTER a line has run, like the section 6 sample trace:
+#   - when a line finishes (the next line event in the same frame, or the end of
+#     the program), a step for that line is recorded with the new values/output,
+#   - when a user function is called, a step highlights the caller's line, with
+#     the new frame on top and "running",
+#   - when a user function returns, a step shows that frame as "returning".
+# The frame that returned is gone from the next step.
+
+import ast
+import builtins
+import io
+import json
+import sys
+import time
+import types
+
+USER_FILE = "<stepviz>"
+MAX_REPR = 40
+
+# Modules pasted code may not import: the JavaScript bridge (which could reach
+# the network) and the import machinery that could get around this list.
+BLOCKED_MODULES = {
+    "js",
+    "pyodide",
+    "pyodide_js",
+    "_pyodide",
+    "_pyodide_core",
+    "micropip",
+    "importlib",
+    "ctypes",
+    "socket",
+    "urllib",
+    "http",
+    "ssl",
+    "os",
+    "subprocess",
+    "shutil",
+    "pathlib",
+}
+
+
+class StopRun(BaseException):
+    """Raised from the trace function when a cap is hit. BaseException so a
+    student's `except Exception:` does not swallow it."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
+
+
+# --------------------------------------------------------------------------
+# Friendly syntax errors
+
+_FRIENDLY = [
+    ("expected ':'", "A colon (:) is missing at the end of this line."),
+    ("expected an indented block", "The line after a colon (:) needs to be indented."),
+    ("unexpected indent", "This line is indented more than Python expects."),
+    ("unindent does not match", "This line's indentation does not line up with the lines above it."),
+    ("unterminated string literal", "Some text in quotes is missing its closing quote."),
+    ("unterminated triple-quoted string", "Some text in triple quotes is missing its closing quotes."),
+    ("was never closed", "A bracket is opened here but never closed."),
+    ("unmatched", "There is a closing bracket without a matching opening one."),
+    ("does not match opening parenthesis", "The closing bracket does not match the opening one."),
+    ("invalid character", "This line has a character Python does not understand."),
+    ("inconsistent use of tabs and spaces", "This line mixes tabs and spaces for indentation."),
+    ("cannot assign to", "The left side of = must be a variable name."),
+    ("invalid syntax", "Python could not understand this line."),
+]
+
+
+def _friendly_message(msg):
+    low = (msg or "").lower()
+    for needle, friendly in _FRIENDLY:
+        if needle in low:
+            return friendly
+    return (msg or "Python could not understand this line.").rstrip(".") + "."
+
+
+def _syntax_error(e):
+    line = e.lineno or 1
+    return {"line": line, "message": "Line %d: %s" % (line, _friendly_message(e.msg))}
+
+
+# --------------------------------------------------------------------------
+# Source analysis
+
+
+class _GlobalNames(ast.NodeVisitor):
+    """Names assigned at module level, in source order (not inside functions)."""
+
+    def __init__(self):
+        self.names = []
+
+    def _add(self, name):
+        if name not in self.names:
+            self.names.append(name)
+
+    def _target(self, t):
+        if isinstance(t, ast.Name):
+            self._add(t.id)
+        elif isinstance(t, (ast.Tuple, ast.List)):
+            for elt in t.elts:
+                self._target(elt)
+        elif isinstance(t, ast.Starred):
+            self._target(t.value)
+
+    def visit_FunctionDef(self, node):
+        self._add(node.name)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_ClassDef(self, node):
+        self._add(node.name)
+
+    def visit_Lambda(self, node):
+        pass
+
+    def visit_ListComp(self, node):
+        pass
+
+    visit_SetComp = visit_DictComp = visit_GeneratorExp = visit_ListComp
+
+    def visit_Assign(self, node):
+        for t in node.targets:
+            self._target(t)
+        self.generic_visit(node)
+
+    def visit_AugAssign(self, node):
+        self._target(node.target)
+
+    def visit_AnnAssign(self, node):
+        if node.value is not None:
+            self._target(node.target)
+
+    def visit_For(self, node):
+        self._target(node.target)
+        self.generic_visit(node)
+
+    def visit_With(self, node):
+        for item in node.items:
+            if item.optional_vars is not None:
+                self._target(item.optional_vars)
+        self.generic_visit(node)
+
+    def visit_NamedExpr(self, node):
+        self._target(node.target)
+
+    def visit_Import(self, node):
+        pass  # modules are not shown
+
+    visit_ImportFrom = visit_Import
+
+
+def _count_input_calls(tree):
+    n = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "input":
+            n += 1
+    return n
+
+
+def analyze(source):
+    try:
+        tree = ast.parse(source, USER_FILE)
+        compile(tree, USER_FILE, "exec")
+    except SyntaxError as e:
+        return json.dumps({"ok": False, "error": _syntax_error(e)})
+    return json.dumps({"ok": True, "inputCalls": _count_input_calls(tree)})
+
+
+# --------------------------------------------------------------------------
+# Value formatting
+
+
+def _short(value):
+    if isinstance(value, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)):
+        return "function"
+    if isinstance(value, type):
+        return "class"
+    try:
+        text = repr(value)
+    except Exception:
+        text = "?"
+    if len(text) > MAX_REPR:
+        text = text[: MAX_REPR - 1] + "…"
+    return text
+
+
+def _hidden(name, value):
+    return name.startswith("_") or isinstance(value, types.ModuleType)
+
+
+def _frame_label(frame):
+    code = frame.f_code
+    nargs = code.co_argcount + code.co_kwonlyargcount
+    names = list(code.co_varnames[:nargs])
+    if code.co_flags & 0x04:  # *args
+        names.append(code.co_varnames[nargs])
+    loc = frame.f_locals
+    parts = []
+    for n in names:
+        if n in loc:
+            parts.append(_short(loc[n]))
+    return "%s(%s)" % (code.co_name, ", ".join(parts))
+
+
+# --------------------------------------------------------------------------
+# Running with the tracer
+
+
+def _safe_builtins(out, inputs):
+    real_import = builtins.__import__
+    queue = list(inputs)
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        root = name.split(".")[0]
+        if level == 0 and root in BLOCKED_MODULES:
+            raise ImportError("The module '%s' is not available in StepViz." % root)
+        return real_import(name, globals, locals, fromlist, level)
+
+    def fake_input(prompt=""):
+        out.write(str(prompt))
+        if not queue:
+            raise EOFError("Your program asked for more input than you typed.")
+        value = queue.pop(0)
+        out.write(value + "\n")
+        return value
+
+    b = dict(builtins.__dict__)
+    b["__import__"] = guarded_import
+    b["input"] = fake_input
+    for name in ("open", "exit", "quit", "breakpoint", "help", "copyright", "credits", "license"):
+        b.pop(name, None)
+    return b
+
+
+def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
+    try:
+        tree = ast.parse(source, USER_FILE)
+        code = compile(tree, USER_FILE, "exec")
+    except SyntaxError as e:
+        return json.dumps({"status": "syntax-error", "error": _syntax_error(e), "steps": []})
+
+    global_names = _GlobalNames()
+    global_names.visit(tree)
+    order = global_names.names
+
+    out = io.StringIO()
+    g = {"__name__": "__main__", "__builtins__": _safe_builtins(out, json.loads(inputs_json))}
+
+    steps = []
+    # Each entry: [frame, label, pending_line, raised]. Bottom to top; index 0 is
+    # the module (Global). pending_line is the line that is running in that
+    # frame and gets its step when it finishes.
+    stack = []
+    deadline = time.monotonic() + max_seconds
+    state = {"module": None}
+
+    def global_vars():
+        result = {}
+        for name in order:
+            if name in g:
+                if not _hidden(name, g[name]):
+                    result[name] = _short(g[name])
+            else:
+                result[name] = "?"
+        for name, value in g.items():
+            if name not in result and name not in order and not _hidden(name, value):
+                result[name] = _short(value)
+        return result
+
+    def local_vars(frame):
+        result = {}
+        for name, value in frame.f_locals.items():
+            if not _hidden(name, value):
+                result[name] = _short(value)
+        return result
+
+    def record(line, returning=None):
+        if len(steps) >= max_steps:
+            raise StopRun("steps")
+        frames = []
+        top = len(stack) - 1
+        for i, (frame, label, _pending, _raised) in enumerate(stack):
+            vars_ = global_vars() if i == 0 else local_vars(frame)
+            if i < top:
+                status = "waiting"
+            elif returning is not None:
+                status = "returning"
+            else:
+                status = "running"
+            entry = {"name": label, "vars": vars_, "status": status}
+            if i == top and returning is not None:
+                entry["returns"] = "returns " + _short(returning)
+            frames.append(entry)
+        steps.append({"line": line, "frames": frames, "output": out.getvalue()})
+
+    def local_trace(frame, event, arg):
+        if time.monotonic() > deadline:
+            raise StopRun("time")
+        if not stack or stack[-1][0] is not frame:
+            return local_trace
+        entry = stack[-1]
+        if event == "line":
+            if entry[2] is not None:
+                record(entry[2])  # the previous line in this frame has finished
+            entry[2] = frame.f_lineno
+            entry[3] = False
+        elif event == "exception":
+            entry[3] = True
+        elif event == "return":
+            if frame is state["module"]:
+                if entry[2] is not None and not entry[3]:
+                    record(entry[2])  # the last line of the program
+                return None
+            if not entry[3]:
+                record(frame.f_lineno, returning=arg)
+            stack.pop()
+        return local_trace
+
+    def global_trace(frame, event, arg):
+        if frame.f_code.co_filename != USER_FILE:
+            return None
+        if time.monotonic() > deadline:
+            raise StopRun("time")
+        if event != "call":
+            return None
+        if state["module"] is None:
+            state["module"] = frame
+            stack.append([frame, "Global", None, False])
+            return local_trace
+        name = frame.f_code.co_name
+        if name.startswith("<"):  # lambdas, generator expressions
+            return None
+        stack.append([frame, _frame_label(frame), None, False])
+        caller = frame.f_back
+        record(caller.f_lineno if caller is not None else frame.f_lineno)
+        return local_trace
+
+    status = "ok"
+    error = None
+    real_stdout = sys.stdout
+    old_limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(200)
+    sys.stdout = out
+    sys.settrace(global_trace)
+    try:
+        exec(code, g)
+    except StopRun:
+        status = "cap"
+    except RecursionError:
+        status = "cap"
+    except BaseException as e:  # runtime error in the student's program
+        status = "runtime-error"
+        tb = e.__traceback__
+        line = None
+        while tb is not None:
+            if tb.tb_frame.f_code.co_filename == USER_FILE:
+                line = tb.tb_lineno
+            tb = tb.tb_next
+        error = {"line": line, "type": type(e).__name__, "message": str(e)}
+    finally:
+        sys.settrace(None)
+        sys.stdout = real_stdout
+        sys.setrecursionlimit(old_limit)
+
+    if status == "ok" and time.monotonic() > deadline:
+        status = "cap"
+
+    return json.dumps({"status": status, "error": error, "steps": steps}, ensure_ascii=False)
+
+
+def lock_down():
+    """Called once after Pyodide has loaded, before any student code runs.
+    Removes the Python-to-JavaScript bridge from the import system."""
+    sys.meta_path[:] = [f for f in sys.meta_path if type(f).__name__ != "JsFinder"]
+    for name in list(sys.modules):
+        if name.split(".")[0] in ("js", "pyodide_js", "micropip"):
+            sys.modules[name] = None
