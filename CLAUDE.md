@@ -184,7 +184,7 @@ Playwright tests. Static build for GitHub Pages.
   & is allowed only as a scanf argument. A temp-variable swap is one swap step in
   C and C++ too. scanf/cin reading several values: "We read "Sam", 15 and 1.75
   with scanf and store them in name, age and h."
-- Java L1 rules (ArrayList, agreed as the next stage; wording to be reviewed): lists show
+- Java L1 rules (ArrayList): lists show
   like arrays ([1, 2, 3]); list.remove(int) removes a position, remove(Integer/other
   value) removes the first equal item, like Java; Integer objects compared with ==
   ask "the same object?" (values -128..127 are shared, like Java's cache), .equals
@@ -198,10 +198,16 @@ Playwright tests. Static build for GitHub Pages.
   2.5." Text sorts in Java order (by character codes: "B" before "a"; this also
   fixed Arrays.sort). String methods that change nothing return the same object
   (== shows it). Temp-variable swaps with get/set and Collections.swap are one
-  swap step. No new example chip (ask first).
+  swap step.
 - List changes read item by item in every language: "nums[0] changes from 5 to 2.",
-  "3 is added to the end of squares.", "4 is taken off the end of squares." List
-  methods (append, push, pop, sort...) count as changes (assign kind).
+  "3 is added to the end of squares.", "4 is taken off the end of squares.",
+  "7 is put in at position 1 of xs.", "1 is taken out of xs at position 0.",
+  "xs is emptied: it has no items now." List methods (append, push, pop, sort...)
+  count as changes (assign kind).
+- Decided 2026-11-25 (owner: "do what is best as per industry standard"): no
+  ArrayList example chip (the four examples stay the same in all five languages);
+  AI explanations stay off (wrong about 1 step in 6 is not acceptable for
+  learners); `wip/llama-ai` is kept but not merged, and the 8B comparison is not run.
 
 ## Commands
 
@@ -234,7 +240,7 @@ Paused on 2026-11-25.
 - `wip/ai-explanations`: the older paused in-browser AI (WebLLM + Qwen). Superseded by `wip/llama-ai`; keep for reference only.
 
 ### Next step
-Product owner reviews L1 (and its open wording questions: sentences for adding/removing in the middle of a list and clear(); an ArrayList example chip?). Ask: run the Llama 3.1 8B comparison, or keep AI off. Then continue the later stages in order: (1) Java ArrayList + more String methods (done, L1), (2) try/catch in Java and C++, (3) simple Java classes, (4) C++ structs/classes, basic pointers, map. Stages 3 and 4 need a new way to show objects/pointers/maps: ask about layout and wording first.
+Continue the later stages in order: (1) Java ArrayList + more String methods (done, L1), (2) try/catch in Java and C++, (3) simple Java classes, (4) C++ structs/classes, basic pointers, map. Stages 3 and 4 need a new way to show objects/pointers/maps: ask about layout and wording first.
 
 ### Decisions to remember
 - The PDF is the source of truth; ask before adding anything not in it. Work in stages, commit each, push only when asked.
@@ -251,5 +257,4 @@ Product owner reviews L1 (and its open wording questions: sentences for adding/r
 
 ### What the product owner still owes
 - Review of C3 and S1 (both live on the site), and L1 (not pushed).
-- Decision on AI: try Llama 3.1 8B, or keep AI off.
 - Go-ahead for the next stage (try/catch in Java and C++).

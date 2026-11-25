@@ -453,6 +453,25 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
         const v = sayValue(was[was.length - 1]);
         return { sub: 'assign-change', variants: [`${v} is taken off the end of ${t}.`, `${t} gets shorter: ${v} is removed from the end.`] };
       }
+      if (now.length === 0 && was.length > 1) {
+        return { sub: 'assign-change', variants: [`${t} is emptied: it has no items now.`, `All the items are taken out of ${t}, so it is empty now.`] };
+      }
+      // One item put in, or taken out, somewhere other than the end.
+      const firstDiff = (a: string[], b: string[]) => a.findIndex((x, i) => x !== b[i]);
+      if (now.length === was.length + 1) {
+        const i = firstDiff(now, was);
+        if (i >= 0 && same([...now.slice(0, i), ...now.slice(i + 1)], was)) {
+          const v = sayValue(now[i]);
+          return { sub: 'assign-change', variants: [`${v} is put in at position ${i} of ${t}.`, `${t} grows by one: ${v} goes in at position ${i}.`] };
+        }
+      }
+      if (now.length === was.length - 1) {
+        const i = firstDiff(was, now);
+        if (i >= 0 && same([...was.slice(0, i), ...was.slice(i + 1)], now)) {
+          const v = sayValue(was[i]);
+          return { sub: 'assign-change', variants: [`${v} is taken out of ${t} at position ${i}.`, `${t} gets shorter: ${v} at position ${i} is removed.`] };
+        }
+      }
       if (now.length === was.length) {
         const diff = now.map((x, i) => (x === was[i] ? -1 : i)).filter((i) => i >= 0);
         if (diff.length === 1) {

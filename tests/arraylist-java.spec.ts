@@ -46,6 +46,8 @@ test('ArrayList basics: add, get, set, size, remove by position and by value, pr
   expect(r.steps.at(-1)!.output).toBe('[7] 1 2 false\n');
   expect(e[1].what).toMatch(/^(5 is added to the end of nums|nums grows by one: 5 goes on the end)\.$/);
   expect(e[4].what).toMatch(/^(nums\[1\] changes from 5 to 7|Position 1 of nums was 5 and is now 7)\.$/);
+  expect(e[3].what).toMatch(/^(2 is put in at position 0 of nums|nums grows by one: 2 goes in at position 0)\.$/);
+  expect(e[6].what).toMatch(/^(2 is taken out of nums at position 0|nums gets shorter: 2 at position 0 is removed)\.$/);
 });
 
 test('List<String>, new ArrayList<>(Arrays.asList(...)), contains, indexOf, for-each, Collections', () => {

@@ -188,3 +188,10 @@ test('list changes: added to the end, removed from the end, one item changed (Py
   expect(js.steps.at(-1)!.kind).toBe('assign');
   expect(explainTrace(js).at(-1)!.what).toMatch(/^(5 is added to the end of xs|xs grows by one: 5 goes on the end)\.$/);
 });
+
+test('list changes in the middle and emptying a list read item by item', () => {
+  const e = explainTrace(jsTrace('const xs = [1, 2, 3];\nxs.splice(1, 0, 7);\nxs.shift();\nxs.splice(0);'));
+  expect(e[1].what).toMatch(/^(7 is put in at position 1 of xs|xs grows by one: 7 goes in at position 1)\.$/);
+  expect(e[2].what).toMatch(/^(1 is taken out of xs at position 0|xs gets shorter: 1 at position 0 is removed)\.$/);
+  expect(e[3].what).toMatch(/^(xs is emptied: it has no items now|All the items are taken out of xs, so it is empty now)\.$/);
+});
