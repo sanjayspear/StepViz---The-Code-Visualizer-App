@@ -22,9 +22,9 @@ npm run dev
 
 Open the URL it prints (usually http://localhost:5173/).
 
-`npm run dev` and `npm run build` first copy the Pyodide runtime from
-`node_modules/pyodide` into `public/pyodide/` (git-ignored), so it is served from
-the app's own site.
+`npm run dev` and `npm run build` first copy the Pyodide runtime and the
+tree-sitter files from `node_modules` into `public/pyodide/` and
+`public/tree-sitter/` (git-ignored), so they are served from the app's own site.
 
 To try the production build locally:
 
@@ -49,6 +49,9 @@ npm test
   spec, plus crash, `input()`, Beginner mode, keyboard and example checks
 - `tests/screen3.spec.ts`: the loops and lists view (Screen 3)
 - `tests/javascript.spec.ts`: JavaScript in the app (examples, errors, locked-down worker)
+- `tests/explainer.spec.ts`: step kinds and the rule-based explainer
+- `tests/java.spec.ts`: the Java interpreter under Node; `tests/java-worker.spec.ts`:
+  the built Java worker in a browser
 
 Run one file or one test:
 

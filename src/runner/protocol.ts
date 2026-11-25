@@ -50,3 +50,7 @@ export type JsToWorker =
 export type JsFromWorker =
   | { type: 'analyze-result'; result: { ok: true } | { ok: false; error: SyntaxErrorInfo } }
   | { type: 'run-result'; result: RawRunResult };
+
+// Java (and later C++/C) worker: tree-sitter files come from our own site.
+export type TreeToWorker = JsToWorker & { files: { engine: string; grammar: string } };
+export type TreeFromWorker = JsFromWorker;

@@ -439,7 +439,7 @@ export function explainTrace(trace: Trace): TraceStep['explain'][] {
 
   return trace.steps.map((step, i) => {
     if (step.kind === 'crash' || step.error) {
-      return { what: errorSentence(step.error?.type ?? '', lang === 'javascript' ? 'javascript' : 'python'), life: '' };
+      return { what: errorSentence(step.error?.type ?? '', lang), life: '' };
     }
     const f: Facts = { step, prev: trace.steps[i - 1], top: step.frames[step.frames.length - 1], words };
     const kind: StepKind = step.kind ?? 'other';

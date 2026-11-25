@@ -21,7 +21,10 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
    traces from the kind and what changed, with no per-language rules.
 2. Java, C++ and C exact traces (start only when the product owner says so): tree-walking interpreters over tree-sitter, each in
    its own locked-down worker, same trace JSON, explained by the rule-based explainer.
-   - J1: shared interpreter core + Java basics. J2: Java arrays, list view, Scanner,
+   - J1 (done): shared recorder (`src/runner/recorder.ts`, also used by JavaScript),
+     tree-sitter loader, Java interpreter (`src/runner/java/interpreter.ts`) for the
+     basics, its own locked-down worker (`java.worker.ts`, lockdown in `lockdown.ts`).
+     Not selectable in the app yet. J2: Java arrays, list view, Scanner, printf,
      crashes, examples; Java loses "(coming soon)".
    - C1: C++ core (main, cout, functions incl. references, strings). C2: C++ arrays,
      vector, list view, cin, crashes, examples; C++ loses "(coming soon)".
@@ -127,6 +130,16 @@ Playwright tests. Static build for GitHub Pages.
   show as "a = 5 (same box as x)". Examples in these languages use the rule-based
   explainer, except Factorial and Bubble sort, which keep hand-written text if it
   carries over easily.
+- Java J1 rules: problems Java's compiler would reject stay on Home with a line
+  number ("x is an int box, so it can't hold 2.5.", "x is used before it was given a
+  value.", "y is used but never declared."); unsupported code: "Line N: StepViz can't
+  run <feature> in Java yet."; missing wrapper: "StepViz needs a public class Main
+  with a main method." Doubles print like Java (2.0, 1.0E7); int wraps at 32 bits;
+  a void method's return shows "returns nothing". Text compared with == is compared
+  by its letters (real Java compares objects; .equals() is the right way). Java
+  crash sentences: ArithmeticException "Java can't divide a whole number by zero.",
+  StringIndexOutOfBounds "This position is outside the text.", NullPointerException
+  "This box is empty (null), so it can't be used here."
 
 ## Commands
 

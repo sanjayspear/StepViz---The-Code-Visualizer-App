@@ -21,11 +21,18 @@ const ERROR_SENTENCES: Record<string, string> = {
   ValueError: "This value can't be used here.",
   // JavaScript
   ReferenceError: 'This name was used before it was given a value.',
+  // Java
+  ArithmeticException: "Java can't divide a whole number by zero.",
+  ArrayIndexOutOfBoundsException: 'This position is outside the list.',
+  StringIndexOutOfBoundsException: 'This position is outside the text.',
+  NullPointerException: "This box is empty (null), so it can't be used here.",
 };
 
+const LANGUAGE_NAMES = { python: 'Python', javascript: 'JavaScript', java: 'Java', cpp: 'C++', c: 'C' } as const;
+
 /** A plain-words sentence for an error type. */
-export function errorSentence(type: string, language: 'python' | 'javascript' = 'python'): string {
-  return ERROR_SENTENCES[type] ?? `${language === 'javascript' ? 'JavaScript' : 'Python'} stopped with an error.`;
+export function errorSentence(type: string, language: keyof typeof LANGUAGE_NAMES = 'python'): string {
+  return ERROR_SENTENCES[type] ?? `${LANGUAGE_NAMES[language] ?? 'Python'} stopped with an error.`;
 }
 
 /** The raw Python message, e.g. "ZeroDivisionError: division by zero". */
