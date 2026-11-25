@@ -30,6 +30,13 @@
 // Structs are values: copied when assigned or passed by value; references share.
 // Vectors and arrays of structs; for (auto& p : pts) works on the items themselves.
 // Not yet: inheritance, virtual, operator overloading, static members, destructors.
+// P1: pointers (C and C++): int* p = &x, *p, p->x, nullptr/NULL, pointers as
+// parameters, ==; frames show "points to x" ("in main()" from another frame,
+// "(gone)" once x's block or function ended: using it then is a Dangling crash,
+// nullptr a NullPointer crash). std::map (sorted by key): m[k] (adds a missing key,
+// like C++), count, contains, erase, at, size, empty, clear, find(k) != end(),
+// for (auto& [k, v] : m) and kv.first / kv.second. Not yet: pointer arithmetic,
+// pointers to pointers, new/delete, char* text, unordered_map, iterators.
 //
 // StepViz is stricter than a real compiler where real C++ would quietly give
 // garbage: an index outside a list, a variable used before it has a value and
@@ -54,15 +61,54 @@ import {
 // Values
 
 type Prim = 'int' | 'long' | 'double' | 'bool' | 'char' | 'string';
-type CType = Prim | 'vector' | 'array' | 'void' | 'auto' | 'exception' | 'struct';
+type CType = Prim | 'vector' | 'array' | 'void' | 'auto' | 'exception' | 'struct' | 'pointer' | 'map' | 'iter';
+
+/** A map's entries by key ("s:Sam", "n:3"): [key, value]. Shown and walked in key order, like std::map. */
+type MapEntries = Map<string, [CVal, CVal]>;
+const keyOf = (k: CVal): string => (k.t === 'string' ? `s:${k.v}` : k.t === 'char' ? `n:${(k.v as string).charCodeAt(0)}` : `n:${Number(k.v)}`);
+function sortedEntries(m: MapEntries): [CVal, CVal][] {
+  return [...m.values()].sort(([a], [b]) => {
+    if (a.t === 'string') return (a.v as string) < (b.v as string) ? -1 : (a.v as string) > (b.v as string) ? 1 : 0;
+    const x = a.t === 'char' ? (a.v as string).charCodeAt(0) : Number(a.v);
+    const y = b.t === 'char' ? (b.v as string).charCodeAt(0) : Number(b.v);
+    return x - y;
+  });
+}
+/** kv in for (auto& kv : m): first and second; with &, changing second changes the map. */
+class PairFields extends Map<string, CVal> {
+  constructor(private entry: [CVal, CVal] | null, first: CVal, second: CVal) {
+    super([
+      ['first', first],
+      ['second', second],
+    ]);
+  }
+  override set(k: string, v: CVal) {
+    if (k === 'second' && this.entry) this.entry[1] = v;
+    return super.set(k, v);
+  }
+}
+
+/** What a pointer points to: a variable's box (or a list item or struct member), its name, and the frame it lives in. */
+interface PtrTarget {
+  cell: { v: unknown };
+  name: string;
+  frame: string;
+  /** the variable whose box holds it (dead once its block or function has ended) */
+  owner: { dead?: boolean } | null;
+}
+let nextAddress = 1;
 
 /** A C++ value. char values hold the character; lists hold their items; an exception holds its what() text. */
 interface CVal {
   t: CType;
-  v: number | boolean | string | CVal[] | null | Map<string, CVal>;
+  v: number | boolean | string | CVal[] | null | Map<string, CVal> | PtrTarget | MapEntries;
   elem?: Prim;
   /** exception: its class (runtime_error, out_of_range...); struct: its struct or class name */
   cls?: string;
+  /** pointer: the type it points to (v is a PtrTarget, or null for nullptr) */
+  pt?: DeclType;
+  /** map: the key type (elem is the value type) */
+  kt?: Prim;
 }
 
 /** A struct or class of the program: its fields (in order), constructors and methods. */
@@ -142,6 +188,10 @@ export function formatCpp(x: unknown): string | undefined {
   if (x === undefined) return 'nothing';
   if (x === UNSET_VAL) return '?';
   if (Array.isArray(x)) return `[${x.map((e) => formatCpp(e) ?? String(e)).join(', ')}]`;
+  if (typeof x === 'object' && x !== null && 'seenFrom' in x) {
+    const r = x as { seenFrom: string; ptr: CVal };
+    return pointerText(r.ptr, r.seenFrom);
+  }
   if (typeof x === 'object' && x !== null && 'refOf' in x) {
     const r = x as { refOf: string; value: unknown };
     return `${formatCpp(r.value)} (same box as ${r.refOf})`;
@@ -162,6 +212,10 @@ export function formatCpp(x: unknown): string | undefined {
       return `${x.cls}: ${x.v}`;
     case 'struct':
       return structText(x, 0);
+    case 'pointer':
+      return pointerText(x, null);
+    case 'map':
+      return `{${sortedEntries(x.v as MapEntries).map(([k, v]) => `${formatCpp(k)}: ${formatCpp(v)}`).join(', ')}}`;
     case 'vector':
     case 'array':
       if (x.elem === 'char') {
@@ -172,6 +226,30 @@ export function formatCpp(x: unknown): string | undefined {
     default:
       return String(x.v);
   }
+}
+
+/** Do two pointers point to the same place? */
+function samePlace(a: PtrTarget | null, b: PtrTarget | null): boolean {
+  if (!a || !b) return a === b;
+  return a.cell === b.cell || (a.owner !== null && a.owner === b.owner && a.name === b.name);
+}
+/** A made-up address for printing a pointer (real ones differ from run to run). */
+const addresses = new WeakMap<object, number>();
+function addressOf(t: PtrTarget): string {
+  const key = (t.owner ?? t.cell) as object;
+  if (!addresses.has(key)) addresses.set(key, nextAddress++);
+  const index = Number(/\[(\d+)\]$/.exec(t.name)?.[1] ?? 0);
+  return `0x7ffc${(0x1000 + addresses.get(key)! * 0x40 + index * 4).toString(16)}`;
+}
+
+/** How a pointer shows: nullptr, points to x, points to x in main() (seen from another frame), or (gone). */
+const LABEL = '\u0000label';
+function pointerText(x: CVal, here: string | null): string {
+  const t = x.v as PtrTarget | null;
+  if (!t) return 'nullptr';
+  if (here === LABEL) return `&${t.name}`;
+  const where = here !== null && t.frame !== here && t.frame !== 'Global' ? ` in ${t.frame}` : '';
+  return `points to ${t.name}${where}${t.owner?.dead ? ' (gone)' : ''}`;
 }
 
 /** How a struct shows: Point {x: 1, y: ?} (a struct inside it, one level deep: Point {…}). */
@@ -267,9 +345,7 @@ function syntaxError(tree: Tree): CompileError | null {
 }
 
 const FEATURES: Record<string, string> = {
-  pointer_declarator: 'pointers',
-  pointer_expression: 'pointers',
-  abstract_pointer_declarator: 'pointers',
+  abstract_pointer_declarator: 'pointers without a name',
   new_expression: 'new',
   delete_expression: 'delete',
   union_specifier: 'unions',
@@ -290,7 +366,7 @@ const FEATURES: Record<string, string> = {
 };
 
 const INCLUDES = new Set([
-  '<iostream>', '<vector>', '<string>', '<cmath>', '<algorithm>', '<iomanip>', '<utility>', '<climits>', '<bits/stdc++.h>', '<stdexcept>', '<exception>',
+  '<iostream>', '<vector>', '<string>', '<cmath>', '<algorithm>', '<iomanip>', '<utility>', '<climits>', '<bits/stdc++.h>', '<stdexcept>', '<exception>', '<map>',
 ]);
 const C_INCLUDES = new Set(['<stdio.h>', '<stdlib.h>', '<math.h>', '<string.h>', '<stdbool.h>', '<limits.h>']);
 
@@ -451,22 +527,21 @@ function checkSubset(tree: Tree): Program {
       n.childForFieldName('operator')?.type === '&' &&
       n.parent?.type === 'argument_list' &&
       n.parent.parent?.childForFieldName('function')?.text === 'scanf';
-    // catch (const char* message): the one pointer StepViz allows, for throw "text".
-    const catchText = n.type === 'pointer_declarator' && n.parent?.type === 'parameter_declaration' && n.parent.parent?.parent?.type === 'catch_clause';
     const feature = FEATURES[n.type];
-    if (feature && !scanfAddress && !catchText) throw unsupported(n, feature);
+    if (feature && !scanfAddress) throw unsupported(n, feature);
+    if (n.type === 'pointer_declarator' && n.childForFieldName('declarator')?.type === 'pointer_declarator') throw unsupported(n, 'pointers to pointers');
+    if (n.type === 'pointer_declarator' && n.childForFieldName('declarator')?.type === 'function_declarator') throw unsupported(n, 'functions that give back pointers');
     if (dialect === 'c' && n.type === 'reference_declarator') throw unsupported(n, 'references (&)');
     if (n.type === 'unary_expression' && n.childForFieldName('operator')?.type === '&') throw unsupported(n, 'pointers');
     // Inside functions: struct Point p (a type) is fine; a struct definition is not.
     if ((n.type === 'struct_specifier' || n.type === 'class_specifier') && n.childForFieldName('body')) throw unsupported(n, 'structs inside functions');
-    if (n.type === 'field_expression' && n.childForFieldName('operator')?.type === '->' && n.childForFieldName('argument')?.type !== 'this') {
-      throw unsupported(n, 'pointers (->)');
-    }
+
     if (n.type === 'template_type') {
       const name = n.childForFieldName('name')?.text;
-      if (name !== 'vector') throw unsupported(n, name ?? 'templates');
-      const arg = named(n.childForFieldName('arguments'))[0];
-      if (arg && /vector|map|set|</.test(arg.text)) throw unsupported(n, 'lists of lists');
+      if (name === 'unordered_map') throw unsupported(n, 'unordered_map (map works)');
+      if (name !== 'vector' && name !== 'map') throw unsupported(n, name ?? 'templates');
+      const args = named(n.childForFieldName('arguments'));
+      if (args.some((a) => /vector|map|set|</.test(a.text))) throw unsupported(n, name === 'map' ? 'maps of lists' : 'lists of lists');
     }
     if (n.type === 'array_declarator' && n.childForFieldName('declarator')?.type === 'array_declarator') throw unsupported(n, 'arrays of arrays');
     if (n.type === 'sized_type_specifier' && /unsigned/.test(n.text)) throw unsupported(n, 'unsigned numbers');
@@ -489,6 +564,10 @@ interface DeclType {
   elem?: Prim;
   /** struct: its name */
   cls?: string;
+  /** pointer: the type it points to */
+  pt?: DeclType;
+  /** map: the key type */
+  kt?: Prim;
 }
 
 function primOf(n: Node | null): Prim | 'void' | 'auto' {
@@ -507,6 +586,13 @@ function primOf(n: Node | null): Prim | 'void' | 'auto' {
 }
 
 function typeOf(typeNode: Node | null): DeclType {
+  if (typeNode?.type === 'template_type' && typeNode.childForFieldName('name')?.text === 'map') {
+    const [k, v] = named(typeNode.childForFieldName('arguments')).map((a) => primOf(named(a).find((c) => c.type !== 'type_qualifier') ?? null));
+    if (!k || !v || k === 'void' || k === 'auto' || v === 'void' || v === 'auto') throw unsupported(typeNode, 'this kind of map');
+    if (isStructItem(k)) throw unsupported(typeNode, 'maps with struct keys');
+    return { t: 'map', kt: k, elem: v };
+  }
+  if (typeNode?.type === 'qualified_identifier' && /map/.test(typeNode.text) && !/vector/.test(typeNode.text)) return typeOf(typeNode.childForFieldName('name'));
   if (typeNode?.type === 'template_type') {
     const arg = named(named(typeNode.childForFieldName('arguments'))[0]);
     const elem = primOf(arg.find((c) => c.type !== 'type_qualifier') ?? null);
@@ -525,6 +611,8 @@ interface DeclaratorInfo {
   value: Node | null;
   arraySize: Node | null | undefined; // undefined: not an array; null: int a[] = {...}
   reference: boolean;
+  /** int* p */
+  pointer?: boolean;
 }
 
 function declaratorInfo(d: Node): DeclaratorInfo {
@@ -539,13 +627,19 @@ function declaratorInfo(d: Node): DeclaratorInfo {
     reference = true;
     node = named(node)[0];
   }
+  let pointer = false;
+  if (node.type === 'pointer_declarator') {
+    pointer = true;
+    node = node.childForFieldName('declarator')!;
+    if (node.type === 'array_declarator') throw unsupported(node, 'arrays of pointers');
+  }
   let arraySize: Node | null | undefined;
   if (node.type === 'array_declarator') {
     arraySize = node.childForFieldName('size') ?? null;
     node = node.childForFieldName('declarator')!;
   }
   if (node.type !== 'identifier') throw unsupported(node, 'this kind of declaration');
-  return { name: node.text, value, arraySize, reference };
+  return { name: node.text, value, arraySize, reference, pointer };
 }
 
 const declarators = (s: Node) => s.childrenForFieldName('declarator').filter((d): d is Node => !!d);
@@ -572,7 +666,10 @@ function safeIndex(n: Node): boolean {
 
 function loopVarOf(loop: Node): string | null {
   if (loop.type === 'for_range_loop') {
-    const d = loop.childForFieldName('declarator');
+    let d = loop.childForFieldName('declarator');
+    if (d?.type === 'reference_declarator') d = named(d)[0];
+    // for (auto& [name, n] : m): the key's name
+    if (d?.type === 'structured_binding_declarator') d = named(d)[0];
     return d?.type === 'identifier' ? d.text : d ? named(d).find((c) => c.type === 'identifier')?.text ?? null : null;
   }
   if (loop.type === 'for_statement') {
@@ -682,7 +779,11 @@ interface Cell {
   t: CType;
   elem?: Prim;
   cls?: string;
+  pt?: DeclType;
+  kt?: Prim;
   v: CVal | typeof UNSET;
+  /** its block or function has ended (a pointer to it is left dangling) */
+  dead?: boolean;
 }
 
 /** A variable in a scope: its box, and (for a reference) the name of the box it shares. */
@@ -755,7 +856,7 @@ const declaredNames = (stmts: Node[]): { name: string; type: DeclType; arrayLen?
     for (const d of declarators(s)) {
       const info = declaratorInfo(d);
       const elem = (type.t === 'struct' ? type.cls : type.t) as Prim;
-      out.push({ name: info.name, type: info.arraySize !== undefined ? { t: 'array', elem } : type });
+      out.push({ name: info.name, type: info.pointer ? { t: 'pointer', pt: type } : info.arraySize !== undefined ? { t: 'array', elem } : type });
     }
   }
   return out;
@@ -795,11 +896,13 @@ class Interp {
     return id;
   }
 
-  private getters(names: string[]): Getter[] {
+  /** `frame`: the frame these values belong to (a pointer says "points to x in main()" when x is elsewhere). */
+  private getters(names: string[], frame: { label: string } = this.rt.stack[this.rt.stack.length - 1]): Getter[] {
     const scope = this.scope;
     return names.map((n) => () => {
       const b = scope.lookup(n);
       if (!b || b.cell.v === UNSET) throw new Error('unset');
+      if (b.cell.v.t === 'pointer') return { seenFrom: frame.label, ptr: b.cell.v };
       // Lists are handed over as their items (for the list view); char arrays as text.
       const value = (b.cell.v.t === 'vector' || b.cell.v.t === 'array') && b.cell.v.elem !== 'char' ? b.cell.v.v : b.cell.v;
       return b.refOf ? { refOf: b.refOf, value } : value;
@@ -859,7 +962,7 @@ class Interp {
     } else {
       this.scope = new Scope(this.globals, true);
       try {
-        this.execBody(main.childForFieldName('body')!);
+        this.execBody(main.childForFieldName('body')!, []); // main's variables live to the end
       } catch (e) {
         if (!(e instanceof ReturnSignal)) throw e;
         // return 0; ends the program: main() is done and returns 0.
@@ -870,26 +973,41 @@ class Interp {
     this.rt.finish();
   }
 
-  private execBody(block: Node) {
+  /**
+   * Run a block. When it ends, its variables are gone (a pointer to them dangles);
+   * a function body hands them to `collect` instead, to be marked after its return step.
+   */
+  private execBody(block: Node, collect: Binding[] | null = null) {
     const saved = this.scope;
-    this.scope = new Scope(saved);
+    const scope = (this.scope = new Scope(saved));
     const stmts = statementsOf(block);
     for (const d of declaredNames(stmts)) this.scope.vars.set(d.name, { cell: { ...d.type, v: UNSET } });
     try {
       for (let i = 0; i < stmts.length; i++) this.exec(stmts[i], tempSwap(stmts, i));
     } finally {
       this.scope = saved;
+      const ended = [...scope.vars.values()].filter((b) => !b.refOf);
+      if (collect) collect.push(...ended);
+      else for (const b of ended) b.cell.dead = true;
     }
   }
 
   // ---- statements ---------------------------------------------------------------
 
   private targetName(n: Node): string {
+    // *p = 5 / (*p)++: the box p points to changes (the explainer finds it from p).
+    if (n.type === 'parenthesized_expression') return this.targetName(named(n)[0]);
+    if (n.type === 'pointer_expression' && n.childForFieldName('argument')?.type === 'identifier') return `*${n.childForFieldName('argument')!.text}`;
     // p.x = ... / this->age = ... / pts[0].x = ...: the struct changes.
     if (n.type === 'field_expression') {
       let o = n;
-      while (o.type === 'field_expression' || o.type === 'subscript_expression') o = o.childForFieldName('argument')!;
-      return o.type === 'this' ? 'this' : o.text;
+      let viaPointer = false;
+      while (o.type === 'field_expression' || o.type === 'subscript_expression') {
+        if (o.type === 'field_expression' && o.childForFieldName('operator')?.type === '->') viaPointer = true;
+        o = o.childForFieldName('argument')!;
+      }
+      // pa->x = 7: the struct pa points to changes.
+      return o.type === 'this' ? 'this' : viaPointer ? `*${o.text}` : o.text;
     }
     if (n.type === 'identifier' && !this.scope.lookup(n.text) && this.scope.lookup('this')) return 'this';
     return subscriptBase(n) ?? n.text;
@@ -1172,6 +1290,14 @@ class Interp {
         this.scope.vars.set(info.name, { cell: other.cell, refOf: target.text });
         continue;
       }
+      if (info.pointer) {
+        const ptrType: DeclType = { t: 'pointer', pt: type };
+        binding.cell = { ...ptrType, v: UNSET };
+        if (info.value?.type === 'string_literal' || info.value?.type === 'concatenated_string') throw unsupported(d, 'text pointers (char*)');
+        if (info.value) binding.cell.v = this.convert(this.eval(info.value), ptrType, d, info.name);
+        else if (isGlobal) binding.cell.v = { t: 'pointer', v: null, pt: type };
+        continue;
+      }
       if (info.arraySize !== undefined) {
         const elem = (type.t === 'struct' ? type.cls : type.t) as Prim;
         if (isStructItem(elem)) {
@@ -1201,6 +1327,11 @@ class Interp {
       if (type.t === 'vector') {
         const items = info.value ? this.vectorFrom(info.value, type.elem!) : [];
         binding.cell.v = { t: 'vector', elem: type.elem, v: items };
+        continue;
+      }
+      if (type.t === 'map') {
+        // map<string, int> m;  m = {{"a", 1}, {"b", 2}};  map<...> copy = other;
+        binding.cell.v = info.value ? this.mapFrom(info.value, type, d, info.name) : { t: 'map', kt: type.kt, elem: type.elem, v: new Map() };
         continue;
       }
       if (type.t === 'struct') {
@@ -1240,12 +1371,72 @@ class Interp {
   /** Lists, text and structs are copied when assigned or passed by value (a struct copies its arrays too). */
   private copy(v: CVal): CVal {
     if (v.t === 'vector') return { ...v, v: (v.v as CVal[]).map((x) => this.copy(x)) };
+    if (v.t === 'map') return { ...v, v: new Map([...(v.v as MapEntries)].map(([k, [key, val]]) => [k, [key, this.copy(val)] as [CVal, CVal]])) };
     if (v.t === 'struct') {
       const fields = new Map<string, CVal>();
       for (const [k, x] of v.v as Map<string, CVal>) fields.set(k, x.t === 'array' ? { ...x, v: (x.v as CVal[]).map((y) => this.copy(y)) } : this.copy(x));
       return { ...v, v: fields };
     }
     return v;
+  }
+
+  /** A map from {{"a", 1}, {"b", 2}} or from another map (a copy). */
+  private mapFrom(n: Node, type: DeclType, at: Node, name: string): CVal {
+    const m: CVal = { t: 'map', kt: type.kt, elem: type.elem, v: new Map() };
+    if (n.type !== 'initializer_list') return this.copy(this.convert(this.eval(n), type, at, name));
+    for (const pair of named(n)) {
+      const [k, v] = named(pair);
+      if (pair.type !== 'initializer_list' || !k || !v) throw new CompileError(lineOf(pair), 'Each item of a map needs a key and a value, like {"a", 1}.');
+      const key = this.convert(this.eval(k), { t: type.kt! }, k, name);
+      (m.v as MapEntries).set(keyOf(key), [key, this.convert(this.eval(v), this.itemType(type.elem), v, name)]);
+    }
+    return m;
+  }
+
+  /** m[k]: the entry for k; like C++, a missing key is added first (with 0, "" or an empty struct). */
+  private mapSlot(m: CVal, keyNode: Node): [CVal, CVal] {
+    const key = this.convert(this.eval(keyNode), { t: m.kt! }, keyNode, 'the key');
+    const entries = m.v as MapEntries;
+    let entry = entries.get(keyOf(key));
+    if (!entry) {
+      const elem = m.elem!;
+      const start = isStructItem(elem) ? this.blank(structs.get(elem)!, true) : elem === 'string' ? strv('') : this.zeroOf(elem);
+      entry = [key, start];
+      entries.set(keyOf(key), entry);
+    }
+    return entry;
+  }
+
+  private mapMethod(n: Node, objNode: Node, m: CVal, method: string, argNodes: Node[]): CVal {
+    const entries = m.v as MapEntries;
+    const key = () => this.convert(this.eval(argNodes[0]), { t: m.kt! }, argNodes[0], 'the key');
+    switch (method) {
+      case 'size':
+        return lng(entries.size);
+      case 'empty':
+        return bool(entries.size === 0);
+      case 'count':
+      case 'contains': {
+        const has = entries.has(keyOf(key()));
+        return method === 'count' ? int(has ? 1 : 0) : bool(has);
+      }
+      case 'erase':
+        return int(entries.delete(keyOf(key())) ? 1 : 0);
+      case 'clear':
+        entries.clear();
+        return VOID;
+      case 'at': {
+        const k = key();
+        const entry = entries.get(keyOf(k));
+        if (!entry) throw libraryException('out_of_range', `the key ${formatCpp(k)} is not in ${objNode.text}`, 'map::at');
+        return entry[1];
+      }
+      case 'find':
+        return { t: 'iter', v: entries.has(keyOf(key())) ? keyOf(key()) : null };
+      case 'end':
+        return { t: 'iter', v: null };
+    }
+    throw unsupported(n, `map.${method}()`);
   }
 
   /** The type of one item of a vector or array: a value type, or a struct. */
@@ -1376,12 +1567,73 @@ class Interp {
     return obj;
   }
 
+  /** *p: the value p points to, with StepViz's checks (nullptr, a box that is gone, no value yet). */
+  private deref(p: CVal, at: Node): CVal {
+    const t = this.targetOf(p, at);
+    const v = t.cell.v as CVal | typeof UNSET;
+    if (v === UNSET || v === UNSET_VAL) throw new CppCrash('Uninitialized', `${at.text} points to ${t.name}, which has no value yet`);
+    return v;
+  }
+
+  private targetOf(p: CVal, at: Node): PtrTarget {
+    if (p.t !== 'pointer') throw new CompileError(lineOf(at), `${at.text} is not a pointer, so * can't be used on it.`);
+    const t = p.v as PtrTarget | null;
+    if (!t) throw new CppCrash('NullPointer', `${at.text} is nullptr`);
+    if (t.owner?.dead) throw new CppCrash('Dangling', `${at.text} points to ${t.name}, which no longer exists`);
+    return t;
+  }
+
+  /** &x, &a[2], &p.x: a pointer to that box. */
+  private addressOf(n: Node): CVal {
+    const frame = (b: Binding | undefined) => (b && this.globals.vars.get(n.text) === b ? 'Global' : this.rt.stack[this.rt.stack.length - 1].label);
+    if (n.type === 'identifier') {
+      const b = this.scope.lookup(n.text);
+      if (!b) throw new CompileError(lineOf(n), `${n.text} is used but never declared.`);
+      if (b.cell.t === 'array') throw unsupported(n, 'pointers to whole arrays');
+      const pt: DeclType = { t: b.cell.t, elem: b.cell.elem, cls: b.cell.cls, pt: b.cell.pt };
+      return { t: 'pointer', pt, v: { cell: b.cell, name: b.refOf ?? n.text, frame: frame(b), owner: b.cell } };
+    }
+    // A list item or a struct member: a box inside another variable's box.
+    let base = n;
+    while (base.type === 'subscript_expression' || base.type === 'field_expression') base = base.childForFieldName('argument')!;
+    const owner = base.type === 'identifier' ? this.scope.lookup(base.text) : undefined;
+    if (n.type === 'subscript_expression') {
+      const { list, index } = this.element(n);
+      if (list.t === 'string') throw unsupported(n, 'pointers to letters of text');
+      const items = list.v as CVal[];
+      const cell = { get v() { return items[index]; }, set v(x: CVal) { items[index] = x; } };
+      return { t: 'pointer', pt: this.itemType(list.elem), v: { cell, name: `${n.childForFieldName('argument')!.text}[${index}]`, frame: frame(owner), owner: owner?.cell ?? null } };
+    }
+    if (n.type === 'field_expression') {
+      const m = this.member(n);
+      const fields = m.fields;
+      const cell = { get v() { return fields.get(m.name)!; }, set v(x: CVal) { fields.set(m.name, x); } };
+      return { t: 'pointer', pt: m.type, v: { cell, name: n.text, frame: frame(owner), owner: owner?.cell ?? null } };
+    }
+    throw unsupported(n, 'pointers to this');
+  }
+
   /** p.x / this->age / pts[0].x: the struct, its member's name and type, with C++'s checks. */
   private member(n: Node): { fields: Map<string, CVal>; name: string; type: DeclType; size: Node | null | undefined; isSelf: boolean } {
     const objNode = n.childForFieldName('argument')!;
     const name = n.childForFieldName('field')!.text;
-    const obj = this.eval(objNode);
+    const arrow = n.childForFieldName('operator')?.type === '->';
+    let obj = this.eval(objNode);
+    if (obj.t === 'pointer') {
+      if (!arrow) throw new CompileError(lineOf(n), `${objNode.text} is a pointer: use -> to reach its member, like ${objNode.text}->${name}.`);
+      obj = this.deref(obj, objNode);
+    } else if (arrow && objNode.type !== 'this') {
+      throw new CompileError(lineOf(n), `${objNode.text} is not a pointer: use . to reach its member, like ${objNode.text}.${name}.`);
+    }
+    if (obj.t === 'iter') throw unsupported(n, 'iterators like this');
     if (obj.t !== 'struct') throw new CompileError(lineOf(n), `${objNode.text} is not a struct, so it has no member ${name}.`);
+    if (obj.cls === 'pair') {
+      // kv.first / kv.second in for (auto& kv : m)
+      if (name !== 'first' && name !== 'second') throw new CompileError(lineOf(n), `A pair has first and second, not ${name}.`);
+      const fields = obj.v as Map<string, CVal>;
+      const v = fields.get(name)!;
+      return { fields, name, type: { t: v.t, elem: v.elem, cls: v.cls }, size: undefined, isSelf: false };
+    }
     const st = structs.get(obj.cls!)!;
     const field = st.fields.find((f) => f.name === name);
     if (!field) throw new CompileError(lineOf(n), `${st.name} has no member called ${name}.`);
@@ -1419,6 +1671,7 @@ class Interp {
 
   private truthy(v: CVal): boolean {
     if (v.t === 'bool') return v.v as boolean;
+    if (v.t === 'pointer') return v.v !== null;
     if (NUMERIC.has(v.t)) return this.num(v) !== 0;
     throw new CompileError(1, 'A condition must be true or false.');
   }
@@ -1448,6 +1701,10 @@ class Interp {
           for (const d of declaredNames([init])) this.scope.vars.set(d.name, { cell: { ...d.type, v: UNSET } });
           this.declare(init, false);
         } else if (init) this.eval(init.type === 'expression_statement' ? named(init)[0] : init);
+      }
+      if (s.type === 'for_range_loop' && this.eval(s.childForFieldName('right')!).t === 'map') {
+        this.mapLoop(s, line, info, body);
+        return;
       }
       if (s.type === 'for_range_loop') {
         const list = this.eval(s.childForFieldName('right')!);
@@ -1518,6 +1775,53 @@ class Interp {
     this.rt.hooks.x(line, this.namesId(names), this.getters(names), info);
   }
 
+  /** for (auto& [k, v] : m) / for (auto& kv : m): the entries in key order. */
+  private mapLoop(s: Node, line: number, info: StepInfo, body: Node) {
+    const m = this.eval(s.childForFieldName('right')!);
+    const mapText = s.childForFieldName('right')!.text;
+    let decl = s.childForFieldName('declarator')!;
+    const isRef = decl.type === 'reference_declarator';
+    if (isRef) decl = named(decl)[0];
+    const names = decl.type === 'structured_binding_declarator' ? named(decl).map((c) => c.text) : [decl.text];
+    if (names.length > 2) throw new CompileError(lineOf(decl), 'A map entry has two parts: the key and the value.');
+    const outer = this.scope;
+    let done = false;
+    try {
+      for (const entry of sortedEntries(m.v as MapEntries)) {
+        this.scope = new Scope(outer);
+        const [key, value] = entry;
+        const where = `${mapText}[${formatCpp(key)}]`;
+        if (names.length === 2) {
+          this.scope.vars.set(names[0], { cell: { t: key.t, v: key } });
+          if (isRef) {
+            const cell = { t: value.t, elem: value.elem, cls: value.cls, get v() { return entry[1]; }, set v(x: CVal) { entry[1] = x; } };
+            this.scope.vars.set(names[1], { cell: cell as Cell, refOf: where });
+          } else this.scope.vars.set(names[1], { cell: { t: value.t, elem: value.elem, cls: value.cls, v: this.copy(value) } });
+        } else {
+          const pair: CVal = { t: 'struct', cls: 'pair', v: new PairFields(isRef ? entry : null, key, isRef ? value : this.copy(value)) };
+          this.scope.vars.set(names[0], { cell: { t: 'struct', cls: 'pair', v: pair } });
+        }
+        this.hook(line, info, null);
+        try {
+          this.execNested(body);
+        } catch (e) {
+          if (e instanceof BreakSignal) {
+            this.rt.hooks.f();
+            break;
+          }
+          if (!(e instanceof ContinueSignal)) throw e;
+        }
+        this.rt.hooks.f();
+      }
+      done = true;
+    } finally {
+      this.scope = outer;
+      if (!done) this.rt.hooks.dropLoop(line);
+    }
+    const all = this.scope.names();
+    this.rt.hooks.x(line, this.namesId(all), this.getters(all), info);
+  }
+
   // ---- functions ----------------------------------------------------------------
 
   private call(node: Node, name: string, argNodes: Node[]): CVal {
@@ -1558,6 +1862,9 @@ class Interp {
         const a = this.eval(arg);
         if (a.t !== 'array') throw new CompileError(lineOf(arg), `${info.name} needs an array.`);
         scope.vars.set(info.name, { cell: { t: 'array', elem: a.elem, v: a } }); // arrays are not copied
+      } else if (info.pointer) {
+        const ptrType: DeclType = { t: 'pointer', pt: type };
+        scope.vars.set(info.name, { cell: { ...ptrType, v: this.convert(this.eval(arg), ptrType, arg, info.name) } });
       } else if (type.t === 'struct' && arg.type === 'initializer_list') {
         scope.vars.set(info.name, { cell: { ...type, v: this.structFrom(arg, structs.get(type.cls!)!, info.name) } });
       } else {
@@ -1574,10 +1881,19 @@ class Interp {
     // int getAge() const { ... }: the method may not change its object.
     const methodName = declarator.childForFieldName('declarator')!.text.replace(/^\w+::/, '');
     this.constMethod = named(declarator).some((c) => c.type === 'type_qualifier' && c.text === 'const') ? methodName : null;
-    this.rt.hooks.enter(label, this.namesId(names), this.getters(names), self ? 1 : 0);
+    // The label shows pointers as &x (addOne(&x)); the frame shows "points to x in main()".
+    const frame = { label };
+    const shownArgs = names.slice(self ? 1 : 0).map((n) => {
+      const v = scope.vars.get(n)!.cell.v;
+      const text = v === UNSET ? '?' : v.t === 'pointer' ? pointerText(v, LABEL) : this.rt.fmt((v.t === 'vector' || v.t === 'array') && v.elem !== 'char' ? v.v : v);
+      return text.replace(/ \(same box as [^)]*\)$/, '');
+    });
+    this.rt.hooks.enter(label, this.namesId(names), this.getters(names, frame), self ? 1 : 0, `${label}(${shownArgs.join(', ')})`);
+    frame.label = this.rt.stack[this.rt.stack.length - 1].label;
+    const ended: Binding[] = [];
     try {
       if (making && st) this.initMembers(f, st, making);
-      this.execBody(f.childForFieldName('body')!);
+      this.execBody(f.childForFieldName('body')!, label === 'main' ? [] : ended);
       if (making) return this.made(f, making);
       if (returnType.t !== 'void' && label !== 'main') throw new CompileError(lineOf(f), `${shown} must return a value.`);
       return VOID;
@@ -1596,15 +1912,27 @@ class Interp {
       this.scope = saved;
       this.currentStruct = savedStruct;
       this.constMethod = savedConst;
+      // The function is over: its variables and values are gone.
+      if (label !== 'main') for (const b of [...ended, ...scope.vars.values()]) if (!b.refOf && b.cell !== scope.vars.get('this')?.cell) b.cell.dead = true;
     }
   }
 
   // ---- expressions ----------------------------------------------------------------
 
   /** Assignment conversions (C++ converts numbers silently; text and lists must match). */
-  private convert(v: CVal, to: { t: CType; elem?: Prim; cls?: string }, at: Node, name: string): CVal {
+  private convert(v: CVal, to: { t: CType; elem?: Prim; cls?: string; pt?: DeclType; kt?: Prim }, at: Node, name: string): CVal {
     if (v === UNSET_VAL) throw new CppCrash('Uninitialized', `${name} was given a value that has no value yet`);
     const t = to.t;
+    if (t === 'map' || v.t === 'map') {
+      if (t === 'auto' || (t === 'map' && v.t === 'map' && v.kt === to.kt && v.elem === to.elem)) return v;
+      return this.mismatch(v, to, at, name);
+    }
+    if (t === 'pointer' || v.t === 'pointer') {
+      const same = (a?: DeclType, b?: DeclType) => !a || !b || (a.t === b.t && a.cls === b.cls && a.elem === b.elem);
+      if (t === 'auto') return v;
+      if (t === 'pointer' && v.t === 'pointer' && (v.v === null || same(v.pt, to.pt))) return { ...v, pt: to.pt ?? v.pt };
+      return this.mismatch(v, to, at, name);
+    }
     if (t === 'struct' || v.t === 'struct') {
       if (t === 'auto' || (t === 'struct' && v.t === 'struct' && v.cls === to.cls)) return v;
       return this.mismatch(v, to, at, name);
@@ -1622,8 +1950,9 @@ class Interp {
     return this.mismatch(v, to, at, name);
   }
 
-  private mismatch(v: CVal, to: { t: CType; elem?: Prim; cls?: string }, at: Node, name: string): never {
-    const what = to.t === 'vector' ? `vector<${to.elem}>` : to.t === 'struct' ? to.cls! : to.t;
+  private mismatch(v: CVal, to: { t: CType; elem?: Prim; cls?: string; pt?: DeclType; kt?: Prim }, at: Node, name: string): never {
+    const typeText = (d?: DeclType): string => (!d ? '?' : d.t === 'struct' ? d.cls! : d.t === 'vector' ? `vector<${d.elem}>` : d.t);
+    const what = to.t === 'map' ? `map<${to.kt}, ${to.elem}>` : to.t === 'pointer' ? `${typeText(to.pt)}*` : to.t === 'vector' ? `vector<${to.elem}>` : to.t === 'struct' ? to.cls! : to.t;
     throw new CompileError(lineOf(at), `${name} is ${/^[aeiou]/.test(what) ? 'an' : 'a'} ${what} box, so it can't hold ${formatCpp(v)}.`);
   }
 
@@ -1682,6 +2011,17 @@ class Interp {
     }
     const a = this.eval(n.childForFieldName('left')!);
     const b = this.eval(n.childForFieldName('right')!);
+    if (a.t === 'iter' || b.t === 'iter') {
+      // m.find(k) != m.end(): is k in the map?
+      if ((op !== '==' && op !== '!=') || a.t !== b.t) throw unsupported(n, 'iterators like this');
+      return bool(op === '==' ? a.v === b.v : a.v !== b.v);
+    }
+    if (a.t === 'pointer' || b.t === 'pointer') {
+      if (op !== '==' && op !== '!=') throw unsupported(n, 'pointer arithmetic');
+      if (a.t !== 'pointer' || b.t !== 'pointer') throw new CompileError(lineOf(n), `${LANG_NAME()} can't compare a pointer with ${formatCpp(a.t === 'pointer' ? b : a)}.`);
+      const same = samePlace(a.v as PtrTarget | null, b.v as PtrTarget | null);
+      return bool(op === '==' ? same : !same);
+    }
     if (a.t === 'struct' || b.t === 'struct') {
       const s = (a.t === 'struct' ? a : b) as CVal;
       const first = structs.get(s.cls!)!.fields[0]?.name ?? 'x';
@@ -1752,6 +2092,9 @@ class Interp {
         const first = structs.get(v.cls!)!.fields[0]?.name ?? 'x';
         throw new CompileError(lineOf(at), `cout can't print a ${v.cls} directly: print its parts, like ${at.text}.${first}.`);
       }
+      case 'pointer':
+        // cout << p prints an address in real C++.
+        return v.v === null ? '0' : addressOf(v.v as PtrTarget);
       default:
         if (v === UNSET_VAL) throw new CppCrash('Uninitialized', 'a value was printed before it was given one');
         return String(v.v);
@@ -1789,6 +2132,7 @@ class Interp {
     if (t.type === 'field_expression') return this.member(t).type.t;
     if (t.type === 'subscript_expression') {
       const list = this.eval(t.childForFieldName('argument')!);
+      if (list.t === 'map') return this.itemType(list.elem).t;
       return list.elem ?? (list.t === 'string' ? 'char' : 'int');
     }
     const b = this.scope.lookup(t.text) ?? this.implicitMember(t);
@@ -1801,6 +2145,7 @@ class Interp {
     const list = this.eval(n.childForFieldName('argument')!);
     const i = this.num(this.eval(subscriptIndex(n)));
     const length = list.t === 'string' ? (list.v as string).length : list.t === 'vector' || list.t === 'array' ? (list.v as CVal[]).length : -1;
+    if (list.t === 'pointer') throw unsupported(n, 'pointer arithmetic (p[i])');
     if (length < 0) throw new CompileError(lineOf(n), `${n.childForFieldName('argument')!.text} is not a list.`);
     if (i < 0 || i >= length) {
       const message = `position ${i} is outside a ${list.t === 'string' ? 'text' : 'list'} of length ${length}`;
@@ -1816,11 +2161,25 @@ class Interp {
 
   private assignTo(target: Node, value: CVal): CVal {
     if (target.type === 'subscript_expression') {
+      const container = this.eval(target.childForFieldName('argument')!);
+      if (container.t === 'map') {
+        const entry = this.mapSlot(container, subscriptIndex(target));
+        entry[1] = this.copy(this.convert(value, this.itemType(container.elem), target, target.text));
+        return entry[1];
+      }
       const { list, index } = this.element(target);
       if (list.t === 'string') throw unsupported(target, 'changing one letter of text');
       const items = list.v as CVal[];
       items[index] = this.copy(this.convert(value, this.itemType(list.elem), target, target.text));
       return items[index];
+    }
+    if (target.type === 'pointer_expression' && target.childForFieldName('operator')?.type === '*') {
+      const arg = target.childForFieldName('argument')!;
+      const t = this.targetOf(this.eval(arg), arg);
+      const p = this.eval(arg);
+      const stored = this.copy(this.convert(value, p.pt ?? { t: 'int' }, target, target.text));
+      t.cell.v = stored;
+      return stored;
     }
     if (target.type === 'field_expression') {
       const m = this.member(target);
@@ -1845,6 +2204,7 @@ class Interp {
     const b = this.scope.lookup(id.text) ?? this.implicitMember(id);
     if (!b) {
       if (/^(std::)?(endl|cout|cin)$/.test(id.text)) throw unsupported(id, `${id.text} here`);
+      if (id.text === 'NULL') return { t: 'pointer', v: null };
       if (id.text === 'INT_MAX') return int(2147483647);
       if (id.text === 'INT_MIN') return int(-2147483648);
       throw new CompileError(lineOf(id), `${id.text} is used but never declared.`);
@@ -1854,6 +2214,11 @@ class Interp {
   }
 
   private readTarget(n: Node): CVal {
+    if (n.type === 'parenthesized_expression') return this.readTarget(named(n)[0]);
+    if (n.type === 'pointer_expression' && n.childForFieldName('operator')?.type === '*') {
+      const arg = n.childForFieldName('argument')!;
+      return this.deref(this.eval(arg), arg);
+    }
     if (n.type === 'field_expression') {
       const m = this.member(n);
       const v = m.fields.get(m.name)!;
@@ -1861,6 +2226,8 @@ class Interp {
       return v;
     }
     if (n.type === 'subscript_expression') {
+      const container = this.eval(n.childForFieldName('argument')!);
+      if (container.t === 'map') return this.mapSlot(container, subscriptIndex(n))[1];
       const { list, index } = this.element(n);
       if (list.t === 'string') return chr((list.v as string)[index]);
       const item = (list.v as CVal[])[index];
@@ -1889,6 +2256,13 @@ class Interp {
         const body = n.text.slice(1, -1);
         return chr(body.startsWith('\\') ? JSON.parse(`"${body === "\\'" ? "'" : body}"`) : body);
       }
+      case 'null':
+        return { t: 'pointer', v: null };
+      case 'pointer_expression': {
+        const arg = n.childForFieldName('argument')!;
+        if (n.childForFieldName('operator')?.type === '&') return this.addressOf(arg);
+        return this.deref(this.eval(arg), arg);
+      }
       case 'true':
         return bool(true);
       case 'false':
@@ -1916,6 +2290,7 @@ class Interp {
         const op = n.childForFieldName('operator')!.type;
         const prefix = n.child(0)?.type === op;
         const before = this.readTarget(target);
+        if (before.t === 'pointer') throw unsupported(n, 'pointer arithmetic');
         if (!NUMERIC.has(before.t)) throw new CompileError(lineOf(n), `${op} only works on numbers.`);
         const after = this.convert(this.arith(op === '++' ? '+' : '-', before, int(1), n), { t: before.t }, n, target.text);
         const stored = this.assignTo(target, after);
@@ -1981,6 +2356,7 @@ class Interp {
       if (obj.t === 'string') return this.stringMethod(n, obj, method, args());
       if (obj.t === 'exception' && method === 'what' && !argNodes.length) return strv(obj.v as string);
       if (obj.t === 'vector') return this.vectorMethod(n, objNode, obj, method, argNodes);
+      if (obj.t === 'map') return this.mapMethod(n, objNode, obj, method, argNodes);
       if (obj.t === 'struct') {
         const st = structs.get(obj.cls!)!;
         const m = st.methods.get(method);

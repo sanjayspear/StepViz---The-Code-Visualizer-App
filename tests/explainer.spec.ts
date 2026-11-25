@@ -195,3 +195,10 @@ test('list changes in the middle and emptying a list read item by item', () => {
   expect(e[2].what).toMatch(/^(1 is taken out of xs at position 0|xs gets shorter: 1 at position 0 is removed)\.$/);
   expect(e[3].what).toMatch(/^(xs is emptied: it has no items now|All the items are taken out of xs, so it is empty now)\.$/);
 });
+
+test('dictionaries read key by key, like C++ maps', () => {
+  const e = explainTrace(pyTrace('d = {}\nd["a"] = 1\nd["a"] = 5\ndel d["a"]'));
+  expect(e[1].what).toMatch(/^(d gets a new key 'a' with the value 1|'a' is added to d with the value 1)\.$/);
+  expect(e[2].what).toBe("d['a'] changes from 1 to 5.");
+  expect(e[3].what).toBe("'a' is taken out of d.");
+});

@@ -53,7 +53,10 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      private, toString, objects in arrays/lists).
    - C4 (done): C++ structs and classes, C structs (typedef, designated
      initializers), vectors/arrays of structs, range-for with &.
-   - Planned, not built: basic pointers, map (C++).
+   - P1 (done): basic pointers (C and C++) and std::map.
+   - All planned stages are built. Not planned yet: pointer arithmetic, new/delete,
+     inheritance (Java/C++), unordered_map, Java static variables, Python/JS-only
+     extras.
 
 Phase 1 covers:
 
@@ -272,6 +275,27 @@ Playwright tests. Static build for GitHub Pages.
   static members, friends, destructors, protected, structs inside functions, ->
   except this->. Known limit: a member value written in the struct that uses
   another member (int b = a + 1;) is not supported correctly.
+- Pointers and maps (P1, my call): a pointer shows "p = points to x", "points to x
+  in main()" when x is in another frame, "points to local in f() (gone)" after
+  its block or function ended, "nullptr". Call labels show &x: "addOne(&x)".
+  Crashes: "This pointer is nullptr, so it points to nothing." / "This pointer
+  points to a box that no longer exists." (StepViz stops where real C++ gives
+  garbage). cout << p prints a made-up address 0x7ffc.... Texts: "We make a
+  pointer called p. It points to x." / "p now points to y instead of x." / "The
+  box p points to, x in main(), changes from 1 to 2." / "Through the pointer pa,
+  a changes from ... to ...". Rules: "p is a double* box, so it can't hold points
+  to x."; "pa is a pointer: use -> to reach its member, like pa->x."
+  Unsupported: pointer arithmetic (p++, p[i]), pointers to pointers, new/delete,
+  char* text, pointers to whole arrays, functions that give back pointers.
+  std::map: m = {"Ali": 1, "Sam": 3} in key order; m[k] adds a missing key with
+  0/""/empty struct like C++ (reading too); at() throws out_of_range ("map::at");
+  find(k) != m.end() works, other iterator use does not; range-for with [k, v]
+  (v "(same box as m["Ali"])" with &) or kv.first/kv.second (shown as pair
+  {first: ..., second: ...}). Map and dictionary texts (C++ maps, Python dicts)
+  read key by key: "m gets a new key "Sam" with the value 1." / "m["Sam"]
+  changes from 1 to 3." / ""Ali" is taken out of m." / "m is emptied: it has no
+  keys now." Python del d[k] / del a[i] now counts as a change. unordered_map
+  stays on Home ("unordered_map (map works)").
 - List changes read item by item in every language: "nums[0] changes from 5 to 2.",
   "3 is added to the end of squares.", "4 is taken off the end of squares.",
   "7 is put in at position 1 of xs.", "1 is taken out of xs at position 0.",
@@ -310,14 +334,15 @@ Paused on 2026-11-25.
 - T1 (2026-11-25): try/catch in Java and C++, step kind catch (tests in `tests/trycatch-java.spec.ts`, `tests/trycatch-cpp.spec.ts`).
 - T2 (2026-11-25): catch steps for Python and JavaScript (tests in `tests/trycatch-tracer.spec.ts`).
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
-- C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`; 174 tests pass).
+- C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
+- P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`; 179 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.
 - `wip/ai-explanations`: the older paused in-browser AI (WebLLM + Qwen). Superseded by `wip/llama-ai`; keep for reference only.
 
 ### Next step
-Continue the later stages in order: (1) Java ArrayList + more String methods (done, L1), (2) try/catch in Java and C++ (done, T1) and the catch kind for Python and JavaScript (done, T2); (3) simple Java classes (done, K1); (4) C++ structs/classes (done, C4); next: basic pointers and map in C++ (pointers need a way to show "points to": decide, keeping the existing layout).
+Continue the later stages in order: (1) Java ArrayList + more String methods (done, L1), (2) try/catch in Java and C++ (done, T1) and the catch kind for Python and JavaScript (done, T2); (3) simple Java classes (done, K1); (4) C++ structs/classes (done, C4); (5) pointers and map (done, P1). All planned stages are built. Next: ask the owner whether to push, and what comes after (ideas: an example chip for classes or maps, pointer arithmetic, inheritance).
 
 ### Decisions to remember
 - The PDF is the source of truth; ask before adding anything not in it. Work in stages, commit each, push only when asked.
@@ -333,5 +358,5 @@ Continue the later stages in order: (1) Java ArrayList + more String methods (do
 - AI branch only: open Ollama (installed in /Applications, Llama 3.2 3B downloaded); nothing else needed on localhost.
 
 ### What the product owner still owes
-- Review of C3 and S1 (both live on the site), and L1 + T1 + T2 + K1 + C4 (not pushed); the owner said "you only review and continue", so I review each stage myself.
+- Review of C3 and S1 (both live on the site), and L1 + T1 + T2 + K1 + C4 + P1 (not pushed); the owner said "you only review and continue", so I review each stage myself.
 - Whether to push to GitHub.

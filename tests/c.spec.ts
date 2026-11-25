@@ -73,7 +73,7 @@ test('C-only rules stay on Home with a line number', () => {
     return r.error!.message;
   };
   expect(msg(main('    int x;\n    scanf("%d", x);'))).toBe('Line 7: scanf needs &x to store a value in x.');
-  expect(msg(main('    int x = 1;\n    int *p = &x;'))).toBe("Line 7: StepViz can't run pointers in C yet.");
+  expect(msg(main('    int x = 1;\n    int *p = &x;\n    p++;'))).toBe("Line 8: StepViz can't run pointer arithmetic in C yet.");
   expect(msg('#include <iostream>\nint main() {\n    return 0;\n}')).toBe("Line 1: StepViz can't run #include <iostream> in C yet.");
   expect(msg(main('    string s;'))).toBe("Line 6: StepViz can't run the type string in C yet.");
   expect(msg(main('    int x = 1\n    printf("%d", x);'))).toBe('Line 6: C could not understand this line.');

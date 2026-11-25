@@ -225,6 +225,21 @@ const LIFE: Record<SubKind, string[]> = {
 // --------------------------------------------------------------------------
 // Values in sentences
 
+/** Entries of a map or dictionary text like {"a": 1, 'b': 2, 3: 4} (keys in quotes or numbers), or null. */
+function mapEntries(v: string): Map<string, string> | null {
+  const m = /^\{(.*)\}$/.exec(v);
+  if (!m) return null;
+  const items = listItems(`[${m[1]}]`);
+  if (!items) return null;
+  const out = new Map<string, string>();
+  for (const item of items) {
+    const kv = /^("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|-?\d+(?:\.\d+)?): ([\s\S]*)$/.exec(item);
+    if (!kv) return null;
+    out.set(kv[1], kv[2]);
+  }
+  return out;
+}
+
 /** The class a constructor frame makes: "new Dog(...)" (Java) or "Dog::Dog(...)" (C++). */
 function madeBy(frameName: string): RegExpExecArray | null {
   return /^new (\w+)\(/.exec(frameName) ?? /^(\w+)::\1\(/.exec(frameName);
@@ -468,8 +483,28 @@ function whatVariants(sub: SubKind, f: Facts): string[] {
   }
 }
 
+/** *p = 5: the box p points to changes ("The box p points to, x in main(), changes from 1 to 2."). */
+function throughPointer(f: Facts): { sub: SubKind; variants: string[] } | null {
+  const target = (f.step.detail?.targets ?? []).find((t) => t.startsWith('*'));
+  if (!target) return null;
+  const p = target.slice(1);
+  const m = /^points to (\w+)(?: in (.+?))?$/.exec(f.top.vars[p] ?? '');
+  if (!m) return null;
+  const frameName = m[2] ?? f.top.name;
+  const now = f.step.frames.find((fr) => fr.name === frameName)?.vars[m[1]];
+  const was = f.prev?.frames.find((fr) => fr.name === frameName)?.vars[m[1]];
+  if (now === undefined || was === undefined) return null;
+  const where = m[2] ? `${m[1]} in ${m[2]}` : m[1];
+  return {
+    sub: 'assign-change',
+    variants: [`The box ${p} points to, ${where}, changes from ${sayValue(was)} to ${sayValue(now)}.`, `Through the pointer ${p}, ${where} changes from ${sayValue(was)} to ${sayValue(now)}.`],
+  };
+}
+
 /** Assignment sentences: one clause per name ("total changes from 1 to 3"). */
 function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
+  const viaPointer = throughPointer(f);
+  if (viaPointer) return viaPointer;
   const targets = (f.step.detail?.targets ?? []).filter((t) => t in f.top.vars);
   if (!targets.length) return null;
   const before = prevFrameOf(f)?.vars ?? {};
@@ -546,6 +581,36 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
         }
       }
     }
+  }
+  // Maps and dictionaries: one key added, changed or taken out.
+  if (changes.length === 1 && changes[0].kind === 'change') {
+    const t = changes[0].t;
+    const was = mapEntries(before[t] ?? '');
+    const now = mapEntries(f.top.vars[t]);
+    if (was && now) {
+      const added = [...now.keys()].filter((k) => !was.has(k));
+      const removed = [...was.keys()].filter((k) => !now.has(k));
+      const changed = [...now.keys()].filter((k) => was.has(k) && was.get(k) !== now.get(k));
+      if (added.length === 1 && !removed.length && !changed.length) {
+        const k = added[0];
+        return { sub: 'assign-change', variants: [`${t} gets a new key ${k} with the value ${sayValue(now.get(k)!)}.`, `${k} is added to ${t} with the value ${sayValue(now.get(k)!)}.`] };
+      }
+      if (changed.length === 1 && !added.length && !removed.length) {
+        const k = changed[0];
+        return { sub: 'assign-change', variants: [`${t}[${k}] changes from ${sayValue(was.get(k)!)} to ${sayValue(now.get(k)!)}.`] };
+      }
+      if (removed.length === 1 && !added.length && !changed.length) return { sub: 'assign-change', variants: [`${removed[0]} is taken out of ${t}.`] };
+      if (!now.size && was.size) return { sub: 'assign-change', variants: [`${t} is emptied: it has no keys now.`] };
+    }
+  }
+  // Pointers: "p now points to y instead of x." / "We make a pointer called p. It points to x."
+  if (changes.length === 1) {
+    const c = changes[0];
+    const target = (v: string) => (v === 'nullptr' ? 'nothing (nullptr)' : /^points to /.test(v) ? v.replace(/^points to /, '') : null);
+    const now = target(f.top.vars[c.t]);
+    const was = before[c.t] !== undefined ? target(before[c.t]) : null;
+    if (now !== null && c.kind === 'new') return { sub: 'assign-new', variants: [`We make a pointer called ${c.t}. It points to ${now}.`, `A new pointer ${c.t} now points to ${now}.`] };
+    if (now !== null && was !== null && c.kind === 'change') return { sub: 'assign-change', variants: [`${c.t} now points to ${now} instead of ${was}.`, `The pointer ${c.t} moves from ${was} to ${now}.`] };
   }
   // An object where fields changed: "this.name changes from null to "Rex"."
   if (changes.length === 1 && changes[0].kind === 'change') {

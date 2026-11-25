@@ -56,11 +56,11 @@ test('cin: the input box asks for input, and the program reads it', async ({ pag
   await expect(page.getByTestId('output')).toHaveText('42');
 });
 
-test('C++ errors: pointers stay on Home; an unset variable crashes with a plain-words sentence', async ({ page }) => {
+test('C++ errors: new stays on Home; an unset variable crashes with a plain-words sentence', async ({ page }) => {
   await chooseCpp(page);
-  await setCode(page, '#include <iostream>\nusing namespace std;\n\nint main() {\n    int x = 1;\n    int* p = &x;\n    return 0;\n}');
+  await setCode(page, '#include <iostream>\nusing namespace std;\n\nint main() {\n    int x = 1;\n    int* p = new int(5);\n    return 0;\n}');
   await visualize(page).click();
-  await expect(page.locator('.editor-card__error')).toHaveText("Line 6: StepViz can't run pointers in C++ yet.", { timeout: 30_000 });
+  await expect(page.locator('.editor-card__error')).toHaveText("Line 6: StepViz can't run new in C++ yet.", { timeout: 30_000 });
   await setCode(page, '#include <iostream>\nusing namespace std;\n\nint main() {\n    int x;\n    cout << x << endl;\n    return 0;\n}');
   await visualize(page).click();
   await expect(page.locator('.step-screen')).toBeVisible({ timeout: 30_000 });

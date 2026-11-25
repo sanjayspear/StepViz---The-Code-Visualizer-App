@@ -363,8 +363,8 @@ export class Recorder {
       const { kind, detail } = classify(info, line, null, top.activeLoops);
       this.record(line, { kind, detail });
     },
-    /** `hidden`: how many of the first values are left out of the label (Java's this). */
-    enter: (name: string, namesId: number, getters: Getter[], hidden = 0) => {
+    /** `hidden`: how many of the first values are left out of the label (Java's this); `label`: the whole label, made by the caller. */
+    enter: (name: string, namesId: number, getters: Getter[], hidden = 0, label?: string) => {
       this.checkTime();
       if (this.stack.length >= MAX_DEPTH) throw new StopRun('depth');
       const caller = this.stack[this.stack.length - 1];
@@ -376,7 +376,7 @@ export class Recorder {
           return '?';
         }
       });
-      this.stack.push(this.newFrame(`${name}(${values.join(', ')})`, namesId, getters));
+      this.stack.push(this.newFrame(label ?? `${name}(${values.join(', ')})`, namesId, getters));
       this.record(caller.pending ?? 1, { kind: 'call' });
     },
     ret: <T,>(line: number, value: T): T => {

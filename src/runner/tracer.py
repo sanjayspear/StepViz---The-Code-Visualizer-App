@@ -380,6 +380,10 @@ def _line_kinds(tree, source):
             and node.value.func.attr in _LIST_MUTATORS
         ):
             info[node.lineno] = {"kind": "assign", "targets": [node.value.func.value.id]}
+        elif isinstance(node, ast.Delete):
+            # del d["a"] / del nums[0]: the dictionary or list changes.
+            names = [t.value.id for t in node.targets if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name)]
+            info[node.lineno] = {"kind": "assign", "targets": names} if names else {"kind": "other"}
         elif isinstance(node, ast.Expr) and _calls_named(node, "print"):
             info[node.lineno] = {"kind": "print"}
         elif isinstance(node, ast.Expr) and _calls_named(node, "input"):
