@@ -196,3 +196,42 @@ Playwright tests. Static build for GitHub Pages.
 
 Work in stages and stop for review. Commit after each stage with a clear message.
 Push to GitHub only when asked.
+
+## Where we stopped
+
+Paused on 2026-11-25.
+
+### Done
+- a–f: Phase 1 (Home, Step-through, phone layout, Python via Pyodide in a locked-down worker, tests, docs, GitHub Pages deploy).
+- g: Screen 3 (loops and lists view) with Bubble sort.
+- h: JavaScript exact trace (Acorn-instrumented, locked-down worker).
+- E1: rule-based explainer (step kinds; "What is happening" + "In real life" for every live trace).
+- J1 + J2: Java interpreter (tree-sitter) with arrays, list view, Scanner, printf, four examples.
+- C1 + C2: C++ interpreter (functions, references, globals, vector, cin/cout, crashes, four examples).
+- C3: C mode of the C++ interpreter (printf/scanf, char arrays, four examples). All 5 languages are exact traces; no "coming soon" left.
+- S1: switch in Java, C++, C and JavaScript (new step kind switch-case).
+
+### In progress
+- `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.
+- `wip/ai-explanations`: the older paused in-browser AI (WebLLM + Qwen). Superseded by `wip/llama-ai`; keep for reference only.
+
+### Next step
+Ask the product owner: run the Llama 3.1 8B comparison, or keep AI off. Then continue the later stages in order: (1) Java ArrayList + more String methods, (2) try/catch in Java and C++, (3) simple Java classes, (4) C++ structs/classes, basic pointers, map. Stages 3 and 4 need a new way to show objects/pointers/maps: ask about layout and wording first.
+
+### Decisions to remember
+- The PDF is the source of truth; ask before adding anything not in it. Work in stages, commit each, push only when asked.
+- Every language is an exact trace: Python (Pyodide), JavaScript (Acorn), Java, C++ and C (own tree-walking interpreters over tree-sitter, each in its own locked-down worker, same trace JSON). No AI writes the built-in explanations; the rule-based explainer does.
+- Pasted code runs only in the workers; workers have no network. Caps 2,000 steps / 5 s + watchdog. No pasted code stored.
+- AI (if ever merged): free, on the student's own computer only (Ollama + Llama), desktop only, contacted only after the button is pressed, built-in text kept whenever the guard rejects the AI text. No accounts, no paid services.
+- All language-specific rules are in "Decisions agreed with the product owner" above.
+
+### How to run
+- `npm install` (if ~/.npm is root-owned: `npm install --cache /tmp/npm-cache`)
+- `npm run dev` → http://localhost:5173/
+- `npm test` → builds and runs all Playwright tests on port 4317 (`npx playwright install chromium` once)
+- AI branch only: open Ollama (installed in /Applications, Llama 3.2 3B downloaded); nothing else needed on localhost.
+
+### What the product owner still owes
+- Review of C3 and S1 (both live on the site).
+- Decision on AI: try Llama 3.1 8B, or keep AI off.
+- Go-ahead for the next stage (Java ArrayList + String methods).
