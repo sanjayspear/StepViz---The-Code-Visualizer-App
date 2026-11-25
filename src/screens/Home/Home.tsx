@@ -11,8 +11,8 @@ export type Language = 'python' | 'javascript' | 'java' | 'cpp' | 'c';
 const LANGUAGES: { value: Language; label: string }[] = [
   { value: 'python', label: 'Python' },
   { value: 'javascript', label: 'JavaScript' },
-  // Exact traces for Java, C++ and C are being built; each loses "(coming soon)" when it works.
-  { value: 'java', label: 'Java (coming soon)' },
+  // Exact traces for C++ and C are being built; each loses "(coming soon)" when it works.
+  { value: 'java', label: 'Java' },
   { value: 'cpp', label: 'C++ (coming soon)' },
   { value: 'c', label: 'C (coming soon)' },
 ];
@@ -77,13 +77,13 @@ export function Home({
   useEffect(() => {
     if (showInput) inputRef.current?.focus();
   }, [showInput]);
-  const codeLanguage: CodeLanguage = language === 'javascript' ? 'javascript' : 'python';
+  const codeLanguage: CodeLanguage = language === 'javascript' || language === 'java' ? language : 'python';
   const selectedExample = exampleForSource(code);
   const selected = selectedExample && sourceOf(selectedExample, codeLanguage) === code ? selectedExample.id : undefined;
 
   const isEmpty = code.trim() === '';
-  // Python and JavaScript have an exact trace; Java, C++ and C are coming.
-  const comingSoon = language !== 'python' && language !== 'javascript';
+  // Python, JavaScript and Java have an exact trace; C++ and C are coming.
+  const comingSoon = language === 'cpp' || language === 'c';
   const disabled = isEmpty || comingSoon || busy;
 
   let helper: string | null = null;
@@ -157,7 +157,9 @@ export function Home({
             {showInput && (
               <div className="input-box">
                 <label htmlFor="program-input" className="input-box__label">
-                  Your program asks for input. Type one line per input() call.
+                  {codeLanguage === 'python'
+                    ? 'Your program asks for input. Type one line per input() call.'
+                    : 'Your program reads input. Type your input here, one value per line or separated by spaces.'}
                 </label>
                 <textarea
                   id="program-input"
@@ -228,7 +230,8 @@ export function Home({
           <span className="lang-strip__label">Language support</span>
           <span className="pill pill--green">Python · exact trace</span>
           <span className="pill pill--green">JavaScript · exact trace</span>
-          <span className="pill pill--yellow">Java, C++, C · coming soon</span>
+          <span className="pill pill--green">Java · exact trace</span>
+          <span className="pill pill--yellow">C++, C · coming soon</span>
         </section>
       </main>
     </div>

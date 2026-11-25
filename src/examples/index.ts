@@ -2,7 +2,7 @@
 // the other three as approved by the product owner; JavaScript versions of the
 // same four programs (Phase 2).
 
-export type CodeLanguage = 'python' | 'javascript';
+export type CodeLanguage = 'python' | 'javascript' | 'java';
 
 export type ExampleId = 'factorial' | 'bubble-sort' | 'fibonacci' | 'for-loop';
 
@@ -16,6 +16,8 @@ export interface Example {
   source: string;
   /** JavaScript version of the same program */
   jsSource: string;
+  /** Java version of the same program */
+  javaSource: string;
 }
 
 export const EXAMPLES: Example[] = [
@@ -39,6 +41,19 @@ print(result)`,
 
 const result = factorial(3);
 console.log(result);`,
+    javaSource: `public class Main {
+    static int factorial(int n) {
+        if (n == 0) {
+            return 1;
+        }
+        return n * factorial(n - 1);
+    }
+
+    public static void main(String[] args) {
+        int result = factorial(3);
+        System.out.println(result);
+    }
+}`,
   },
   {
     id: 'bubble-sort',
@@ -59,6 +74,23 @@ for (let i = 0; i < nums.length; i++) {
   }
 }
 console.log(nums);`,
+    javaSource: `import java.util.Arrays;
+
+public class Main {
+    public static void main(String[] args) {
+        int[] nums = {5, 2, 8, 1};
+        for (int i = 0; i < nums.length; i++) {
+            for (int j = 0; j < nums.length - i - 1; j++) {
+                if (nums[j] > nums[j + 1]) {
+                    int temp = nums[j];
+                    nums[j] = nums[j + 1];
+                    nums[j + 1] = temp;
+                }
+            }
+        }
+        System.out.println(Arrays.toString(nums));
+    }
+}`,
   },
   {
     id: 'fibonacci',
@@ -72,6 +104,17 @@ for i in range(5):
 for (let i = 0; i < 5; i++) {
   console.log(a);
   [a, b] = [b, a + b];
+}`,
+    javaSource: `public class Main {
+    public static void main(String[] args) {
+        int a = 0, b = 1;
+        for (int i = 0; i < 5; i++) {
+            System.out.println(a);
+            int next = a + b;
+            a = b;
+            b = next;
+        }
+    }
 }`,
   },
   {
@@ -87,18 +130,27 @@ for (let i = 1; i <= 3; i++) {
   total = total + i;
 }
 console.log(total);`,
+    javaSource: `public class Main {
+    public static void main(String[] args) {
+        int total = 0;
+        for (int i = 1; i <= 3; i++) {
+            total = total + i;
+        }
+        System.out.println(total);
+    }
+}`,
   },
 ];
 
 export const DEFAULT_EXAMPLE = EXAMPLES[0];
 
 export function sourceOf(example: Example, language: CodeLanguage): string {
-  return language === 'javascript' ? example.jsSource : example.source;
+  return language === 'javascript' ? example.jsSource : language === 'java' ? example.javaSource : example.source;
 }
 
 /** The example whose source (in either language) is exactly the given text, if any. */
 export function exampleForSource(source: string): Example | undefined {
-  return EXAMPLES.find((e) => e.source === source || e.jsSource === source);
+  return EXAMPLES.find((e) => e.source === source || e.jsSource === source || e.javaSource === source);
 }
 
 /** Title for the Step-through top bar. */

@@ -452,7 +452,7 @@ test.describe('16. Colors, fonts and copy match sections 2 to 6', () => {
     await expect(page.locator('select option')).toHaveText([
       'Python',
       'JavaScript',
-      'Java (coming soon)',
+      'Java',
       'C++ (coming soon)',
       'C (coming soon)',
     ]);
@@ -494,7 +494,8 @@ test.describe('16. Colors, fonts and copy match sections 2 to 6', () => {
     await expect(page.locator('.pill')).toHaveText([
       'Python · exact trace',
       'JavaScript · exact trace',
-      'Java, C++, C · coming soon',
+      'Java · exact trace',
+      'C++, C · coming soon',
     ]);
     expect(await style(page.locator('.pill--green').first(), 'background-color')).toBe('rgb(221, 243, 238)');
     expect(await style(page.locator('.pill--green').first(), 'color')).toBe('rgb(15, 95, 85)');
@@ -733,7 +734,7 @@ test('empty editor and other languages', async ({ page }) => {
   await expect(visualizeButton(page)).toBeDisabled();
   await expect(page.locator('.editor-card__helper')).toHaveText('Paste some code first');
   await page.getByRole('button', { name: 'Factorial' }).click();
-  await page.locator('select').selectOption('java');
+  await page.locator('select').selectOption('cpp');
   await expect(page.locator('.editor-card__helper')).toHaveText('Coming soon');
   await expect(visualizeButton(page)).toBeDisabled();
   await page.locator('select').selectOption('python');

@@ -154,9 +154,9 @@ test('problems found before running stay on Home with a line number', () => {
   expect(msg(main('        int x = 1\n        System.out.println(x);'))).toBe('Line 3: Java could not understand this line.');
   expect(msg('public class Hello {\n    public static void main(String[] args) {}\n}')).toBe('Line 1: StepViz needs a public class Main with a main method.');
   expect(msg('public class Main {\n    static void hi() {}\n}')).toBe('Line 1: StepViz needs a public class Main with a main method.');
-  expect(msg(main('        int[] a = {1, 2};'))).toBe("Line 3: StepViz can't run arrays in Java yet.");
+  expect(msg(main('        int[][] a = {{1, 2}};'))).toBe("Line 3: StepViz can't run arrays of arrays in Java yet.");
   expect(msg(main('        int x = 1;\n        switch (x) { case 1: break; }'))).toBe("Line 4: StepViz can't run switch in Java yet.");
-  expect(msg('import java.util.Scanner;\n' + main('        int x = 1;'))).toBe("Line 1: StepViz can't run imports in Java yet.");
+  expect(msg('import java.util.ArrayList;\n' + main('        int x = 1;'))).toBe("Line 1: StepViz can't run the import java.util.ArrayList in Java yet.");
   expect(msg(main('        Object o = new Object();'))).toMatch(/^Line 3: StepViz can't run (the type Object|new objects) in Java yet\.$/);
   expect(msg(main('        try { int x = 1; } catch (Exception e) { }'))).toBe("Line 3: StepViz can't run try/catch in Java yet.");
   expect(msg(main('        int x = 2.5;'))).toBe("Line 3: x is an int box, so it can't hold 2.5.");
@@ -178,4 +178,125 @@ test('the rule-based explainer reads Java traces with Java words', () => {
   expect(e[0].what).toMatch(/^(factorial\(3\) starts in a new box with n = 3|We call factorial\(3\)\. A new box, called a frame, opens with n = 3)\.$/);
   expect(e.at(-1)!.what).toMatch(/System\.out\.println|The screen now shows 6/);
   expect(e.every((x) => x.life.startsWith('Like '))).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// J2: arrays, the list view, Scanner, printf, text identity
+
+import { FACTORIAL_JAVA_TRACE } from '../src/examples/factorialJavaTrace';
+import { EXAMPLES } from '../src/examples/index';
+
+const runIn = (src: string, input: string) => runJava(parser.parse(src)!, { ...opts, input });
+const withImports = (imports: string, body: string, methods = '') => `${imports}\n${main(body, methods)}`;
+
+test('arrays: new, {...}, length, reading and writing, for-each, out of bounds', () => {
+  const src = withImports(
+    'import java.util.Arrays;',
+    `        int[] a = new int[3];
+        a[0] = 7;
+        a[1] += 2;
+        a[2]++;
+        double[] d = {1.5, 2};
+        String[] s = new String[2];
+        int total = 0;
+        for (int x : a) {
+            total += x;
+        }
+        System.out.println(total + " " + a.length + " " + Arrays.toString(d) + " " + s[1]);
+        System.out.println(a[3]);`,
+  );
+  const r = run(src);
+  expect(r.steps.find((s) => s.line === 4)!.frames[0].vars.a).toBe('[0, 0, 0]');
+  expect(r.steps.at(-2)!.frames[0].vars).toMatchObject({ a: '[7, 2, 1]', d: '[1.5, 2.0]', s: '[null, null]', total: '10' });
+  expect(r.steps.at(-1)!.output).toBe('10 3 [1.5, 2.0] null\n');
+  expect(r.error).toEqual({ line: 15, type: 'ArrayIndexOutOfBoundsException', message: 'Index 3 out of bounds for length 3' });
+  expect(explainTrace(asTrace(src)).at(-1)!.what).toBe('This position is outside the list.');
+  const msg = run(main('        int[][] g = new int[2][2];')).error!.message;
+  expect(msg).toBe("Line 3: StepViz can't run arrays of arrays in Java yet.");
+});
+
+test('Bubble sort with a temp variable: list view, compared items, one swap step before it runs', () => {
+  const src = EXAMPLES.find((e) => e.id === 'bubble-sort')!.javaSource;
+  const r = run(src);
+  expect(r.status).toBe('ok');
+  expect(r.listView).toEqual({ list: 'nums', outerLine: 6, outerEndLine: 14, loopVars: ['i', 'j'] });
+  const swaps = r.steps.filter((s) => s.kind === 'swap');
+  expect(swaps.map((s) => [s.line, s.list!.values.join(','), s.list!.swap])).toEqual([
+    [9, '5,2,8,1', [0, 1]],
+    [9, '2,5,8,1', [2, 3]],
+    [9, '2,5,1,8', [1, 2]],
+    [9, '2,1,5,8', [0, 1]],
+  ]);
+  expect(r.steps.find((s) => s.kind === 'branch-taken')!.list!.compare).toEqual([0, 1]);
+  expect(r.steps.at(-1)!.output).toBe('[1, 2, 5, 8]\n');
+  const e = explainTrace({ ...asTrace(src), listView: r.listView });
+  const firstSwap = r.steps.indexOf(swaps[0]);
+  expect(e[firstSwap].what).toMatch(/^5 and 2 (are about to swap places|trade places now)\.$/);
+  expect(e[firstSwap + 1].what).toMatch(/^(nums\[0\] changes from 5 to 2|Position 0 of nums was 5 and is now 2)\.$/);
+});
+
+test('Scanner reads words and lines like Java (nextInt leaves the rest of the line)', () => {
+  const src = withImports(
+    'import java.util.Scanner;',
+    `        Scanner sc = new Scanner(System.in);
+        int age = sc.nextInt();
+        String rest = sc.nextLine();
+        String name = sc.nextLine();
+        double h = sc.nextDouble();
+        System.out.printf("%s is %d, rest=[%s], %.1f%n", name, age, rest, h);`,
+  );
+  const r = runIn(src, '15\nSam Lee\n1.75');
+  expect(r.status).toBe('ok');
+  expect(r.steps.at(-1)!.output).toBe('Sam Lee is 15, rest=[], 1.8\n');
+  expect(r.steps.filter((s) => s.kind === 'input').map((s) => s.line)).toEqual([5, 6, 7, 8]);
+  const e = explainTrace({ language: 'java', source: src, steps: r.steps.map((s) => ({ ...s, explain: { what: '', life: '' } })) });
+  expect(e[1].what).toMatch(/^(We read 15 with Scanner and store it in age|age gets 15, the next value from the input)\.$/);
+  const missing = runIn(withImports('import java.util.Scanner;', '        Scanner sc = new Scanner(System.in);\n        int a = sc.nextInt();\n        int b = sc.nextInt();'), '4');
+  expect(missing.error).toMatchObject({ line: 6, type: 'NoSuchElementException' });
+  const wrong = runIn(withImports('import java.util.Scanner;', '        Scanner sc = new Scanner(System.in);\n        int a = sc.nextInt();'), 'abc');
+  expect(wrong.error).toMatchObject({ type: 'InputMismatchException' });
+});
+
+test('printf and String.format; parseInt, parseDouble, Integer.MAX_VALUE', () => {
+  const out = lastOut(
+    main(`        int n = Integer.parseInt("42");
+        double x = Double.parseDouble("2.5");
+        System.out.printf("%d|%5d|%-4s|%.2f|%c|%b|%%%n", n, 7, "ab", x, 'z', true);
+        System.out.println(String.format("%03d", 7) + " " + Integer.MAX_VALUE);`),
+  );
+  expect(out).toBe('42|    7|ab  |2.50|z|true|%\n007 2147483647\n');
+  expect(run(main('        int n = Integer.parseInt("forty");')).error).toMatchObject({ type: 'NumberFormatException' });
+});
+
+test('== on text asks "the same object?", like Java; .equals compares the letters', () => {
+  const out = lastOut(
+    main(`        String a = "hi";
+        String b = "hi";
+        String c = "h" + "i";
+        String typed = "h";
+        typed = typed + "i";
+        System.out.println((a == b) + " " + (a == c) + " " + (a == typed) + " " + a.equals(typed));`),
+  );
+  expect(out).toBe('true true false true\n');
+});
+
+test('arrays passed to methods are the same list (no copy)', () => {
+  const r = run(main('        int[] data = {3, 1, 2};\n        zero(data);\n        System.out.println(data[0]);', '    static void zero(int[] xs) {\n        xs[0] = 0;\n    }\n\n'));
+  expect(r.steps.at(-1)!.output).toBe('0\n');
+  expect(r.steps.find((s) => s.kind === 'call')!.frames.at(-1)!.name).toBe('zero([3, 1, 2])');
+});
+
+test('the Java Factorial fixture still matches the interpreter', () => {
+  const live = run(FACTORIAL_JAVA_TRACE.source);
+  const strip = (s: { line: number; frames: { returns?: string }[]; output: string }) => ({
+    line: s.line,
+    output: s.output,
+    frames: s.frames.map((f) => ({ ...f, returns: f.returns ? 'returns' : undefined })),
+  });
+  expect(live.steps.map(strip)).toEqual(FACTORIAL_JAVA_TRACE.steps.map(strip));
+});
+
+test('all four Java examples run', () => {
+  const outputs = EXAMPLES.map((e) => run(e.javaSource).steps.at(-1)!.output);
+  expect(outputs).toEqual(['6\n', '[1, 2, 5, 8]\n', '0\n1\n1\n2\n3\n', '6\n']);
 });

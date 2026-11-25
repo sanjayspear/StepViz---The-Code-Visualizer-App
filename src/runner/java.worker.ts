@@ -5,7 +5,7 @@
 // interpreter carries out the program. The program itself is never compiled or
 // run as code: the interpreter reads its syntax tree.
 import { createParser } from './treeSitter';
-import { checkJava, runJava } from './java/interpreter';
+import { checkJava, javaReadsInput, runJava } from './java/interpreter';
 import { lockDown } from './lockdown';
 import type { TreeFromWorker, TreeToWorker } from './protocol';
 
@@ -18,10 +18,12 @@ self.onmessage = async (event: MessageEvent<TreeToWorker>) => {
   if (!tree) throw new Error('Java could not be read.');
   if (msg.type === 'analyze') {
     const problem = checkJava(tree);
-    const result = problem ? { ok: false as const, error: { line: problem.line, message: problem.message } } : { ok: true as const };
+    const result = problem
+      ? { ok: false as const, error: { line: problem.line, message: problem.message } }
+      : { ok: true as const, readsInput: javaReadsInput(tree) };
     self.postMessage({ type: 'analyze-result', result } satisfies TreeFromWorker);
   } else {
-    const result = runJava(tree, { maxSteps: msg.maxSteps, maxSeconds: msg.maxSeconds, beforeRun: lockDown });
+    const result = runJava(tree, { maxSteps: msg.maxSteps, maxSeconds: msg.maxSeconds, input: msg.input, beforeRun: lockDown });
     self.postMessage({ type: 'run-result', result } satisfies TreeFromWorker);
   }
 };

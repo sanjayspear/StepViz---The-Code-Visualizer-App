@@ -396,6 +396,36 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
     const kind: Change = was === undefined || was === '?' ? 'new' : was === now ? 'same' : 'change';
     return { t, was: was ? sayValue(was) : '', now: sayValue(now), kind };
   });
+  // A list where one item changed, or an item was added to / removed from the end.
+  if (changes.length === 1 && changes[0].kind === 'change') {
+    const t = changes[0].t;
+    const was = listItems(before[t] ?? '');
+    const now = listItems(f.top.vars[t]);
+    if (was && now) {
+      const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+      if (now.length === was.length + 1 && same(now.slice(0, -1), was)) {
+        const v = sayValue(now[now.length - 1]);
+        return { sub: 'assign-change', variants: [`${v} is added to the end of ${t}.`, `${t} grows by one: ${v} goes on the end.`] };
+      }
+      if (now.length === was.length - 1 && same(now, was.slice(0, -1))) {
+        const v = sayValue(was[was.length - 1]);
+        return { sub: 'assign-change', variants: [`${v} is taken off the end of ${t}.`, `${t} gets shorter: ${v} is removed from the end.`] };
+      }
+      if (now.length === was.length) {
+        const diff = now.map((x, i) => (x === was[i] ? -1 : i)).filter((i) => i >= 0);
+        if (diff.length === 1) {
+          const i = diff[0];
+          return {
+            sub: 'assign-change',
+            variants: [
+              `${t}[${i}] changes from ${sayValue(was[i])} to ${sayValue(now[i])}.`,
+              `Position ${i} of ${t} was ${sayValue(was[i])} and is now ${sayValue(now[i])}.`,
+            ],
+          };
+        }
+      }
+    }
+  }
   const clause = (c: (typeof changes)[number], variant: number) => {
     if (c.kind === 'new') {
       if (c.now === '?' || c.now === 'undefined') return variant === 0 ? `We make a box called ${c.t}. It has no value yet` : `A new box called ${c.t} is ready, but empty`;

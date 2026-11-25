@@ -372,6 +372,14 @@ def _line_kinds(tree, source):
             value = node.value if node.value is not None else node
             kind = "input" if _calls_named(value, "input") else "assign"
             info[node.lineno] = {"kind": kind, "targets": _target_names(targets), "simultaneous": simultaneous}
+        elif (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Attribute)
+            and isinstance(node.value.func.value, ast.Name)
+            and node.value.func.attr in _LIST_MUTATORS
+        ):
+            info[node.lineno] = {"kind": "assign", "targets": [node.value.func.value.id]}
         elif isinstance(node, ast.Expr) and _calls_named(node, "print"):
             info[node.lineno] = {"kind": "print"}
         elif isinstance(node, ast.Expr) and _calls_named(node, "input"):

@@ -31,6 +31,14 @@ export function frameVarsText(frame: TraceFrame, compact = false): string {
   return vars ? `${vars} → ${frame.returns}` : frame.returns;
 }
 
+const LANGUAGE_LABELS: Record<Trace['language'], string> = {
+  python: 'Python',
+  javascript: 'JavaScript',
+  java: 'Java',
+  cpp: 'C++',
+  c: 'C',
+};
+
 function lowerFirst(text: string): string {
   return text.charAt(0).toLowerCase() + text.slice(1);
 }
@@ -126,7 +134,7 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
     </button>
   );
   const badge = (
-    <span className="step-badge">{trace.language === 'javascript' ? 'JavaScript' : 'Python'} · exact trace</span>
+    <span className="step-badge">{LANGUAGE_LABELS[trace.language]} · exact trace</span>
   );
 
   return (

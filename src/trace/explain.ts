@@ -26,6 +26,9 @@ const ERROR_SENTENCES: Record<string, string> = {
   ArrayIndexOutOfBoundsException: 'This position is outside the list.',
   StringIndexOutOfBoundsException: 'This position is outside the text.',
   NullPointerException: "This box is empty (null), so it can't be used here.",
+  NoSuchElementException: 'Your program asked for more input than you typed.',
+  InputMismatchException: 'The input was not the kind of value the program expected.',
+  NumberFormatException: 'This text is not a number.',
 };
 
 const LANGUAGE_NAMES = { python: 'Python', javascript: 'JavaScript', java: 'Java', cpp: 'C++', c: 'C' } as const;

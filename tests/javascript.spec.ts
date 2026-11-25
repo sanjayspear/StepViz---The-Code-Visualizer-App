@@ -132,9 +132,9 @@ test('JavaScript runs in a locked-down worker with no network requests', async (
   expect(requests.every((u) => u.startsWith('http://localhost:4317/'))).toBe(true);
 });
 
-test('Java, C++ and C still say "Coming soon"', async ({ page }) => {
+test('C++ and C still say "Coming soon"', async ({ page }) => {
   await page.goto('./');
-  for (const lang of ['java', 'cpp', 'c']) {
+  for (const lang of ['cpp', 'c']) {
     await page.locator('select').selectOption(lang);
     await expect(page.locator('.editor-card__helper')).toHaveText('Coming soon');
     await expect(visualize(page)).toBeDisabled();

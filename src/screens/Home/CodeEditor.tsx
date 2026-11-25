@@ -7,9 +7,10 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { indentOnInput } from '@codemirror/language';
 import { python } from '@codemirror/lang-python';
 import { javascript } from '@codemirror/lang-javascript';
+import { java } from '@codemirror/lang-java';
 import type { CodeLanguage } from '../../examples';
 
-const languageFor = (lang: CodeLanguage) => (lang === 'javascript' ? javascript() : python());
+const languageFor = (lang: CodeLanguage) => (lang === 'javascript' ? javascript() : lang === 'java' ? java() : python());
 
 interface Props {
   value: string;

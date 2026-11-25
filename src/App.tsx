@@ -31,16 +31,16 @@ export default function App() {
     setInputText('');
   };
 
-  const codeLanguage: CodeLanguage = language === 'javascript' ? 'javascript' : 'python';
+  const codeLanguage: CodeLanguage = language === 'javascript' || language === 'java' ? language : 'python';
 
   // Switching between Python and JavaScript swaps an unchanged example for the
   // same example in the other language; the student's own code is left alone.
   const changeLanguage = (next: Language) => {
     setLanguage(next);
     setError(null);
-    if (next !== 'python' && next !== 'javascript') return;
+    if (next !== 'python' && next !== 'javascript' && next !== 'java') return;
     const example = exampleForSource(code);
-    if (example && (code === example.source || code === example.jsSource)) changeCode(sourceOf(example, next));
+    if (example) changeCode(sourceOf(example, next));
   };
 
   const visualize = async () => {
@@ -59,7 +59,8 @@ export default function App() {
         setInputCalls(check.inputCalls);
         return;
       }
-      const inputs = check.inputCalls > 0 ? inputText.split('\n') : [];
+      // Python: one line per input() call. Java: the whole text, read like Scanner reads it.
+      const inputs = check.inputCalls > 0 ? (codeLanguage === 'python' ? inputText.split('\n') : [inputText]) : [];
       const outcome = await getTrace(code, inputs, codeLanguage);
       if (outcome.kind === 'error') {
         setError(outcome.message);
@@ -67,11 +68,8 @@ export default function App() {
       }
       setTrace(outcome.trace);
     } catch {
-      setError(
-        codeLanguage === 'javascript'
-          ? 'JavaScript could not start. Please reload the page and try again.'
-          : 'Python could not start. Please reload the page and try again.',
-      );
+      const name = codeLanguage === 'javascript' ? 'JavaScript' : codeLanguage === 'java' ? 'Java' : 'Python';
+      setError(`${name} could not start. Please reload the page and try again.`);
     } finally {
       setBusy(false);
       setLoadingPython(false);

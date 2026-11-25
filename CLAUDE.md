@@ -24,8 +24,10 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
    - J1 (done): shared recorder (`src/runner/recorder.ts`, also used by JavaScript),
      tree-sitter loader, Java interpreter (`src/runner/java/interpreter.ts`) for the
      basics, its own locked-down worker (`java.worker.ts`, lockdown in `lockdown.ts`).
-     Not selectable in the app yet. J2: Java arrays, list view, Scanner, printf,
-     crashes, examples; Java loses "(coming soon)".
+     J2 (done): arrays (one dimension), list view (incl. temp-variable swaps),
+     Scanner, printf/String.format, Arrays.toString/sort, parseInt/parseDouble,
+     array/input crashes, the four Java examples; Java is selectable ("Java",
+     strip "Java · exact trace" + "C++, C · coming soon").
    - C1: C++ core (main, cout, functions incl. references, strings). C2: C++ arrays,
      vector, list view, cin, crashes, examples; C++ loses "(coming soon)".
    - C3: C mode (printf/scanf) reusing the C++ interpreter; C loses "(coming soon)".
@@ -54,9 +56,8 @@ Phase 2 so far:
   Same trace shape, caps, crash and list rules as Python. JavaScript versions of the
   four examples; only Factorial has hand-written explanations (section 6 texts
   adapted).
-- Language select: "Java (coming soon)", "C++ (coming soon)", "C (coming soon)"
-  (selecting one shows "Coming soon"); strip pill "Java, C++, C · coming soon". Each
-  label changes when that language works.
+- Language select: "Java", "C++ (coming soon)", "C (coming soon)" (selecting a
+  coming-soon one shows "Coming soon"). Each label changes when that language works.
 
 Not built: the items above, accounts, share links (the buttons show "Coming soon"),
 Screen 5.
@@ -140,6 +141,19 @@ Playwright tests. Static build for GitHub Pages.
   crash sentences: ArithmeticException "Java can't divide a whole number by zero.",
   StringIndexOutOfBounds "This position is outside the text.", NullPointerException
   "This box is empty (null), so it can't be used here."
+- Java J2 rules: text compared with == asks "the same object?" exactly like Java
+  (text written in the program, and joined only from such text, is shared; text
+  built from variables or read from input is a new object); .equals compares the
+  letters. Scanner follows Java (nextInt reads a word and leaves the rest of the
+  line for nextLine). Printing an array shows Java's [I@... form; Arrays.toString
+  shows [1, 2]. A swap through a temp variable (temp = a[x]; a[x] = a[y]; a[y] =
+  temp) is one swap step before it runs. Input crashes: "Your program asked for
+  more input than you typed.", "The input was not the kind of value the program
+  expected.", "This text is not a number." Java Factorial keeps hand-written text
+  (section 6 adapted); the other Java examples use the rule-based explainer.
+- List changes read item by item in every language: "nums[0] changes from 5 to 2.",
+  "3 is added to the end of squares.", "4 is taken off the end of squares." List
+  methods (append, push, pop, sort...) count as changes (assign kind).
 
 ## Commands
 

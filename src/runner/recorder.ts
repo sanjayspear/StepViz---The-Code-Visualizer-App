@@ -75,6 +75,7 @@ function classify(
       break;
     case 'define':
     case 'assign':
+    case 'input':
       kind = info.k;
       if (info.t?.length) detail.targets = info.t;
       if (info.s) detail.simultaneous = true;

@@ -1,5 +1,4 @@
-// The built Java worker in a real browser (Java is not selectable in the app
-// until J2, so this talks to the worker directly).
+// The built Java worker in a real browser, talking to it directly.
 import { test, expect } from '@playwright/test';
 
 test('the Java worker runs a program from our own site and makes no other requests', async ({ page, context }) => {
@@ -36,9 +35,9 @@ test('the Java worker runs a program from our own site and makes no other reques
   ]);
 });
 
-test('Java is still "coming soon" in the app', async ({ page }) => {
+test('C++ is still "coming soon" in the app', async ({ page }) => {
   await page.goto('./');
-  await page.locator('select').selectOption('java');
-  await expect(page.locator('select option:checked')).toHaveText('Java (coming soon)');
+  await page.locator('select').selectOption('cpp');
+  await expect(page.locator('select option:checked')).toHaveText('C++ (coming soon)');
   await expect(page.locator('.editor-card__helper')).toHaveText('Coming soon');
 });

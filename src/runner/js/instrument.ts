@@ -34,7 +34,7 @@ export interface JsListPlan {
  *  if body / else part or loop body, c = condition text, v = loop variable,
  *  t = names assigned, s = assigned at the same time (a, b = b, a + b). */
 export interface StepInfo {
-  k: 'define' | 'assign' | 'print' | 'branch' | 'loop' | 'swap' | 'other';
+  k: 'define' | 'assign' | 'input' | 'print' | 'branch' | 'loop' | 'swap' | 'other';
   b?: [number, number];
   e?: [number, number];
   c?: string;
@@ -421,6 +421,15 @@ export function instrument(source: string): Instrumented | { error: JsSyntaxErro
       case 'ExpressionStatement': {
         const e = stmt.expression;
         if (isConsoleCall(e)) return { k: 'print' };
+        if (
+          e.type === 'CallExpression' &&
+          e.callee.type === 'MemberExpression' &&
+          !e.callee.computed &&
+          e.callee.object.type === 'Identifier' &&
+          MUTATORS.has(e.callee.property.name)
+        ) {
+          return { k: 'assign', t: [e.callee.object.name] };
+        }
         if (e.type === 'AssignmentExpression') {
           const t = assignedNames(e.left);
           return e.left.type === 'ArrayPattern' && e.left.elements.length > 1 ? { k: 'assign', t, s: true } : { k: 'assign', t };

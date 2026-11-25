@@ -31,7 +31,9 @@ function inWorker<T extends TreeFromWorker>(msg: TreeToWorker, timeoutMs: number
   });
 }
 
-export async function analyzeJava(source: string): Promise<{ ok: true } | { ok: false; error: SyntaxErrorInfo }> {
+export async function analyzeJava(
+  source: string,
+): Promise<{ ok: true; readsInput: boolean } | { ok: false; error: SyntaxErrorInfo }> {
   const reply = await inWorker<Extract<TreeFromWorker, { type: 'analyze-result' }>>(
     { type: 'analyze', source, files: files() },
     15_000,
@@ -40,9 +42,9 @@ export async function analyzeJava(source: string): Promise<{ ok: true } | { ok: 
   return reply.result;
 }
 
-export async function runJavaProgram(source: string): Promise<RawRunResult> {
+export async function runJavaProgram(source: string, input = ''): Promise<RawRunResult> {
   const reply = await inWorker<Extract<TreeFromWorker, { type: 'run-result' }>>(
-    { type: 'run', source, maxSteps: MAX_STEPS, maxSeconds: MAX_SECONDS, files: files() },
+    { type: 'run', source, maxSteps: MAX_STEPS, maxSeconds: MAX_SECONDS, files: files(), input },
     MAX_SECONDS * 1000 + WATCHDOG_GRACE_MS + 5000, // + time to load tree-sitter
   );
   return reply ? reply.result : { status: 'cap', steps: [], error: null };

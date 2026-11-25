@@ -176,3 +176,15 @@ test('language words: print, function and input change per language', () => {
   expect(words('cpp')).toMatch(/cout|The screen now shows 1/);
   expect(words('c')).toMatch(/printf|The screen now shows 1/);
 });
+
+test('list changes: added to the end, removed from the end, one item changed (Python and JavaScript)', () => {
+  const py = pyTrace('squares = []\nfor n in range(2):\n    squares.append(n * n)\nsquares.pop()\nsquares[0] = 9');
+  expect(kinds(py).filter((k) => k === 'assign')).toHaveLength(5);
+  const e = explainTrace(py);
+  expect(e[2].what).toMatch(/^(0 is added to the end of squares|squares grows by one: 0 goes on the end)\.$/);
+  expect(e.at(-2)!.what).toMatch(/^(1 is taken off the end of squares|squares gets shorter: 1 is removed from the end)\.$/);
+  expect(e.at(-1)!.what).toMatch(/^(squares\[0\] changes from 0 to 9|Position 0 of squares was 0 and is now 9)\.$/);
+  const js = jsTrace('const xs = [];\nxs.push(5);');
+  expect(js.steps.at(-1)!.kind).toBe('assign');
+  expect(explainTrace(js).at(-1)!.what).toMatch(/^(5 is added to the end of xs|xs grows by one: 5 goes on the end)\.$/);
+});
