@@ -11,9 +11,9 @@ export type Language = 'python' | 'javascript' | 'java' | 'cpp' | 'c';
 const LANGUAGES: { value: Language; label: string }[] = [
   { value: 'python', label: 'Python' },
   { value: 'javascript', label: 'JavaScript' },
-  // Exact traces for C++ and C are being built; each loses "(coming soon)" when it works.
+  // An exact trace for C is being built; it loses "(coming soon)" when it works.
   { value: 'java', label: 'Java' },
-  { value: 'cpp', label: 'C++ (coming soon)' },
+  { value: 'cpp', label: 'C++' },
   { value: 'c', label: 'C (coming soon)' },
 ];
 
@@ -77,13 +77,13 @@ export function Home({
   useEffect(() => {
     if (showInput) inputRef.current?.focus();
   }, [showInput]);
-  const codeLanguage: CodeLanguage = language === 'javascript' || language === 'java' ? language : 'python';
+  const codeLanguage: CodeLanguage = language === 'c' ? 'python' : language;
   const selectedExample = exampleForSource(code);
   const selected = selectedExample && sourceOf(selectedExample, codeLanguage) === code ? selectedExample.id : undefined;
 
   const isEmpty = code.trim() === '';
-  // Python, JavaScript and Java have an exact trace; C++ and C are coming.
-  const comingSoon = language === 'cpp' || language === 'c';
+  // Python, JavaScript, Java and C++ have an exact trace; C is coming.
+  const comingSoon = language === 'c';
   const disabled = isEmpty || comingSoon || busy;
 
   let helper: string | null = null;
@@ -231,7 +231,8 @@ export function Home({
           <span className="pill pill--green">Python · exact trace</span>
           <span className="pill pill--green">JavaScript · exact trace</span>
           <span className="pill pill--green">Java · exact trace</span>
-          <span className="pill pill--yellow">C++, C · coming soon</span>
+          <span className="pill pill--green">C++ · exact trace</span>
+          <span className="pill pill--yellow">C · coming soon</span>
         </section>
       </main>
     </div>

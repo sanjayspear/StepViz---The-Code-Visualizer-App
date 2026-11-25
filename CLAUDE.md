@@ -28,8 +28,12 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      Scanner, printf/String.format, Arrays.toString/sort, parseInt/parseDouble,
      array/input crashes, the four Java examples; Java is selectable ("Java",
      strip "Java · exact trace" + "C++, C · coming soon").
-   - C1: C++ core (main, cout, functions incl. references, strings). C2: C++ arrays,
-     vector, list view, cin, crashes, examples; C++ loses "(coming soon)".
+   - C1 + C2 (done, one stage): C++ interpreter (`src/runner/cpp/interpreter.ts`,
+     own worker `cpp.worker.ts`): main, functions (by value, by reference), globals,
+     int/long/double/char/bool/string/auto, arrays and vector, cout (endl, fixed,
+     setprecision, boolalpha), cin and getline, swap/sort/max/min/math/to_string/
+     stoi; list view incl. swap(); four C++ examples (Factorial hand-written);
+     C++ selectable ("C++", strip "C++ · exact trace").
    - C3: C mode (printf/scanf) reusing the C++ interpreter; C loses "(coming soon)".
 3. Later stages after C3 (planned, not built): Java ArrayList, more String methods,
    switch, try/catch, simple classes; C++ structs and classes, basic pointers, map.
@@ -56,8 +60,8 @@ Phase 2 so far:
   Same trace shape, caps, crash and list rules as Python. JavaScript versions of the
   four examples; only Factorial has hand-written explanations (section 6 texts
   adapted).
-- Language select: "Java", "C++ (coming soon)", "C (coming soon)" (selecting a
-  coming-soon one shows "Coming soon"). Each label changes when that language works.
+- Language select: "Java", "C++", "C (coming soon)" (selecting C shows "Coming
+  soon"); strip "C · coming soon" until C works.
 
 Not built: the items above, accounts, share links (the buttons show "Coming soon"),
 Screen 5.
@@ -151,6 +155,17 @@ Playwright tests. Static build for GitHub Pages.
   more input than you typed.", "The input was not the kind of value the program
   expected.", "This text is not a number." Java Factorial keeps hand-written text
   (section 6 adapted); the other Java examples use the rule-based explainer.
+- C++ rules: StepViz stops with a plain-words crash where real C++ would give
+  garbage: unset variable/array item ("This box was used before it was given a
+  value."), index outside a list or vector, incl. .at ("This position is outside
+  the list."), whole-number / by zero ("C++ can't divide a whole number by zero.").
+  cout prints like C++ (2, 3.5, 1e+07, bool as 1 unless boolalpha). vector and
+  string are copied on assignment / by-value parameters; references share the box
+  and show "5 (same box as x)" (call labels show the plain value). Global variables
+  get a "Global" frame under main(); function frames list only their own
+  variables. return 0 in main is a "main() is done and returns 0" step. Text +
+  number needs to_string() (message on Home). Unsupported: pointers, new/delete,
+  structs/classes, templates, maps, switch, try/catch, unsigned, other #includes.
 - List changes read item by item in every language: "nums[0] changes from 5 to 2.",
   "3 is added to the end of squares.", "4 is taken off the end of squares." List
   methods (append, push, pop, sort...) count as changes (assign kind).

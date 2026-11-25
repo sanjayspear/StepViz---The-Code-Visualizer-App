@@ -8,10 +8,12 @@ import { FIBONACCI_TRACE } from '../examples/fibonacciTrace';
 import { BUBBLE_SORT_TRACE } from '../examples/bubbleSortTrace';
 import { FACTORIAL_JS_TRACE } from '../examples/factorialJsTrace';
 import { FACTORIAL_JAVA_TRACE } from '../examples/factorialJavaTrace';
+import { FACTORIAL_CPP_TRACE } from '../examples/factorialCppTrace';
 type TraceLanguage = Trace['language'];
 import { pythonRunner } from '../runner/pythonRunner';
 import { analyzeJavaScript, runJavaScript } from '../runner/jsRunner';
 import { analyzeJava, runJavaProgram } from '../runner/javaRunner';
+import { analyzeCpp, runCppProgram } from '../runner/cppRunner';
 import type { RawRunResult } from '../runner/protocol';
 import { errorSentence } from './explain';
 import { explainTrace } from './explainer';
@@ -20,7 +22,15 @@ import type { Trace } from './types';
 export const CAP_MESSAGE =
   'Your program ran for a very long time, so we stopped it. Check that every loop can end.';
 
-const FIXTURES: Trace[] = [FACTORIAL_TRACE, FOR_LOOP_TRACE, FIBONACCI_TRACE, BUBBLE_SORT_TRACE, FACTORIAL_JS_TRACE, FACTORIAL_JAVA_TRACE];
+const FIXTURES: Trace[] = [
+  FACTORIAL_TRACE,
+  FOR_LOOP_TRACE,
+  FIBONACCI_TRACE,
+  BUBBLE_SORT_TRACE,
+  FACTORIAL_JS_TRACE,
+  FACTORIAL_JAVA_TRACE,
+  FACTORIAL_CPP_TRACE,
+];
 
 export function fixtureFor(source: string, language: TraceLanguage = 'python'): Trace | undefined {
   return FIXTURES.find((t) => t.source === source && t.language === language);
@@ -36,8 +46,8 @@ export async function checkSource(
   language: TraceLanguage = 'python',
 ): Promise<{ ok: true; inputCalls: number } | { ok: false; message: string; line: number }> {
   if (fixtureFor(source, language)) return { ok: true, inputCalls: 0 };
-  if (language === 'java') {
-    const result = await analyzeJava(source);
+  if (language === 'java' || language === 'cpp') {
+    const result = language === 'java' ? await analyzeJava(source) : await analyzeCpp(source);
     return result.ok ? { ok: true, inputCalls: result.readsInput ? 1 : 0 } : { ok: false, message: result.error.message, line: result.error.line };
   }
   if (language === 'javascript') {
@@ -60,6 +70,7 @@ export async function getTrace(
   const raw: RawRunResult =
     language === 'javascript' ? await runJavaScript(source)
     : language === 'java' ? await runJavaProgram(source, inputs.join('\n'))
+    : language === 'cpp' ? await runCppProgram(source, inputs.join('\n'))
     : await pythonRunner.run(source, inputs);
   if (raw.status === 'syntax-error' && raw.error) {
     return { kind: 'error', message: raw.error.message, line: raw.error.line ?? undefined };

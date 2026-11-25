@@ -29,6 +29,13 @@ const ERROR_SENTENCES: Record<string, string> = {
   NoSuchElementException: 'Your program asked for more input than you typed.',
   InputMismatchException: 'The input was not the kind of value the program expected.',
   NumberFormatException: 'This text is not a number.',
+  // C++ (StepViz stops where real C++ would quietly give garbage)
+  DivideByZero: "C++ can't divide a whole number by zero.",
+  IndexOutOfRange: 'This position is outside the list.',
+  out_of_range: 'This position is outside the list.',
+  Uninitialized: 'This box was used before it was given a value.',
+  NoMoreInput: 'Your program asked for more input than you typed.',
+  BadInput: 'The input was not the kind of value the program expected.',
 };
 
 const LANGUAGE_NAMES = { python: 'Python', javascript: 'JavaScript', java: 'Java', cpp: 'C++', c: 'C' } as const;

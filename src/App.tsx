@@ -31,14 +31,14 @@ export default function App() {
     setInputText('');
   };
 
-  const codeLanguage: CodeLanguage = language === 'javascript' || language === 'java' ? language : 'python';
+  const codeLanguage: CodeLanguage = language === 'c' ? 'python' : language;
 
   // Switching between Python and JavaScript swaps an unchanged example for the
   // same example in the other language; the student's own code is left alone.
   const changeLanguage = (next: Language) => {
     setLanguage(next);
     setError(null);
-    if (next !== 'python' && next !== 'javascript' && next !== 'java') return;
+    if (next === 'c') return;
     const example = exampleForSource(code);
     if (example) changeCode(sourceOf(example, next));
   };
@@ -68,7 +68,7 @@ export default function App() {
       }
       setTrace(outcome.trace);
     } catch {
-      const name = codeLanguage === 'javascript' ? 'JavaScript' : codeLanguage === 'java' ? 'Java' : 'Python';
+      const name = { python: 'Python', javascript: 'JavaScript', java: 'Java', cpp: 'C++' }[codeLanguage];
       setError(`${name} could not start. Please reload the page and try again.`);
     } finally {
       setBusy(false);

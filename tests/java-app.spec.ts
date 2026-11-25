@@ -29,8 +29,13 @@ test('Java is selectable: examples switch to Java, the strip says "Java · exact
   await expect(page.getByRole('button', { name: 'Factorial' })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Bubble sort', exact: true }).click();
   expect((await editorLines(page))[0]).toBe('import java.util.Arrays;');
-  await expect(page.locator('.pill--green')).toHaveText(['Python · exact trace', 'JavaScript · exact trace', 'Java · exact trace']);
-  await expect(page.locator('.pill--yellow')).toHaveText('C++, C · coming soon');
+  await expect(page.locator('.pill--green')).toHaveText([
+    'Python · exact trace',
+    'JavaScript · exact trace',
+    'Java · exact trace',
+    'C++ · exact trace',
+  ]);
+  await expect(page.locator('.pill--yellow')).toHaveText('C · coming soon');
 });
 
 test('Java Factorial plays its hand-written steps with main() at the bottom', async ({ page }) => {

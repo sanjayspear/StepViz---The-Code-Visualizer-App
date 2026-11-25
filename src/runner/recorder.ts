@@ -352,7 +352,8 @@ export class Recorder {
       const caller = this.stack[this.stack.length - 1];
       const values = getters.map((g) => {
         try {
-          return this.fmt(g());
+          // The call label shows plain values: "addOne(5)", not "addOne(5 (same box as x))".
+          return this.fmt(g()).replace(/ \(same box as [^)]*\)$/, '');
         } catch {
           return '?';
         }

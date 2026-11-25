@@ -16,6 +16,7 @@
 // next, nextLine, nextBoolean, hasNext, hasNextInt, hasNextLine.
 import type { Node, Tree } from 'web-tree-sitter';
 import type { RawRunResult } from '../protocol';
+import { Input } from '../input';
 import {
   finishRun,
   recordCrash,
@@ -457,45 +458,6 @@ const SCANNER_READS = new Set(['nextInt', 'nextDouble', 'next', 'nextLine', 'nex
 const isScannerRead = (e: Node | null) =>
   e?.type === 'method_invocation' && SCANNER_READS.has(e.childForFieldName('name')?.text ?? '') && !!e.childForFieldName('object');
 
-/** Reads the typed input like java.util.Scanner: words for next/nextInt, lines for nextLine. */
-class Input {
-  private pos = 0;
-  constructor(private text: string) {}
-  private skipSpace() {
-    while (this.pos < this.text.length && /\s/.test(this.text[this.pos])) this.pos++;
-  }
-  hasNext(): boolean {
-    const save = this.pos;
-    this.skipSpace();
-    const has = this.pos < this.text.length;
-    this.pos = save;
-    return has;
-  }
-  peekWord(): string | null {
-    const save = this.pos;
-    const w = this.hasNext() ? this.word() : null;
-    this.pos = save;
-    return w;
-  }
-  word(): string {
-    this.skipSpace();
-    if (this.pos >= this.text.length) throw new JavaException('NoSuchElementException', 'No more input');
-    const start = this.pos;
-    while (this.pos < this.text.length && !/\s/.test(this.text[this.pos])) this.pos++;
-    return this.text.slice(start, this.pos);
-  }
-  hasNextLine(): boolean {
-    return this.pos < this.text.length;
-  }
-  line(): string {
-    if (this.pos >= this.text.length) throw new JavaException('NoSuchElementException', 'No line found');
-    const end = this.text.indexOf('\n', this.pos);
-    const line = end < 0 ? this.text.slice(this.pos) : this.text.slice(this.pos, end);
-    this.pos = end < 0 ? this.text.length : end + 1;
-    return line.replace(/\r$/, '');
-  }
-}
-
 /** System.out.printf / String.format for %d %s %f %.2f %c %b %x %n %% and widths. */
 function javaFormat(format: string, args: JVal[]): string {
   let k = 0;
@@ -560,7 +522,7 @@ class Interp {
     plan: ListPlan,
     opts: RunOptions & { input?: string },
   ) {
-    this.input = new Input(opts.input ?? '');
+    this.input = new Input(opts.input ?? '', (message) => new JavaException('NoSuchElementException', message));
     this.rt = new Recorder(this.nameSets, plan, { ...opts, rootLabel: 'main()', format: formatJava });
   }
 

@@ -14,9 +14,9 @@ export default defineConfig({
   },
   projects: [
     // Runs the Python tracer under Node with Pyodide (no browser needed).
-    { name: 'tracer', testMatch: /(tracer|jstracer|explainer|java)\.spec\.ts/ },
+    { name: 'tracer', testMatch: /(tracer|jstracer|explainer|java|cpp)\.spec\.ts/ },
     // The section 9 acceptance checklist, against the production build.
-    { name: 'e2e', testMatch: /(acceptance|screen3|javascript|java-worker|java-app)\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    { name: 'e2e', testMatch: /(acceptance|screen3|javascript|java-worker|java-app|cpp-app)\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
     command: `npm run build && npx vite preview --port ${PORT} --strictPort`,

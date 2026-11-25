@@ -2,7 +2,7 @@
 // the other three as approved by the product owner; JavaScript versions of the
 // same four programs (Phase 2).
 
-export type CodeLanguage = 'python' | 'javascript' | 'java';
+export type CodeLanguage = 'python' | 'javascript' | 'java' | 'cpp';
 
 export type ExampleId = 'factorial' | 'bubble-sort' | 'fibonacci' | 'for-loop';
 
@@ -18,6 +18,8 @@ export interface Example {
   jsSource: string;
   /** Java version of the same program */
   javaSource: string;
+  /** C++ version of the same program */
+  cppSource: string;
 }
 
 export const EXAMPLES: Example[] = [
@@ -53,6 +55,21 @@ console.log(result);`,
         int result = factorial(3);
         System.out.println(result);
     }
+}`,
+    cppSource: `#include <iostream>
+using namespace std;
+
+int factorial(int n) {
+    if (n == 0) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+int main() {
+    int result = factorial(3);
+    cout << result << endl;
+    return 0;
 }`,
   },
   {
@@ -91,6 +108,25 @@ public class Main {
         System.out.println(Arrays.toString(nums));
     }
 }`,
+    cppSource: `#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    vector<int> nums = {5, 2, 8, 1};
+    for (int i = 0; i < nums.size(); i++) {
+        for (int j = 0; j < nums.size() - i - 1; j++) {
+            if (nums[j] > nums[j + 1]) {
+                swap(nums[j], nums[j + 1]);
+            }
+        }
+    }
+    for (int x : nums) {
+        cout << x << " ";
+    }
+    cout << endl;
+    return 0;
+}`,
   },
   {
     id: 'fibonacci',
@@ -116,6 +152,19 @@ for (let i = 0; i < 5; i++) {
         }
     }
 }`,
+    cppSource: `#include <iostream>
+using namespace std;
+
+int main() {
+    int a = 0, b = 1;
+    for (int i = 0; i < 5; i++) {
+        cout << a << endl;
+        int next = a + b;
+        a = b;
+        b = next;
+    }
+    return 0;
+}`,
   },
   {
     id: 'for-loop',
@@ -139,18 +188,32 @@ console.log(total);`,
         System.out.println(total);
     }
 }`,
+    cppSource: `#include <iostream>
+using namespace std;
+
+int main() {
+    int total = 0;
+    for (int i = 1; i <= 3; i++) {
+        total = total + i;
+    }
+    cout << total << endl;
+    return 0;
+}`,
   },
 ];
 
 export const DEFAULT_EXAMPLE = EXAMPLES[0];
 
 export function sourceOf(example: Example, language: CodeLanguage): string {
-  return language === 'javascript' ? example.jsSource : language === 'java' ? example.javaSource : example.source;
+  if (language === 'javascript') return example.jsSource;
+  if (language === 'java') return example.javaSource;
+  if (language === 'cpp') return example.cppSource;
+  return example.source;
 }
 
 /** The example whose source (in either language) is exactly the given text, if any. */
 export function exampleForSource(source: string): Example | undefined {
-  return EXAMPLES.find((e) => e.source === source || e.jsSource === source || e.javaSource === source);
+  return EXAMPLES.find((e) => [e.source, e.jsSource, e.javaSource, e.cppSource].includes(source));
 }
 
 /** Title for the Step-through top bar. */

@@ -1,6 +1,6 @@
 # StepViz
 
-Paste a Python, JavaScript or Java program and watch it run one step at a time: the running line,
+Paste a Python, JavaScript, Java or C++ program and watch it run one step at a time: the running line,
 variables, call stack and output, each step explained in plain English with a
 real-life comparison.
 
@@ -52,6 +52,7 @@ npm test
 - `tests/explainer.spec.ts`: step kinds and the rule-based explainer
 - `tests/java.spec.ts`: the Java interpreter under Node; `tests/java-worker.spec.ts`:
   the built Java worker in a browser; `tests/java-app.spec.ts`: Java in the app
+- `tests/cpp.spec.ts`: the C++ interpreter under Node; `tests/cpp-app.spec.ts`: C++ in the app
 
 Run one file or one test:
 

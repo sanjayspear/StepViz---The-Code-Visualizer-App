@@ -216,6 +216,7 @@ function listItems(v: string): string[] | null {
  * than 20 characters are summarised; the frames still show the real values.
  */
 export function sayValue(v: string): string {
+  v = v.replace(/ \(same box as [^)]*\)$/, ''); // a C++ reference reads as its value
   if (v.startsWith('[')) {
     if (v.endsWith('…')) return 'a long list';
     const items = listItems(v);

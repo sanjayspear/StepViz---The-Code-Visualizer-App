@@ -35,9 +35,9 @@ test('the Java worker runs a program from our own site and makes no other reques
   ]);
 });
 
-test('C++ is still "coming soon" in the app', async ({ page }) => {
+test('C is still "coming soon" in the app', async ({ page }) => {
   await page.goto('./');
-  await page.locator('select').selectOption('cpp');
-  await expect(page.locator('select option:checked')).toHaveText('C++ (coming soon)');
+  await page.locator('select').selectOption('c');
+  await expect(page.locator('select option:checked')).toHaveText('C (coming soon)');
   await expect(page.locator('.editor-card__helper')).toHaveText('Coming soon');
 });
