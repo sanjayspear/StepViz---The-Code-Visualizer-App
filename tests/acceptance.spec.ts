@@ -449,7 +449,13 @@ test.describe('16. Colors, fonts and copy match sections 2 to 6', () => {
     expect(await style(card, 'padding-top')).toBe('22px');
     await expect(page.locator('.editor-card__label')).toHaveText('Your code');
     await expect(page.locator('.editor-card__lang > span').first()).toHaveText('Language');
-    await expect(page.locator('select option')).toHaveText(['Python', 'JavaScript', 'Java (AI-explained)', 'C++ (AI-explained)']);
+    await expect(page.locator('select option')).toHaveText([
+      'Python',
+      'JavaScript',
+      'Java (coming soon)',
+      'C++ (coming soon)',
+      'C (coming soon)',
+    ]);
     const cm = page.locator('.cm-editor');
     expect(await style(cm, 'background-color')).toBe('rgb(23, 23, 43)');
     expect(await style(cm, 'height')).toBe('250px');
@@ -488,7 +494,7 @@ test.describe('16. Colors, fonts and copy match sections 2 to 6', () => {
     await expect(page.locator('.pill')).toHaveText([
       'Python · exact trace',
       'JavaScript · exact trace',
-      'Java, C++, others · AI-explained (beta)',
+      'Java, C++, C · coming soon',
     ]);
     expect(await style(page.locator('.pill--green').first(), 'background-color')).toBe('rgb(221, 243, 238)');
     expect(await style(page.locator('.pill--green').first(), 'color')).toBe('rgb(15, 95, 85)');

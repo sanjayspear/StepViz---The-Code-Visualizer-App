@@ -6,13 +6,15 @@ import { EXAMPLES, exampleForSource, sourceOf, type CodeLanguage } from '../../e
 import { CodeEditor } from './CodeEditor';
 import './Home.css';
 
-export type Language = 'python' | 'javascript' | 'java' | 'cpp';
+export type Language = 'python' | 'javascript' | 'java' | 'cpp' | 'c';
 
 const LANGUAGES: { value: Language; label: string }[] = [
   { value: 'python', label: 'Python' },
   { value: 'javascript', label: 'JavaScript' },
-  { value: 'java', label: 'Java (AI-explained)' },
-  { value: 'cpp', label: 'C++ (AI-explained)' },
+  // Exact traces for Java, C++ and C are being built; each loses "(coming soon)" when it works.
+  { value: 'java', label: 'Java (coming soon)' },
+  { value: 'cpp', label: 'C++ (coming soon)' },
+  { value: 'c', label: 'C (coming soon)' },
 ];
 
 const FEATURES: { icon: IconName; tone: 'yellow' | 'green' | 'accent'; title: string; text: string }[] = [
@@ -80,7 +82,7 @@ export function Home({
   const selected = selectedExample && sourceOf(selectedExample, codeLanguage) === code ? selectedExample.id : undefined;
 
   const isEmpty = code.trim() === '';
-  // Python and JavaScript have an exact trace; the AI-explained languages are later.
+  // Python and JavaScript have an exact trace; Java, C++ and C are coming.
   const comingSoon = language !== 'python' && language !== 'javascript';
   const disabled = isEmpty || comingSoon || busy;
 
@@ -226,7 +228,7 @@ export function Home({
           <span className="lang-strip__label">Language support</span>
           <span className="pill pill--green">Python · exact trace</span>
           <span className="pill pill--green">JavaScript · exact trace</span>
-          <span className="pill pill--yellow">Java, C++, others · AI-explained (beta)</span>
+          <span className="pill pill--yellow">Java, C++, C · coming soon</span>
         </section>
       </main>
     </div>

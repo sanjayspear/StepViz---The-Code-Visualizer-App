@@ -12,9 +12,23 @@ something is missing, ask; do not guess.
 
 ## Scope
 
-Phase 1 is done. Phase 2 is in progress, in stages: (g) Screen 3 and Bubble sort
-(done), (h) JavaScript exact trace (done), (i) optional AI explanations via a
-Cloudflare Worker (last). Phase 1 covers:
+Phase 1 is done. Phase 2: (g) Screen 3 and Bubble sort (done), (h) JavaScript exact
+trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branch
+`wip/ai-explanations`). Next, in this order:
+
+1. Rule-based explainer: a `kind` on every trace step, and plain-English "What is
+   happening" + "In real life" text built from what changed (plan first, then build).
+2. Java, C++ and C exact traces: tree-walking interpreters over tree-sitter, each in
+   its own locked-down worker, same trace JSON, explained by the rule-based explainer.
+   - J1: shared interpreter core + Java basics. J2: Java arrays, list view, Scanner,
+     crashes, examples; Java loses "(coming soon)".
+   - C1: C++ core (main, cout, functions incl. references, strings). C2: C++ arrays,
+     vector, list view, cin, crashes, examples; C++ loses "(coming soon)".
+   - C3: C mode (printf/scanf) reusing the C++ interpreter; C loses "(coming soon)".
+3. Later stages after C3 (planned, not built): Java ArrayList, more String methods,
+   switch, try/catch, simple classes; C++ structs and classes, basic pointers, map.
+
+Phase 1 covers:
 
 - Screen 1: Home (paste code, language select, example chips, "Visualize my code")
 - Screen 2: Step-through (code panel, call stack, output, explanation, "In real life", controls)
@@ -35,10 +49,13 @@ Phase 2 so far:
   timers or Function constructors; `import()` rejected at parse time; strict mode).
   Same trace shape, caps, crash and list rules as Python. JavaScript versions of the
   four examples; only Factorial has hand-written explanations (section 6 texts
-  adapted). Java and C++ still show "Coming soon".
+  adapted).
+- Language select: "Java (coming soon)", "C++ (coming soon)", "C (coming soon)"
+  (selecting one shows "Coming soon"); strip pill "Java, C++, C · coming soon". Each
+  label changes when that language works.
 
-Not built: AI explanations (next stage), accounts, share links (the buttons show
-"Coming soon"), Screen 5.
+Not built: the items above, accounts, share links (the buttons show "Coming soon"),
+Screen 5.
 The UI reads only the trace JSON (section 7, `src/trace/types.ts`) so those can be added later.
 
 ## Stack
@@ -84,11 +101,20 @@ Playwright tests. Static build for GitHub Pages.
   the other language; the student's own code is left alone. Loops report their header
   line at the start of each round, and the last body line is recorded before the
   loop's update runs (so `i` shows that round's value).
-- Phase 2 decisions not built yet: AI: optional "Explain with AI
-  (beta)" button, a first-use note "This sends your code to an AI service to write
-  the explanations. We don't store it.", no logging, 20 per visitor per day plus a
-  global daily cap in one config value, "AI-explained (beta)" tag, fallback text
-  "AI explanation isn't available right now." Key only as a Worker secret.
+- Paused AI (branch `wip/ai-explanations`): free, open model in the browser (WebLLM,
+  Qwen2.5-1.5B-Instruct, Apache-2.0; model program copy served from our site; model
+  from Hugging Face only), no accounts, no daily limits, accuracy guard, CSP allows
+  only self + huggingface.co + *.hf.co.
+- Java/C++/C decisions: tree-sitter (MIT) for all three, each grammar loaded only
+  when chosen and served from our site. Bottom frame is main(); C++ gets a "Global"
+  frame only when it has global variables. C++ stops with a plain-words crash for an
+  out-of-range index and for a variable used before it has a value. Unsupported code
+  stays on Home: "Line 7: StepViz can't run pointers in C++ yet." (feature name
+  filled in). Input box for these languages: "Your program reads input. Type your
+  input here, one value per line or separated by spaces." C++ reference parameters
+  show as "a = 5 (same box as x)". Examples in these languages use the rule-based
+  explainer, except Factorial and Bubble sort, which keep hand-written text if it
+  carries over easily.
 
 ## Commands
 
