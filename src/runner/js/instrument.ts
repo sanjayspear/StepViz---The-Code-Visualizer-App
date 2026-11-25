@@ -34,7 +34,7 @@ export interface JsListPlan {
  *  if body / else part or loop body, c = condition text, v = loop variable,
  *  t = names assigned, s = assigned at the same time (a, b = b, a + b). */
 export interface StepInfo {
-  k: 'define' | 'assign' | 'input' | 'print' | 'branch' | 'loop' | 'swap' | 'switch' | 'other';
+  k: 'define' | 'assign' | 'input' | 'print' | 'branch' | 'loop' | 'swap' | 'switch' | 'catch' | 'other';
   b?: [number, number];
   e?: [number, number];
   c?: string;
@@ -43,6 +43,12 @@ export interface StepInfo {
   s?: boolean;
   /** switch: [label, first line, last line] of each case that has statements */
   cs?: [string, number, number][];
+  /** catch: error type, message, thrown by a throw statement */
+  et?: string;
+  em?: string;
+  th?: boolean;
+  /** catch: nothing catches it here, only a finally part runs first */
+  fo?: boolean;
 }
 
 export interface Instrumented {

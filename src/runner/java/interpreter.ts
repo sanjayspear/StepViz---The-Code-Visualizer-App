@@ -23,6 +23,11 @@
 // contains, startsWith, endsWith, toUpperCase, toLowerCase, trim, strip,
 // isEmpty, isBlank, replace, repeat, concat, compareTo, equalsIgnoreCase, split,
 // toCharArray; String.join; Character.isDigit/isLetter/... and toUpperCase.
+// T1: try / catch (several, A | B) / finally, throw new X("..."), throws, the
+// standard exception family (catch (RuntimeException e) takes its children),
+// getMessage(); Java's compile rules (Exception must be caught or declared; a
+// catch can't follow one that already covers it). A caught error turns the line
+// that failed into a "catch" step.
 import type { Node, Tree } from 'web-tree-sitter';
 import type { RawRunResult } from '../protocol';
 import { Input } from '../input';
@@ -43,7 +48,37 @@ import {
 // Values
 
 type Prim = 'int' | 'long' | 'double' | 'boolean' | 'char' | 'String';
-export type JType = Prim | 'null' | 'void' | 'array' | 'list' | 'Scanner';
+export type JType = Prim | 'null' | 'void' | 'array' | 'list' | 'Scanner' | 'exception';
+
+/** The exceptions StepViz knows, each with its parent (catch (RuntimeException e) also catches an ArithmeticException). */
+const EXCEPTION_PARENT: Record<string, string | null> = {
+  Throwable: null,
+  Exception: 'Throwable',
+  RuntimeException: 'Exception',
+  ArithmeticException: 'RuntimeException',
+  IndexOutOfBoundsException: 'RuntimeException',
+  ArrayIndexOutOfBoundsException: 'IndexOutOfBoundsException',
+  StringIndexOutOfBoundsException: 'IndexOutOfBoundsException',
+  NullPointerException: 'RuntimeException',
+  IllegalArgumentException: 'RuntimeException',
+  NumberFormatException: 'IllegalArgumentException',
+  IllegalStateException: 'RuntimeException',
+  UnsupportedOperationException: 'RuntimeException',
+  NegativeArraySizeException: 'RuntimeException',
+  NoSuchElementException: 'RuntimeException',
+  InputMismatchException: 'NoSuchElementException',
+  ConcurrentModificationException: 'RuntimeException',
+  IllegalFormatException: 'IllegalArgumentException',
+  IllegalFormatConversionException: 'IllegalFormatException',
+  MissingFormatArgumentException: 'IllegalFormatException',
+};
+const JAVA_UTIL = new Set(['NoSuchElementException', 'InputMismatchException', 'ConcurrentModificationException', 'IllegalFormatException', 'IllegalFormatConversionException', 'MissingFormatArgumentException']);
+/** Exceptions Java makes you catch or declare (throws): Exception and Throwable themselves. */
+const CHECKED = new Set(['Exception', 'Throwable']);
+function isA(type: string, ancestor: string): boolean {
+  for (let t: string | null = type; t; t = EXCEPTION_PARENT[t] ?? null) if (t === ancestor) return true;
+  return false;
+}
 
 /** Integer, Double... : the box types an ArrayList holds, and the value type inside. */
 const WRAPPERS: Record<string, Prim> = { Integer: 'int', Long: 'long', Double: 'double', Boolean: 'boolean', Character: 'char', String: 'String' };
@@ -67,6 +102,8 @@ export interface JVal {
   id?: string | number;
   boxed?: boolean;
   mod?: number;
+  /** exception: its class (v is the message, or null) */
+  cls?: string;
 }
 
 const isJVal = (x: unknown): x is JVal => typeof x === 'object' && x !== null && !Array.isArray(x) && 't' in x && 'v' in x;
@@ -109,6 +146,9 @@ export function javaString(val: JVal): string {
       return arrayText(val);
     case 'Scanner':
       return 'java.util.Scanner';
+    case 'exception':
+      if (val.cls === undefined) return 'null';
+      return `${JAVA_UTIL.has(val.cls!) ? 'java.util' : 'java.lang'}.${val.cls}${val.v === null ? '' : `: ${val.v}`}`;
     default:
       if (val.v === null) return 'null';
       return String(val.v);
@@ -134,6 +174,7 @@ export function formatJava(x: unknown): string | undefined {
   if (x.t === 'void') return 'nothing';
   if (x.t === 'array' || x.t === 'list') return formatJava(x.v);
   if (x.t === 'Scanner') return 'Scanner';
+  if (x.t === 'exception') return x.cls === undefined ? 'null' : x.v === null ? x.cls : `${x.cls}: ${x.v}`;
   return javaString(x);
 }
 
@@ -189,9 +230,15 @@ export class JavaException extends Error {
   constructor(
     public javaType: string,
     message: string,
+    /** thrown by the program's own throw statement, with the exception object */
+    public value?: JVal,
   ) {
     super(message);
     this.name = javaType;
+  }
+  /** The exception object a catch part receives (message '' means none: getMessage() gives null). */
+  object(): JVal {
+    return this.value ?? { t: 'exception', v: this.message === '' ? null : this.message, cls: this.javaType in EXCEPTION_PARENT ? this.javaType : 'RuntimeException' };
   }
 }
 
@@ -244,9 +291,7 @@ const FEATURES: Record<string, string> = {
   record_declaration: 'records',
   field_declaration: 'variables outside methods',
   constructor_declaration: 'constructors',
-  try_statement: 'try/catch',
-  try_with_resources_statement: 'try/catch',
-  throw_statement: 'throw',
+  try_with_resources_statement: 'try with resources',
   lambda_expression: 'lambdas',
   method_reference: 'method references',
   this: 'this',
@@ -260,10 +305,14 @@ const FEATURES: Record<string, string> = {
   class_declaration: 'classes other than Main',
 };
 
-const IMPORTS = new Set(['java.util.Scanner', 'java.util.Arrays', 'java.util.ArrayList', 'java.util.List', 'java.util.Collections', 'java.util.*']);
+const IMPORTS = new Set([
+  'java.util.Scanner', 'java.util.Arrays', 'java.util.ArrayList', 'java.util.List', 'java.util.Collections', 'java.util.*',
+  'java.util.InputMismatchException', 'java.util.NoSuchElementException', 'java.util.ConcurrentModificationException',
+]);
 const ALLOWED_TYPES = new Set([
   'int', 'long', 'double', 'float', 'boolean', 'char', 'short', 'byte', 'String', 'void', 'Scanner',
   'Integer', 'Long', 'Double', 'Boolean', 'Character', 'ArrayList', 'List',
+  ...Object.keys(EXCEPTION_PARENT),
 ]);
 const LIST_TYPES = new Set(['ArrayList', 'List']);
 
@@ -345,7 +394,11 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node> } {
       if (n.type === 'object_creation_expression') {
         const type = n.childForFieldName('type');
         const isList = type?.type === 'generic_type' && named(type)[0]?.text === 'ArrayList';
-        if (!isList && !/^new\s+Scanner\s*\(\s*System\.in\s*\)$/.test(n.text)) {
+        const isException = !!type && type.text in EXCEPTION_PARENT;
+        if (isException) {
+          const args = named(n.childForFieldName('arguments'));
+          if (args.length > 1) throw unsupported(n, 'exceptions with a cause');
+        } else if (!isList && !/^new\s+Scanner\s*\(\s*System\.in\s*\)$/.test(n.text)) {
           throw unsupported(n, type?.text === 'List' || named(type)[0]?.text === 'List' ? 'new List (write new ArrayList<>())' : 'new objects');
         }
         if (isList && named(n.childForFieldName('arguments')).length > 1) throw unsupported(n, 'this kind of new ArrayList');
@@ -363,8 +416,55 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node> } {
     if (m !== main) for (const p of named(m.childForFieldName('parameters'))) visit(p);
     const rt = m.childForFieldName('type');
     if (rt) visit(rt);
+    for (const t of named(named(m).find((c) => c.type === 'throws'))) {
+      if (!(t.text in EXCEPTION_PARENT)) throw unsupported(t, `the type ${t.text}`);
+    }
   }
+  checkExceptions(methods);
   return { main, methods };
+}
+
+/** throws Exception after a method's brackets */
+const throwsChecked = (m: Node | undefined) => !!m && named(named(m).find((c) => c.type === 'throws')).some((t) => CHECKED.has(t.text));
+const catchTypes = (clause: Node): Node[] => named(named(named(clause).find((c) => c.type === 'catch_formal_parameter')).find((c) => c.type === 'catch_type'));
+
+/** Java's compile rules: Exception must be caught or declared, and a catch can't come after one that already covers it. */
+function checkExceptions(methods: Map<string, Node>) {
+  const handled = (n: Node): boolean => {
+    let child = n;
+    for (let p = n.parent; p; child = p, p = p.parent) {
+      if (p.type === 'method_declaration') return throwsChecked(p);
+      if (p.type === 'try_statement' && p.childForFieldName('body')?.id === child.id) {
+        if (named(p).some((c) => c.type === 'catch_clause' && catchTypes(c).some((t) => CHECKED.has(t.text)))) return true;
+      }
+    }
+    return false;
+  };
+  const NEEDS = 'Java needs this Exception to be handled: put this line inside a try/catch, or add throws Exception after the method name and brackets.';
+  for (const m of methods.values()) {
+    const visit = (n: Node) => {
+      if (n.type === 'throw_statement') {
+        const what = named(n)[0];
+        const type = what?.type === 'object_creation_expression' ? what.childForFieldName('type')?.text : undefined;
+        if (type && CHECKED.has(type) && !handled(n)) throw new CompileError(lineOf(n), NEEDS);
+      }
+      if (n.type === 'method_invocation' && (!n.childForFieldName('object') || n.childForFieldName('object')?.text === 'Main')) {
+        if (throwsChecked(methods.get(n.childForFieldName('name')!.text)) && !handled(n)) throw new CompileError(lineOf(n), NEEDS);
+      }
+      if (n.type === 'try_statement') {
+        const seen: string[] = [];
+        for (const c of named(n).filter((x) => x.type === 'catch_clause')) {
+          for (const t of catchTypes(c)) {
+            const earlier = seen.find((e) => isA(t.text, e));
+            if (earlier) throw new CompileError(lineOf(c), `${t.text} is already caught by the catch part above it (catch ${earlier}).`);
+          }
+          seen.push(...catchTypes(c).map((t) => t.text));
+        }
+      }
+      for (const c of named(n)) visit(c);
+    };
+    visit(m.childForFieldName('body')!);
+  }
 }
 
 /** A compile-time constant: only literals and operators on them. */
@@ -543,6 +643,7 @@ interface Cell {
   t: JType;
   elem?: Prim;
   box?: boolean;
+  cls?: string;
   v: JVal | typeof UNSET;
 }
 
@@ -565,6 +666,8 @@ interface DeclType {
   elem?: Prim;
   /** Integer, Double...: a box that holds an object (or null), not a plain value */
   box?: boolean;
+  /** exception boxes: the class they hold (ArithmeticException, Exception...) */
+  cls?: string;
 }
 
 function primOf(text: string): Prim {
@@ -585,6 +688,7 @@ function declType(typeNode: Node | null, declarator?: Node | null): DeclType {
   }
   if (typeNode.text in WRAPPERS && typeNode.text !== 'String') return { t: WRAPPERS[typeNode.text], box: true };
   if (typeNode.text === 'Scanner') return { t: 'Scanner' };
+  if (typeNode.text in EXCEPTION_PARENT) return { t: 'exception', cls: typeNode.text };
   if (typeNode.text === 'void') return { t: 'void' };
   return { t: primOf(typeNode.text) };
 }
@@ -856,6 +960,9 @@ class Interp {
       case 'enhanced_for_statement':
         this.execLoop(s);
         return;
+      case 'try_statement':
+        this.execTry(s);
+        return;
       case ';':
         return;
     }
@@ -888,6 +995,13 @@ class Interp {
         this.rt.hooks.ret(lineOf(s), value.t === 'array' || value.t === 'list' ? (value.v as JVal[]) : value);
         throw new ReturnSignal(value);
       }
+      case 'throw_statement': {
+        const v = this.eval(named(s)[0]);
+        if (v.t === 'null') throw new JavaException('NullPointerException', 'Cannot throw a null exception');
+        if (v.t !== 'exception') throw new CompileError(lineOf(s), 'throw needs an exception, like throw new IllegalArgumentException("...").');
+        if (v.cls === undefined) throw new JavaException('NullPointerException', 'Cannot throw a null exception');
+        throw new JavaException(v.cls!, (v.v as string | null) ?? '', v);
+      }
       case 'break_statement':
         if (named(s).length) throw unsupported(s, 'labels');
         throw new BreakSignal();
@@ -919,6 +1033,58 @@ class Interp {
     } finally {
       this.scope = saved;
     }
+  }
+
+  /** try / catch / finally: a caught exception turns the line that failed into a catch step. */
+  private execTry(s: Node) {
+    const clauses = named(s).filter((c) => c.type === 'catch_clause');
+    const fin = named(named(s).find((c) => c.type === 'finally_clause'))[0];
+    const runFinally = () => {
+      if (fin) this.execBody(fin);
+    };
+    try {
+      try {
+        this.execBody(s.childForFieldName('body')!);
+      } catch (e) {
+        if (!(e instanceof JavaException)) throw e;
+        const clause = clauses.find((c) => catchTypes(c).some((t) => isA(e.javaType in EXCEPTION_PARENT ? e.javaType : 'RuntimeException', t.text)));
+        if (!clause) throw e;
+        const object = e.object();
+        this.rt.hooks.caught(
+          e.value
+            ? { k: 'catch', et: e.javaType, ...(object.v !== null ? { em: object.v as string } : {}), th: true }
+            : { k: 'catch', et: e.javaType },
+        );
+        const param = named(clause).find((c) => c.type === 'catch_formal_parameter')!;
+        const types = catchTypes(clause);
+        const saved = this.scope;
+        this.scope = new Scope(saved);
+        // catch (A | B e): e's box type is their closest shared parent.
+        let cls = types[0].text;
+        while (!types.every((t) => isA(t.text, cls))) cls = EXCEPTION_PARENT[cls]!;
+        this.scope.vars.set(param.childForFieldName('name')!.text, { t: 'exception', cls, v: object });
+        try {
+          this.execBody(clause.childForFieldName('body')!);
+        } finally {
+          this.scope = saved;
+        }
+      }
+    } catch (e) {
+      // A cap or a compile problem ends the run at once; anything else still runs the finally part.
+      if (fin && !(e instanceof StopRun) && !(e instanceof CompileError) && !(e instanceof RangeError)) {
+        const info: StepInfo =
+          e instanceof JavaException
+            ? { k: 'catch', et: e.javaType, fo: true, ...(e.value ? { th: true, ...(e.message ? { em: e.message } : {}) } : {}) }
+            : { k: 'other' };
+        if (e instanceof JavaException) {
+          const held = this.rt.hooks.holdCrash(e, info);
+          runFinally();
+          this.rt.hooks.resumeCrash(held);
+        } else runFinally();
+      }
+      throw e;
+    }
+    runFinally();
   }
 
   /** A statement inside if/else or a loop: blocks get their own scope. */
@@ -1027,6 +1193,9 @@ class Interp {
         if (s.type === 'for_statement') for (const u of s.childrenForFieldName('update')) if (u) this.eval(u);
         if (s.type === 'do_statement' && !this.condition(condNode!)) break;
       }
+    } catch (e) {
+      this.rt.hooks.dropLoop(line);
+      throw e;
     } finally {
       this.scope = outer;
     }
@@ -1094,6 +1263,13 @@ class Interp {
       }
       if (v.elem !== to.elem) {
         throw new CompileError(lineOf(at), `${name} holds ${WRAPPER_OF[to.elem!]} values, so it can't hold a list of ${WRAPPER_OF[v.elem!]} values.`);
+      }
+      return v;
+    }
+    if (t === 'exception') {
+      if (v.t === 'null') return { t: 'exception', v: null }; // no cls: the box is empty (null)
+      if (v.t !== 'exception' || !isA(v.cls!, to.cls!)) {
+        throw new CompileError(lineOf(at), `${name} is ${/^[AEIOU]/.test(to.cls!) ? 'an' : 'a'} ${to.cls} box, so it can't hold ${formatJava(v)}.`);
       }
       return v;
     }
@@ -1382,6 +1558,12 @@ class Interp {
       }
       case 'object_creation_expression': {
         const type = n.childForFieldName('type')!;
+        if (type.text in EXCEPTION_PARENT) {
+          const msgNode = named(n.childForFieldName('arguments'))[0];
+          const msg = msgNode ? this.eval(msgNode) : null;
+          if (msg && msg.t !== 'String' && msg.t !== 'null') throw new CompileError(lineOf(n), 'The message of an exception must be text.');
+          return { t: 'exception', v: msg ? (msg.v as string | null) : null, cls: type.text, id: freshId() };
+        }
         if (type.type !== 'generic_type') return { t: 'Scanner', v: null, id: freshId() };
         const arg = named(named(type)[1])[0];
         const list: JVal = { t: 'list', v: [], elem: arg ? WRAPPERS[arg.text] : undefined, id: freshId(), mod: 0 };
@@ -1490,6 +1672,12 @@ class Interp {
     if (target.t === 'list') {
       if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "List.${name}()" because the value is null`);
       return this.listMethod(n, target, name, argNodes, args());
+    }
+    if (target.t === 'exception') {
+      if (target.cls === undefined) throw new JavaException('NullPointerException', `Cannot invoke "${name}()" because the value is null`);
+      if (name === 'getMessage' && !argNodes.length) return target.v === null ? { t: 'String', v: null } : str(target.v as string);
+      if (name === 'toString' && !argNodes.length) return str(javaString(target));
+      throw unsupported(n, `the method ${name} on an exception`);
     }
     if (target.boxed && target.v !== null && argNodes.length <= 1) {
       // Integer objects: equals compares the value and the kind (an Integer 5 is not a Double 5.0).
@@ -1910,7 +2098,7 @@ export function runJava(tree: Tree, opts: RunOptions & { input?: string }): RawR
     if (e instanceof StopRun || (e instanceof RangeError && /call stack/i.test(e.message))) status = 'cap';
     else if (e instanceof JavaException) {
       status = 'runtime-error';
-      error = recordCrash(rt, e.javaType, e.message);
+      error = recordCrash(rt, e.javaType, e.message, e.value ? { errorType: e.javaType, ...(e.message ? { errorMessage: e.message } : {}) } : undefined);
     } else throw e;
   }
   return finishRun(rt, plan, status, error);

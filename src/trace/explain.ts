@@ -37,6 +37,7 @@ const ERROR_SENTENCES: Record<string, string> = {
   BadFormat: 'The printf pattern does not match this value.',
   IndexOutOfRange: 'This position is outside the list.',
   out_of_range: 'This position is outside the list.',
+  invalid_argument: 'This text is not a number.',
   Uninitialized: 'This box was used before it was given a value.',
   NoMoreInput: 'Your program asked for more input than you typed.',
   BadInput: 'The input was not the kind of value the program expected.',

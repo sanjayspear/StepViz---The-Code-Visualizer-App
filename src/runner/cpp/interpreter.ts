@@ -13,7 +13,11 @@
 // setprecision, boolalpha); cin >> and getline(cin, s); string length/size/[]/
 // substr/+; vector push_back/pop_back/size/empty/at/front/back/clear; swap, max,
 // min, abs, sqrt, pow, floor, ceil, round, sort(v.begin(), v.end()), to_string,
-// stoi, stod.
+// stoi, stod; try / catch (exception classes by reference or value, int, string,
+// const char*, ...), throw runtime_error("...") / throw 5 / throw "text" / throw;
+// <stdexcept>. Only real C++ exceptions can be caught: .at(), substr, stoi/stod and
+// the program's own throw (what() gives g++'s text); v[i] outside the list, / by
+// zero and unset variables stay crashes, as they are not exceptions in C++.
 //
 // C mode (dialect 'c'): <stdio.h> <stdlib.h> <math.h> <string.h> <stdbool.h>
 // <limits.h>; printf, puts, putchar, scanf (with &x), strlen, strcmp; text in
@@ -42,13 +46,33 @@ import {
 // Values
 
 type Prim = 'int' | 'long' | 'double' | 'bool' | 'char' | 'string';
-type CType = Prim | 'vector' | 'array' | 'void' | 'auto';
+type CType = Prim | 'vector' | 'array' | 'void' | 'auto' | 'exception';
 
-/** A C++ value. char values hold the character; lists hold their items. */
+/** A C++ value. char values hold the character; lists hold their items; an exception holds its what() text. */
 interface CVal {
   t: CType;
   v: number | boolean | string | CVal[] | null;
   elem?: Prim;
+  /** exception: its class (runtime_error, out_of_range...) */
+  cls?: string;
+}
+
+/** The standard exceptions StepViz knows, each with its parent class. */
+const EXCEPTION_PARENT: Record<string, string | null> = {
+  exception: null,
+  logic_error: 'exception',
+  invalid_argument: 'logic_error',
+  domain_error: 'logic_error',
+  length_error: 'logic_error',
+  out_of_range: 'logic_error',
+  runtime_error: 'exception',
+  range_error: 'runtime_error',
+  overflow_error: 'runtime_error',
+  underflow_error: 'runtime_error',
+};
+function isA(type: string, ancestor: string): boolean {
+  for (let t: string | null = type; t; t = EXCEPTION_PARENT[t] ?? null) if (t === ancestor) return true;
+  return false;
 }
 
 /** An item or variable that has no value yet. */
@@ -102,6 +126,8 @@ export function formatCpp(x: unknown): string | undefined {
       return x.v ? 'true' : 'false';
     case 'void':
       return 'nothing';
+    case 'exception':
+      return `${x.cls}: ${x.v}`;
     case 'vector':
     case 'array':
       if (x.elem === 'char') {
@@ -141,16 +167,22 @@ export class CompileError extends Error {
   }
 }
 
-/** A crash while running: ends with an error step. */
+/** A crash while running: ends with an error step, unless it is a real C++ exception that a catch part takes. */
 export class CppCrash extends Error {
   constructor(
     public kind: string,
     message: string,
+    /** A real C++ exception (out_of_range from .at(), or the program's own throw): what catch matches. */
+    public thrown?: { value: CVal; tag: string; byProgram: boolean },
   ) {
     super(message);
     this.name = kind;
   }
 }
+
+/** A standard exception thrown by the library itself (vector::at, stoi...), with the what() text g++ gives. */
+const libraryException = (cls: string, message: string, what: string) =>
+  new CppCrash(cls, message, { value: { t: 'exception', cls, v: what }, tag: cls, byProgram: false });
 
 class ReturnSignal {
   constructor(
@@ -206,8 +238,6 @@ const FEATURES: Record<string, string> = {
   template_declaration: 'templates',
   lambda_expression: 'lambdas',
   namespace_definition: 'namespaces',
-  try_statement: 'try/catch',
-  throw_statement: 'throw',
   goto_statement: 'goto',
   labeled_statement: 'labels',
   field_declaration_list: 'structs',
@@ -221,7 +251,9 @@ const FEATURES: Record<string, string> = {
   comma_expression: 'the comma operator',
 };
 
-const INCLUDES = new Set(['<iostream>', '<vector>', '<string>', '<cmath>', '<algorithm>', '<iomanip>', '<utility>', '<climits>', '<bits/stdc++.h>']);
+const INCLUDES = new Set([
+  '<iostream>', '<vector>', '<string>', '<cmath>', '<algorithm>', '<iomanip>', '<utility>', '<climits>', '<bits/stdc++.h>', '<stdexcept>', '<exception>',
+]);
 const C_INCLUDES = new Set(['<stdio.h>', '<stdlib.h>', '<math.h>', '<string.h>', '<stdbool.h>', '<limits.h>']);
 
 interface Program {
@@ -274,8 +306,10 @@ function checkSubset(tree: Tree): Program {
       n.childForFieldName('operator')?.type === '&' &&
       n.parent?.type === 'argument_list' &&
       n.parent.parent?.childForFieldName('function')?.text === 'scanf';
+    // catch (const char* message): the one pointer StepViz allows, for throw "text".
+    const catchText = n.type === 'pointer_declarator' && n.parent?.type === 'parameter_declaration' && n.parent.parent?.parent?.type === 'catch_clause';
     const feature = FEATURES[n.type];
-    if (feature && !scanfAddress) throw unsupported(n, feature);
+    if (feature && !scanfAddress && !catchText) throw unsupported(n, feature);
     if (dialect === 'c' && n.type === 'reference_declarator') throw unsupported(n, 'references (&)');
     if (n.type === 'unary_expression' && n.childForFieldName('operator')?.type === '&') throw unsupported(n, 'pointers');
     if (n.type === 'template_type') {
@@ -761,6 +795,9 @@ class Interp {
       case 'for_range_loop':
         this.execLoop(s);
         return;
+      case 'try_statement':
+        this.execTry(s);
+        return;
     }
     const swap = swapCall(s) ?? tempSwapInfo;
     const swapInfo: Swap = swap
@@ -792,6 +829,8 @@ class Interp {
         const value = e ? this.eval(e) : VOID;
         throw new ReturnSignal(value, lineOf(s));
       }
+      case 'throw_statement':
+        throw this.throwValue(s);
       case 'break_statement':
         throw new BreakSignal();
       case 'continue_statement':
@@ -838,6 +877,103 @@ class Interp {
       try {
         this.exec(n);
       } finally {
+        this.scope = saved;
+      }
+    }
+  }
+
+  /** The exceptions being handled (innermost last), for throw; inside a catch part. */
+  private handling: CppCrash[] = [];
+
+  /** throw runtime_error("..."), throw 5, throw "text", throw; (again, inside a catch part). */
+  private throwValue(s: Node): CppCrash {
+    const e = named(s)[0];
+    if (!e) {
+      const current = this.handling[this.handling.length - 1];
+      if (!current) throw unsupported(s, 'throw; outside a catch part');
+      return current;
+    }
+    const fn = e.type === 'call_expression' ? e.childForFieldName('function')!.text.replace(/^std::/, '') : '';
+    if (fn in EXCEPTION_PARENT) {
+      const args = named(e.childForFieldName('arguments'));
+      if (fn === 'exception' ? args.length !== 0 : args.length !== 1) {
+        throw new CompileError(lineOf(e), fn === 'exception' ? 'exception() takes no message.' : `${fn} needs a message, like ${fn}("...").`);
+      }
+      const msg = fn === 'exception' ? 'std::exception' : this.eval(args[0]);
+      if (typeof msg !== 'string' && msg.t !== 'string') throw new CompileError(lineOf(e), `The message of ${fn} must be text.`);
+      const what = typeof msg === 'string' ? msg : (msg.v as string);
+      return new CppCrash(fn, what, { value: { t: 'exception', cls: fn, v: what }, tag: fn, byProgram: true });
+    }
+    const v = this.eval(e);
+    if (v.t === 'vector' || v.t === 'array' || v.t === 'void') throw unsupported(s, 'throwing this kind of value');
+    // "text" in quotes is a const char* in C++ (catch (string s) does not catch it); a string variable is a string.
+    const tag = e.type === 'string_literal' || e.type === 'concatenated_string' ? 'const char*' : v.t === 'exception' ? v.cls! : v.t;
+    const text = formatCpp(v) ?? String(v.v);
+    return new CppCrash(tag, text, { value: v, tag, byProgram: true });
+  }
+
+  /** What one catch part takes: (...), an exception class (and the classes under it), or exactly one plain type. */
+  private catchTarget(clause: Node): { all: boolean; tag?: string; name?: string; byValue: boolean } {
+    const params = clause.childForFieldName('parameters')!;
+    const p = named(params)[0];
+    if (!p) return { all: /\.\.\./.test(params.text), byValue: false };
+    const typeNode = p.childForFieldName('type')!;
+    let decl = p.childForFieldName('declarator');
+    let pointer = false;
+    let byValue = true;
+    while (decl && decl.type !== 'identifier') {
+      if (decl.type === 'pointer_declarator') pointer = true;
+      if (decl.type === 'reference_declarator') byValue = false;
+      decl = decl.childForFieldName('declarator') ?? named(decl).find((c) => c.type !== 'type_qualifier') ?? null;
+    }
+    const name = decl?.text;
+    const typeText = typeNode.text.replace(/^std::/, '');
+    if (typeText in EXCEPTION_PARENT) return { all: false, tag: typeText, name, byValue };
+    if (pointer) {
+      if (typeText !== 'char') throw unsupported(p, 'pointers');
+      return { all: false, tag: 'const char*', name, byValue };
+    }
+    return { all: false, tag: primOf(typeNode), name, byValue };
+  }
+
+  /** try / catch: a C++ exception that a catch part takes turns the line that failed into a catch step. */
+  private execTry(s: Node) {
+    try {
+      this.execBody(s.childForFieldName('body')!);
+    } catch (e) {
+      if (!(e instanceof CppCrash) || !e.thrown) throw e;
+      const thrown = e.thrown;
+      const clause = named(s)
+        .filter((c) => c.type === 'catch_clause')
+        .find((c) => {
+          const t = this.catchTarget(c);
+          if (t.all) return true;
+          return thrown.value.t === 'exception' && t.tag! in EXCEPTION_PARENT ? isA(thrown.tag, t.tag!) : thrown.tag === t.tag;
+        });
+      if (!clause) throw e;
+      const isException = thrown.value.t === 'exception';
+      this.rt.hooks.caught(
+        !thrown.byProgram
+          ? { k: 'catch', et: e.kind }
+          : isException
+            ? { k: 'catch', th: true, et: thrown.tag, ...(thrown.tag !== 'exception' ? { em: thrown.value.v as string } : {}) }
+            : { k: 'catch', th: true, em: e.message },
+      );
+      const target = this.catchTarget(clause);
+      const saved = this.scope;
+      this.scope = new Scope(saved);
+      if (target.name) {
+        let value = thrown.value;
+        // catch (exception e) by value keeps only the exception part: what() says "std::exception".
+        if (isException && target.byValue && target.tag === 'exception' && thrown.tag !== 'exception') value = { t: 'exception', cls: 'exception', v: 'std::exception' };
+        const cell: Cell = isException ? { t: 'exception', v: value } : { t: value.t, elem: value.elem, v: this.copy(value) };
+        this.scope.vars.set(target.name, { cell });
+      }
+      this.handling.push(e);
+      try {
+        this.execBody(clause.childForFieldName('body')!);
+      } finally {
+        this.handling.pop();
         this.scope = saved;
       }
     }
@@ -980,6 +1116,9 @@ class Interp {
         }
         if (s.type === 'do_statement' && !this.truthy(this.eval(condNode!))) break;
       }
+    } catch (e) {
+      this.rt.hooks.dropLoop(line);
+      throw e;
     } finally {
       this.scope = outer;
     }
@@ -1228,7 +1367,13 @@ class Interp {
     const length = list.t === 'string' ? (list.v as string).length : list.t === 'vector' || list.t === 'array' ? (list.v as CVal[]).length : -1;
     if (length < 0) throw new CompileError(lineOf(n), `${n.childForFieldName('argument')!.text} is not a list.`);
     if (i < 0 || i >= length) {
-      throw new CppCrash(atCall ? 'out_of_range' : 'IndexOutOfRange', `position ${i} is outside a ${list.t === 'string' ? 'text' : 'list'} of length ${length}`);
+      const message = `position ${i} is outside a ${list.t === 'string' ? 'text' : 'list'} of length ${length}`;
+      // v.at(i) throws a real out_of_range (a catch part can take it); v[i] outside the list is not an exception in C++.
+      if (atCall) {
+        const what = list.t === 'string' ? `basic_string::at: __n (which is ${i}) >= this->size() (which is ${length})` : `vector::_M_range_check: __n (which is ${i}) >= this->size() (which is ${length})`;
+        throw libraryException('out_of_range', message, what);
+      }
+      throw new CppCrash('IndexOutOfRange', message);
     }
     return { list, index: i };
   }
@@ -1378,6 +1523,7 @@ class Interp {
       const method = f.childForFieldName('field')!.text;
       const obj = this.eval(objNode);
       if (obj.t === 'string') return this.stringMethod(n, obj, method, args());
+      if (obj.t === 'exception' && method === 'what' && !argNodes.length) return strv(obj.v as string);
       if (obj.t === 'vector') return this.vectorMethod(n, objNode, obj, method, argNodes);
       throw unsupported(n, `.${method}()`);
     }
@@ -1439,13 +1585,13 @@ class Interp {
       case 'stoi': {
         const s = args()[0];
         const m = /^\s*([+-]?\d+)/.exec(String(s.v));
-        if (!m) throw new CppCrash('BadInput', `"${s.v}" is not a whole number`);
+        if (!m) throw libraryException('invalid_argument', `"${s.v}" is not a whole number`, 'stoi');
         return int(Number(m[1]));
       }
       case 'stod': {
         const s = args()[0];
         const x = parseFloat(String(s.v));
-        if (Number.isNaN(x)) throw new CppCrash('BadInput', `"${s.v}" is not a number`);
+        if (Number.isNaN(x)) throw libraryException('invalid_argument', `"${s.v}" is not a number`, 'stod');
         return dbl(x);
       }
       case 'max':
@@ -1595,12 +1741,16 @@ class Interp {
     if (method === 'empty' && a.length === 0) return bool(text.length === 0);
     if (method === 'at' && a.length === 1) {
       const i = this.num(a[0]);
-      if (i < 0 || i >= text.length) throw new CppCrash('out_of_range', `position ${i} is outside a text of length ${text.length}`);
+      if (i < 0 || i >= text.length) {
+        throw libraryException('out_of_range', `position ${i} is outside a text of length ${text.length}`, `basic_string::at: __n (which is ${i}) >= this->size() (which is ${text.length})`);
+      }
       return chr(text[i]);
     }
     if (method === 'substr' && a.length >= 1) {
       const start = this.num(a[0]);
-      if (start > text.length) throw new CppCrash('out_of_range', `position ${start} is outside a text of length ${text.length}`);
+      if (start > text.length) {
+        throw libraryException('out_of_range', `position ${start} is outside a text of length ${text.length}`, `basic_string::substr: __pos (which is ${start}) > this->size() (which is ${text.length})`);
+      }
       return strv(a.length > 1 ? text.substr(start, this.num(a[1])) : text.slice(start));
     }
     throw unsupported(n, `string.${method}()`);
@@ -1630,7 +1780,9 @@ class Interp {
         return items[method === 'front' ? 0 : items.length - 1];
       case 'at': {
         const i = this.num(args()[0]);
-        if (i < 0 || i >= items.length) throw new CppCrash('out_of_range', `position ${i} is outside a list of length ${items.length}`);
+        if (i < 0 || i >= items.length) {
+          throw libraryException('out_of_range', `position ${i} is outside a list of length ${items.length}`, `vector::_M_range_check: __n (which is ${i}) >= this->size() (which is ${items.length})`);
+        }
         return items[i];
       }
     }
@@ -1680,7 +1832,13 @@ export function runCpp(tree: Tree, opts: RunOptions & { input?: string; dialect?
     if (e instanceof StopRun || (e instanceof RangeError && /call stack/i.test(e.message))) status = 'cap';
     else if (e instanceof CppCrash) {
       status = 'runtime-error';
-      error = recordCrash(rt, e.kind, e.message);
+      const by = e.thrown?.byProgram ? e.thrown : null;
+      error = recordCrash(
+        rt,
+        e.kind,
+        e.message,
+        by ? (by.value.t === 'exception' ? { errorType: by.tag, ...(by.tag !== 'exception' ? { errorMessage: e.message } : {}) } : { errorMessage: e.message }) : undefined,
+      );
     } else throw e;
   }
   return finishRun(rt, plan, status, error);

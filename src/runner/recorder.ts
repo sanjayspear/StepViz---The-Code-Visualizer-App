@@ -84,6 +84,13 @@ function classify(
     case 'swap':
       kind = info.k;
       break;
+    case 'catch':
+      kind = 'catch';
+      if (info.et) detail.errorType = info.et;
+      if (info.em) detail.errorMessage = info.em;
+      if (info.th) detail.thrown = true;
+      if (info.fo) detail.finallyOnly = true;
+      break;
     case 'switch': {
       kind = 'switch-case';
       if (info.c) detail.condition = info.c;
@@ -384,6 +391,39 @@ export class Recorder {
         this.hasCrash = true;
       }
     },
+    /** An error was caught in this frame: the line that failed becomes a catch step (recorded when the catch part starts). */
+    caught: (info: StepInfo) => {
+      const top = this.stack[this.stack.length - 1];
+      top.pendingInfo = info;
+      top.pendingReads = null;
+      top.raised = false;
+      this.crash = null;
+      this.hasCrash = false;
+    },
+    /** An error on its way out runs a finally part first: keep its crash step (where it happened) for later. */
+    holdCrash: (e: unknown, info: StepInfo) => {
+      this.hooks.thrown(e);
+      const held = { crash: this.crash, crashExc: this.crashExc };
+      const top = this.stack[this.stack.length - 1];
+      top.pendingInfo = info; // the line that failed: "... the finally part runs first"
+      top.pendingReads = null;
+      top.raised = false;
+      return held;
+    },
+    /** After that finally part: record its last line, then carry on with the held error. */
+    resumeCrash: (held: { crash: RawStep | null; crashExc: unknown }) => {
+      const top = this.stack[this.stack.length - 1];
+      this.recordPending(top, null);
+      top.pending = null;
+      top.raised = true;
+      this.crash = held.crash;
+      this.crashExc = held.crashExc;
+      this.hasCrash = true;
+    },
+    /** A loop left by an error: its next start is a first round again. */
+    dropLoop: (line: number) => {
+      this.stack[this.stack.length - 1].activeLoops.delete(line);
+    },
     leave: () => {
       const top = this.stack[this.stack.length - 1];
       try {
@@ -427,12 +467,19 @@ export function chooseListView(plan: ListPlan, steps: Recorder['steps']): ListVi
 }
 
 /** A crash: the error step (taken where it happened) ends the run. */
-export function recordCrash(rt: Recorder, type: string, message: string): NonNullable<RawRunResult['error']> {
+export function recordCrash(
+  rt: Recorder,
+  type: string,
+  message: string,
+  thrown?: { errorType?: string; errorMessage?: string },
+): NonNullable<RawRunResult['error']> {
   const crash = rt.crash;
   const error = { line: crash?.line ?? null, type, message };
   if (crash && rt.steps.length) {
     crash.output = rt.output;
     crash.error = { type, message };
+    // The program's own throw that nothing caught: the explainer names it.
+    if (thrown) crash.detail = { thrown: true, ...thrown };
     rt.steps.push(crash);
   }
   return error;

@@ -44,8 +44,11 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      step kind switch-case (detail.caseLabel, absent when nothing matched).
    - L1 (done): Java ArrayList / List (generics with Integer, Double, String...),
      autoboxing, Collections, more String methods, Character methods.
-   - Planned, not built: try/catch, simple classes; C++ structs and classes,
-     basic pointers, map.
+   - T1 (done): try/catch in Java (with finally, throw, throws) and C++ (throw of
+     exceptions and plain values, catch (...), throw;); new step kind catch.
+   - Planned, not built: the catch kind for Python and JavaScript (they still
+     record the failing line as an ordinary step), simple Java classes; C++
+     structs and classes, basic pointers, map.
 
 Phase 1 covers:
 
@@ -125,7 +128,7 @@ Playwright tests. Static build for GitHub Pages.
   only self + huggingface.co + *.hf.co.
 - Explainer rules: kinds are define, assign, input, print, branch-taken,
   branch-skipped, loop-start, loop-next, loop-end, call, return, swap,
-  switch-case, crash, other. switch: "day is 3, so the switch jumps to case 3.";
+  switch-case, catch, crash, other. switch: "day is 3, so the switch jumps to case 3.";
   empty cases join the next ("case 1 or 7"); "day is 4 and no case matches, so
   the default part runs." / "... so the whole switch is skipped."
   "b stays 1" when a value does not change; lists of more than 6 items and text over
@@ -199,6 +202,27 @@ Playwright tests. Static build for GitHub Pages.
   fixed Arrays.sort). String methods that change nothing return the same object
   (== shows it). Temp-variable swaps with get/set and Collections.swap are one
   swap step.
+- try/catch rules (T1): the line that failed (or threw) is a catch step, shown
+  after the error (frames already unwound), then the catch part's steps. Texts:
+  "Java can't divide a whole number by zero. Instead of stopping, the program jumps
+  to the catch part." / "The program throws an IllegalArgumentException with the
+  message "...", and the catch part takes over." / C++ "The program throws the value
+  7, ...". Not caught: "The program throws ..., and no catch part takes it, so the
+  program stops."; with only a finally part: "... Nothing catches it here, so the
+  finally part runs first." (the crash step stays on the line that failed). "In
+  real life" lines: safety net / backup plan (catch), raising your hand / alarm
+  cord (throw). Java follows its compiler: "Java needs this Exception to be
+  handled: put this line inside a try/catch, or add throws Exception after the
+  method name and brackets."; "ArithmeticException is already caught by the catch
+  part above it (catch Exception)."; println(e) prints java.lang.X: message; frames
+  show e as "ArithmeticException: / by zero". C++ follows real C++: only real
+  exceptions can be caught (.at() and substr: out_of_range with g++'s what() text;
+  stoi/stod: invalid_argument "stoi", crash sentence "This text is not a number.");
+  v[i] outside the list, / by zero and unset variables are not exceptions and still
+  stop; catch matching has no conversions (throw 1 is not caught by long; "text"
+  is a const char*, not caught by string); catch (exception e) by value gives
+  what() "std::exception". Unsupported: Java try-with-resources, exceptions with a
+  cause, printStackTrace; C++ custom exception classes, throw; outside a catch.
 - List changes read item by item in every language: "nums[0] changes from 5 to 2.",
   "3 is added to the end of squares.", "4 is taken off the end of squares.",
   "7 is put in at position 1 of xs.", "1 is taken out of xs at position 0.",
@@ -233,14 +257,15 @@ Paused on 2026-11-25.
 - C1 + C2: C++ interpreter (functions, references, globals, vector, cin/cout, crashes, four examples).
 - C3: C mode of the C++ interpreter (printf/scanf, char arrays, four examples). All 5 languages are exact traces; no "coming soon" left.
 - S1: switch in Java, C++, C and JavaScript (new step kind switch-case).
-- L1 (2026-11-25): Java ArrayList + Collections + more String/Character methods (tests in `tests/arraylist-java.spec.ts`; 143 tests pass).
+- L1 (2026-11-25): Java ArrayList + Collections + more String/Character methods (tests in `tests/arraylist-java.spec.ts`).
+- T1 (2026-11-25): try/catch in Java and C++, step kind catch (tests in `tests/trycatch-java.spec.ts`, `tests/trycatch-cpp.spec.ts`; 156 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.
 - `wip/ai-explanations`: the older paused in-browser AI (WebLLM + Qwen). Superseded by `wip/llama-ai`; keep for reference only.
 
 ### Next step
-Continue the later stages in order: (1) Java ArrayList + more String methods (done, L1), (2) try/catch in Java and C++, (3) simple Java classes, (4) C++ structs/classes, basic pointers, map. Stages 3 and 4 need a new way to show objects/pointers/maps: ask about layout and wording first.
+Continue the later stages in order: (1) Java ArrayList + more String methods (done, L1), (2) try/catch in Java and C++ (done, T1); next: the catch kind for Python and JavaScript (small, keeps all languages alike), then (3) simple Java classes, (4) C++ structs/classes, basic pointers, map. Stages 3 and 4 need a new way to show objects/pointers/maps: ask about layout and wording first.
 
 ### Decisions to remember
 - The PDF is the source of truth; ask before adding anything not in it. Work in stages, commit each, push only when asked.
@@ -256,5 +281,5 @@ Continue the later stages in order: (1) Java ArrayList + more String methods (do
 - AI branch only: open Ollama (installed in /Applications, Llama 3.2 3B downloaded); nothing else needed on localhost.
 
 ### What the product owner still owes
-- Review of C3 and S1 (both live on the site), and L1 (not pushed).
-- Go-ahead for the next stage (try/catch in Java and C++).
+- Review of C3 and S1 (both live on the site), and L1 + T1 (not pushed).
+- Go-ahead for the next stage (catch kind for Python and JavaScript, then simple Java classes, which needs a layout for objects).

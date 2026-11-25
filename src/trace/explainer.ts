@@ -39,10 +39,26 @@ type SubKind =
   | 'switch-case'
   | 'switch-default'
   | 'switch-none'
+  | 'catch'
+  | 'catch-throw'
   | 'other';
 
 /** Everyday comparisons, each tagged with the sub-kind it fits. */
 const LIFE: Record<SubKind, string[]> = {
+  catch: [
+    'Like a safety net catching an acrobat who slips.',
+    'Like a backup plan kicking in when the first plan fails.',
+    'Like a goalkeeper stopping the ball before it goes in.',
+    'Like a spare tyre that gets you home after a flat.',
+    'Like a lifeguard stepping in before things go wrong.',
+  ],
+  'catch-throw': [
+    'Like raising your hand to say "something is wrong here", and the teacher comes over.',
+    'Like pulling the alarm cord, and the guard takes over.',
+    'Like passing a problem up to a manager who knows what to do.',
+    'Like throwing a ball and a teammate catching it.',
+    'Like sending a warning flare that someone sees and answers.',
+  ],
   define: [
     'Like writing a recipe on a card to use later.',
     'Like saving a phone number before you need to call it.',
@@ -530,6 +546,12 @@ export function explainTrace(trace: Trace): TraceStep['explain'][] {
 
   return trace.steps.map((step, i) => {
     if (step.kind === 'crash' || step.error) {
+      const d = step.detail;
+      if (d?.thrown) {
+        const type = d.errorType;
+        const what = type ? `${/^[aeiou]/i.test(type) ? 'an' : 'a'} ${type}${d.errorMessage ? ` with the message "${d.errorMessage}"` : ''}` : `the value ${d.errorMessage ?? ''}`;
+        return { what: `The program throws ${what}, and no catch part takes it, so the program stops.`, life: '' };
+      }
       return { what: errorSentence(step.error?.type ?? '', lang), life: '' };
     }
     const f: Facts = { step, prev: trace.steps[i - 1], top: step.frames[step.frames.length - 1], words };
@@ -548,6 +570,25 @@ export function explainTrace(trace: Trace): TraceStep['explain'][] {
       const label = step.detail?.caseLabel;
       sub = !label ? 'switch-none' : label === 'default' ? 'switch-default' : 'switch-case';
       variants = whatVariants(sub, f);
+    } else if (kind === 'catch') {
+      const d = step.detail ?? {};
+      const type = d.errorType;
+      if (d.thrown) {
+        // A thrown exception has a type (and maybe a message); C++ can also throw a plain value (throw 5;).
+        sub = 'catch-throw';
+        const a = type && /^[aeiou]/i.test(type) ? 'an' : 'a';
+        const what = type ? `${a} ${type}${d.errorMessage ? ` with the message "${d.errorMessage}"` : ''}` : `the value ${d.errorMessage ?? ''}`;
+        variants = d.finallyOnly
+          ? [`The program throws ${what}. Nothing catches it here, so the finally part runs first.`]
+          : [`The program throws ${what}, and the catch part takes over.`, `This line throws ${what}. Instead of stopping, the program jumps to the catch part.`];
+      } else if (d.finallyOnly) {
+        sub = 'catch';
+        variants = [`${errorSentence(type ?? '', lang)} Nothing catches it here, so the finally part runs first.`];
+      } else {
+        sub = 'catch';
+        const problem = errorSentence(type ?? '', lang);
+        variants = [`${problem} Instead of stopping, the program jumps to the catch part.`, `${problem} The catch part takes over, so the program does not stop.`];
+      }
     } else if (kind === 'branch-skipped') {
       sub = step.detail?.toElse ? 'branch-else' : 'branch-skipped';
       variants = whatVariants(sub, f);

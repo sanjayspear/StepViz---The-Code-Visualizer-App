@@ -96,6 +96,7 @@ export type StepKind =
   | 'return' // a function returns
   | 'swap' // two list items are about to swap
   | 'switch-case' // a switch jumps to a case (or, with no caseLabel, skips: nothing matched)
+  | 'catch' // this line failed (or threw), and a catch part takes over instead of a crash
   | 'crash' // the program stopped with an error
   | 'other';
 
@@ -112,4 +113,12 @@ export interface StepDetail {
   simultaneous?: boolean;
   /** the case a switch jumped to ("3", "1 or 2", "default"); absent when nothing matched */
   caseLabel?: string;
+  /** catch: the error's type ("ArithmeticException", "runtime_error", "int") */
+  errorType?: string;
+  /** catch: its message ("/ by zero"), or the thrown value when it is not an exception */
+  errorMessage?: string;
+  /** catch: the program threw it itself (a throw statement), rather than an operation failing */
+  thrown?: boolean;
+  /** catch: no catch part takes it here; only a finally part runs before the error goes on */
+  finallyOnly?: boolean;
 }
