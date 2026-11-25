@@ -1,0 +1,76 @@
+/* Design tokens: StepViz_Build_Spec.pdf, section 5. Use these values exactly. */
+:root {
+  /* Colors */
+  --color-page-bg: #f6f5f1;          /* Page background */
+  --color-surface: #ffffff;          /* Cards, top bar */
+  --color-border: #e3e1d8;           /* Card borders, dividers */
+  --color-border-strong: #c9c7bc;    /* Strong borders, waiting border */
+  --color-text: #16161d;             /* Main text */
+  --color-text-muted: #55555f;       /* Muted text */
+  --color-accent: #4338ca;           /* Accent: primary button, running */
+  --color-accent-dark: #2e25a0;      /* Accent dark: text on soft accent */
+  --color-accent-soft: #ecebff;      /* Accent soft: running bg, chips */
+  --color-code-bg: #17172b;          /* Code panel */
+  --color-code-card: #26264a;        /* Output and variable cards */
+  --color-code-text: #e8e8f4;        /* Code text */
+  --color-code-muted: #9a9ab8;       /* Line numbers, muted on code */
+  --color-active-line: #34347a;      /* Active line background */
+  --color-highlight: #ffd84d;        /* Active line bar, compared items */
+  --color-success-bg: #ddf3ee;       /* Success bg (returning, Play) */
+  --color-success-text: #0f5f55;     /* Success text */
+  --color-success-border: #0f766e;   /* Success border */
+  --color-warning-bg: #fff3bf;       /* Warning bg (beta pill) */
+  --color-warning-text: #6b4f00;     /* Warning text */
+  --color-compare-border: #7a5b00;   /* Compare border */
+  --color-life-bg: #fff8dc;          /* Real-life box bg */
+  --color-life-border: #e8d48a;      /* Real-life box border */
+  --color-life-text: #3b3000;        /* Real-life text */
+  --color-waiting-bg: #f2f1ec;       /* Waiting frame bg */
+
+  /* Fonts */
+  --font-heading: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* Type sizes */
+  --text-h1-home: 52px;
+  --text-h1-home-phone: 34px;
+  --text-h1-info: 44px;
+  --text-section-title: 24px;
+  --text-card-title: 20px;
+  --line-height-body: 1.5;
+  --line-height-code: 1.7;
+
+  /* Radius */
+  --radius-card: 18px;     /* cards 14-18 */
+  --radius-card-sm: 14px;
+  --radius-code-panel: 16px;
+  --radius-button: 10px;   /* buttons 10-12 */
+  --radius-button-lg: 12px;
+  --radius-pill: 22px;     /* pills 20-22 */
+  --radius-frame: 12px;
+
+  /* Spacing */
+  --page-padding: 44px;    /* 40-48 */
+  --gap-sm: 14px;          /* gaps 14-28 */
+  --gap-md: 20px;
+  --gap-lg: 28px;
+  --content-max: 1200px;   /* 1200-1240 */
+
+  /* Buttons */
+  --button-min-height: 44px;
+  --button-main-height: 48px;   /* main action 48-56 */
+  --button-hero-height: 56px;
+  --focus-ring: 2px solid var(--color-accent);
+
+  /* Motion (150-250 ms) */
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --motion-slow: 250ms;
+}
+
+@media (max-width: 899px) {
+  :root {
+    --page-padding: 16px;
+  }
+}
