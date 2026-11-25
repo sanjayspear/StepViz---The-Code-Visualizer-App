@@ -977,3 +977,106 @@
     border-radius: var(--radius-button-lg);
   }
 }
+
+/* AI explanations (Phase 2, stage i) -------------------------------------- */
+
+.ai-panel {
+  margin-top: 12px;
+}
+
+.ai-panel--note {
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-button-lg);
+  background: var(--color-waiting-bg);
+}
+
+.ai-panel__note {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.ai-panel__credit {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.ai-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.ai-panel__message {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.ai-btn {
+  min-height: var(--button-min-height);
+  padding: 0 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-button);
+  background: var(--color-surface);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.ai-btn:disabled {
+  opacity: 0.4;
+}
+
+.ai-btn--primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-surface);
+}
+
+.ai-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.ai-progress {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.ai-progress__fill {
+  height: 100%;
+  background: var(--color-accent);
+}
+
+.ai-tag {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  vertical-align: 1px;
+}
+
+.menu-item {
+  min-height: var(--button-min-height);
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-button);
+  background: var(--color-surface);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+}

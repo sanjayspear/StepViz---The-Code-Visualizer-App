@@ -1,6 +1,6 @@
 // Screen 2: Step-through (spec section 3), and its phone layout, Screen 4
 // (spec section 5), below 900 px wide. Reads only the Trace JSON.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from '../../components/Icon';
 import { ComingSoonButton } from '../../components/ComingSoon';
 import { usePlayback } from '../../hooks/usePlayback';
@@ -9,6 +9,7 @@ import { PHONE_QUERY, useMediaQuery } from '../../hooks/useMediaQuery';
 import type { Trace, TraceFrame } from '../../trace/types';
 import { rawErrorText } from '../../trace/explain';
 import { ListPanel, LoopVarCards, passStarts } from './ListPanel';
+import { AiPanel, useAi } from './AiPanel';
 import './StepScreen.css';
 
 interface Props {
@@ -62,10 +63,21 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
   const lines = trace.source.split('\n');
   const output = step.output.replace(/\n$/, '');
   const errorText = step.error ? rawErrorText(step.error) : '';
-  const showLife = beginner && step.explain.life !== '';
+  // An AI explanation replaces the generic text once it has passed the accuracy guard.
+  const ai = useAi();
+  const aiText = ai.explanationFor(trace, pb.index);
+  const aiDone = aiText?.state === 'done' ? aiText : null;
+  const what = aiDone ? aiDone.what : step.explain.what;
+  const life = aiDone ? aiDone.life : step.explain.life;
+  const showLife = beginner && life !== '';
   const stepLabel = `Step ${pb.index + 1} of ${total}`;
   const kickerLabel = step.explain.label ?? stepLabel;
   const progress = total > 0 ? ((pb.index + 1) / total) * 100 : 0;
+
+  // With AI on, explain the step being viewed (and prepare the next ones).
+  useEffect(() => {
+    ai.request(trace, pb.index);
+  }, [ai, trace, pb.index, ai.status.kind]);
 
   // Move focus to the title when the screen opens (screen reader context).
   useEffect(() => {
@@ -125,6 +137,35 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
       {beginner ? 'Beginner mode: on' : 'Beginner mode: off'}
     </button>
   );
+  /** The ⋮ menu; every layout has it, with "Remove downloaded AI model" last. */
+  const menu = (items: ReactNode) => (
+    <div className="topbar-menu" ref={menuRef}>
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label="Menu"
+        aria-expanded={menuOpen}
+        aria-controls="step-menu"
+        onClick={() => setMenuOpen((o) => !o)}
+      >
+        <Icon name="more" size={22} />
+      </button>
+      {menuOpen && (
+        <div className="topbar-menu__panel" id="step-menu">
+          {items}
+          <button type="button" className="menu-item" onClick={() => void ai.removeModel()}>
+            Remove downloaded AI model
+          </button>
+          {ai.menuMessage && (
+            <p className="topbar-menu__note" role="status">
+              {ai.menuMessage}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   const badge = (
     <span className="step-badge">{trace.language === 'javascript' ? 'JavaScript' : 'Python'} · exact trace</span>
   );
@@ -153,52 +194,25 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
               <ComingSoonButton className="icon-btn" aria-label="Share link" align="end">
                 <Icon name="share" size={22} />
               </ComingSoonButton>
-              <div className="topbar-menu" ref={menuRef}>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label="Menu"
-                  aria-expanded={menuOpen}
-                  aria-controls="step-menu"
-                  onClick={() => setMenuOpen((o) => !o)}
-                >
-                  <Icon name="more" size={22} />
-                </button>
-                {menuOpen && (
-                  <div className="topbar-menu__panel" id="step-menu">
-                    {badge}
-                    {listView && <p className="topbar-menu__note">{listView.note ?? 'Loops view'}</p>}
-                    {beginnerButton}
-                  </div>
-                )}
-              </div>
+              {menu(
+                <>
+                  {badge}
+                  {listView && <p className="topbar-menu__note">{listView.note ?? 'Loops view'}</p>}
+                  {beginnerButton}
+                </>,
+              )}
             </>
           ) : listView ? (
             <>
               <p className="step-topbar__note">{listView.note ?? 'Loops view'}</p>
               <ComingSoonButton className="outline-btn">Share link</ComingSoonButton>
-              <div className="topbar-menu" ref={menuRef}>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label="Menu"
-                  aria-expanded={menuOpen}
-                  aria-controls="step-menu"
-                  onClick={() => setMenuOpen((o) => !o)}
-                >
-                  <Icon name="more" size={22} />
-                </button>
-                {menuOpen && (
-                  <div className="topbar-menu__panel" id="step-menu">
-                    {beginnerButton}
-                  </div>
-                )}
-              </div>
+              {menu(beginnerButton)}
             </>
           ) : (
             <>
               <ComingSoonButton className="outline-btn">Share link</ComingSoonButton>
               {beginnerButton}
+              {menu(null)}
             </>
           )}
         </div>
@@ -282,18 +296,22 @@ export function StepScreen({ trace, title, onNewCode }: Props) {
 
         <section className={`explain-card${showLife ? '' : ' explain-card--single'}`} aria-live="polite">
           <div>
-            <p className="explain-card__kicker">{phone ? kickerLabel : `What is happening · ${kickerLabel}`}</p>
-            <p className="explain-card__what">{step.explain.what}</p>
+            <p className="explain-card__kicker">
+              {phone ? kickerLabel : `What is happening · ${kickerLabel}`}
+              {aiDone && <span className="ai-tag">AI-explained (beta)</span>}
+            </p>
+            <p className="explain-card__what">{what}</p>
+            <AiPanel trace={trace} index={pb.index} />
           </div>
           {showLife &&
             (phone ? (
               <p className="life-box life-box__text">
-                <strong>In real life:</strong> {lowerFirst(step.explain.life)}
+                <strong>In real life:</strong> {lowerFirst(life)}
               </p>
             ) : (
               <div className="life-box">
                 <p className="life-box__kicker">In real life</p>
-                <p className="life-box__text">{step.explain.life}</p>
+                <p className="life-box__text">{life}</p>
               </div>
             ))}
         </section>
