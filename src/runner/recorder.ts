@@ -363,11 +363,12 @@ export class Recorder {
       const { kind, detail } = classify(info, line, null, top.activeLoops);
       this.record(line, { kind, detail });
     },
-    enter: (name: string, namesId: number, getters: Getter[]) => {
+    /** `hidden`: how many of the first values are left out of the label (Java's this). */
+    enter: (name: string, namesId: number, getters: Getter[], hidden = 0) => {
       this.checkTime();
       if (this.stack.length >= MAX_DEPTH) throw new StopRun('depth');
       const caller = this.stack[this.stack.length - 1];
-      const values = getters.map((g) => {
+      const values = getters.slice(hidden).map((g) => {
         try {
           // The call label shows plain values: "addOne(5)", not "addOne(5 (same box as x))".
           return this.fmt(g()).replace(/ \(same box as [^)]*\)$/, '');

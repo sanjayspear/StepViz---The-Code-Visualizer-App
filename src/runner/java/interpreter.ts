@@ -28,6 +28,13 @@
 // getMessage(); Java's compile rules (Exception must be caught or declared; a
 // catch can't follow one that already covers it). A caught error turns the line
 // that failed into a "catch" step.
+// K1: simple classes next to Main (class Dog { }) or inside it (static class):
+// fields (with starting values), constructors (several, chosen by their values),
+// methods (on an object, or static), this, private (checked like Java), toString()
+// for printing, == / default equals compare objects, objects in arrays and lists,
+// null objects (NullPointerException). Frames show objects as Dog {name: "Rex",
+// age: 3}; a constructor runs in a "new Dog(...)" frame with this first.
+// Not yet: inheritance, interfaces, static variables, inner classes, Object.
 import type { Node, Tree } from 'web-tree-sitter';
 import type { RawRunResult } from '../protocol';
 import { Input } from '../input';
@@ -48,7 +55,13 @@ import {
 // Values
 
 type Prim = 'int' | 'long' | 'double' | 'boolean' | 'char' | 'String';
-export type JType = Prim | 'null' | 'void' | 'array' | 'list' | 'Scanner' | 'exception';
+export type JType = Prim | 'null' | 'void' | 'array' | 'list' | 'Scanner' | 'exception' | 'object';
+
+/** An object of one of the program's classes: its class name and its fields. */
+export interface JObject {
+  cls: string;
+  fields: Map<string, { t: JType; elem?: Prim; box?: boolean; cls?: string; v: JVal | symbol }>;
+}
 
 /** The exceptions StepViz knows, each with its parent (catch (RuntimeException e) also catches an ArithmeticException). */
 const EXCEPTION_PARENT: Record<string, string | null> = {
@@ -97,13 +110,36 @@ const WRAPPER_OF: Record<Prim, string> = { int: 'Integer', long: 'Long', double:
  */
 export interface JVal {
   t: JType;
-  v: number | boolean | string | null | JVal[];
+  v: number | boolean | string | null | JVal[] | JObject;
   elem?: Prim;
   id?: string | number;
   boxed?: boolean;
   mod?: number;
-  /** exception: its class (v is the message, or null) */
+  /** exception: its class (v is the message, or null); object: its class (v is the object, or null) */
   cls?: string;
+}
+
+/** Arrays and lists of the program's objects keep the class name as their item type (Dog[]: elem 'Dog'). */
+const isClassItem = (elem: Prim | undefined): boolean => !!elem && classNames.has(elem);
+/** The name of an item type, for messages: Integer, Double, Dog... */
+const typeName = (elem: Prim | undefined) => (elem ? WRAPPER_OF[elem] ?? elem : 'Integer');
+/** println(dog): the program's own toString() if it has one (set by the interpreter for each run). */
+let objectToText: (v: JVal) => string = (v) => defaultObjectText(v);
+function defaultObjectText(v: JVal): string {
+  const hash = (0x1b6d3586 + Number(v.id ?? 0) * 0x9e37) >>> 0;
+  return `${v.cls}@${hash.toString(16)}`;
+}
+/** How an object shows in a frame: Dog {name: "Rex", age: 3} (an object inside it: Node {…}). */
+function objectFrameText(x: JVal, depth: number): string {
+  if (x.v === null) return 'null';
+  const o = x.v as JObject;
+  if (depth > 0) return `${o.cls} {…}`;
+  const parts = [...o.fields].map(([k, c]) => {
+    const v = c.v;
+    if (typeof v === 'symbol') return `${k}: ?`;
+    return `${k}: ${v.t === 'object' ? objectFrameText(v, depth + 1) : formatJava(v)}`;
+  });
+  return `${o.cls} {${parts.join(', ')}}`;
 }
 
 const isJVal = (x: unknown): x is JVal => typeof x === 'object' && x !== null && !Array.isArray(x) && 't' in x && 'v' in x;
@@ -126,7 +162,7 @@ export function javaDouble(x: number): string {
   return Number.isInteger(x) ? x.toFixed(1) : String(x);
 }
 
-const ARRAY_CODE: Record<Prim, string> = { int: 'I', long: 'J', double: 'D', boolean: 'Z', char: 'C', String: 'Ljava.lang.String;' };
+const ARRAY_CODE: Record<string, string> = { int: 'I', long: 'J', double: 'D', boolean: 'Z', char: 'C', String: 'Ljava.lang.String;' };
 
 /** String.valueOf: how a value prints or joins a string. */
 export function javaString(val: JVal): string {
@@ -140,12 +176,14 @@ export function javaString(val: JVal): string {
     case 'array': {
       // Printing an array shows its type and an id, like Java ([I@1b6d3586).
       const hash = (0x1b6d3586 + Number(val.id ?? 0) * 0x9e37) >>> 0;
-      return `[${ARRAY_CODE[val.elem ?? 'int']}@${hash.toString(16)}`;
+      return `[${ARRAY_CODE[val.elem ?? 'int'] ?? `L${val.elem};`}@${hash.toString(16)}`;
     }
     case 'list':
       return arrayText(val);
     case 'Scanner':
       return 'java.util.Scanner';
+    case 'object':
+      return val.v === null ? 'null' : objectToText(val);
     case 'exception':
       if (val.cls === undefined) return 'null';
       return `${JAVA_UTIL.has(val.cls!) ? 'java.util' : 'java.lang'}.${val.cls}${val.v === null ? '' : `: ${val.v}`}`;
@@ -174,6 +212,7 @@ export function formatJava(x: unknown): string | undefined {
   if (x.t === 'void') return 'nothing';
   if (x.t === 'array' || x.t === 'list') return formatJava(x.v);
   if (x.t === 'Scanner') return 'Scanner';
+  if (x.t === 'object') return objectFrameText(x, 0);
   if (x.t === 'exception') return x.cls === undefined ? 'null' : x.v === null ? x.cls : `${x.cls}: ${x.v}`;
   return javaString(x);
 }
@@ -186,7 +225,7 @@ const VOID: JVal = { t: 'void', v: null };
 
 /** Autoboxing: an int becomes an Integer object. Small values share one object, like Java's cache. */
 function box(v: JVal): JVal {
-  if (v.boxed || v.t === 'String' || v.t === 'null') return v;
+  if (v.boxed || !['int', 'long', 'double', 'boolean', 'char'].includes(v.t)) return v;
   const n = v.t === 'char' ? (v.v as string).charCodeAt(0) : (v.v as number);
   const cached =
     v.t === 'boolean' || ((v.t === 'int' || v.t === 'long') && n >= -128 && n <= 127) || (v.t === 'char' && n <= 127);
@@ -204,6 +243,7 @@ const NULL: JVal = { t: 'null', v: null };
 
 /** Default value of a new array element. */
 function zeroOf(t: Prim): JVal {
+  if (classNames.has(t)) return { t: 'object', cls: t, v: null };
   if (t === 'double') return dbl(0);
   if (t === 'boolean') return bool(false);
   if (t === 'char') return { t: 'char', v: '\u0000' };
@@ -294,15 +334,15 @@ const FEATURES: Record<string, string> = {
   try_with_resources_statement: 'try with resources',
   lambda_expression: 'lambdas',
   method_reference: 'method references',
-  this: 'this',
   super: 'super',
+  explicit_constructor_invocation: 'this(...) and super(...)',
   instanceof_expression: 'instanceof',
   labeled_statement: 'labels',
   synchronized_statement: 'synchronized',
   assert_statement: 'assert',
   yield_statement: 'yield',
   local_class_declaration: 'classes inside methods',
-  class_declaration: 'classes other than Main',
+  class_declaration: 'classes inside methods',
 };
 
 const IMPORTS = new Set([
@@ -330,10 +370,27 @@ function checkGeneric(n: Node) {
     const w = arg.text === 'char' ? 'Character' : arg.text === 'int' ? 'Integer' : arg.text.charAt(0).toUpperCase() + arg.text.slice(1);
     throw new CompileError(lineOf(n), `An ${base.text} holds objects, not ${arg.text} values: write ${base.text}<${w}>.`);
   }
-  if (!(arg.text in WRAPPERS)) throw unsupported(n, `the type ${n.text}`);
+  if (!(arg.text in WRAPPERS) && !classNames.has(arg.text)) throw unsupported(n, `the type ${n.text}`);
 }
 
-function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node> } {
+/** A class of the program: Main, or a class of its own (class Dog { ... }). */
+export interface ClassInfo {
+  name: string;
+  node: Node;
+  fields: { name: string; type: DeclType; init: Node | null; declarator: Node; isPrivate: boolean }[];
+  constructors: Node[];
+  methods: Map<string, Node>;
+}
+
+const isStaticMember = (m: Node) => /\bstatic\b/.test(m.namedChildren.find((c) => c?.type === 'modifiers')?.text ?? '');
+const isPrivateMember = (m: Node) => /\bprivate\b/.test(m.namedChildren.find((c) => c?.type === 'modifiers')?.text ?? '');
+
+/** The program's own class names (set by checkSubset, for types like Dog and Dog[]). */
+let classNames = new Set<string>();
+/** Names a class of the program can't take, because StepViz already gives them a meaning. */
+const TAKEN_NAMES = new Set([...ALLOWED_TYPES, 'Math', 'System', 'Arrays', 'Collections', 'Object', 'Main']);
+
+function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; classes: Map<string, ClassInfo> } {
   const root = tree.rootNode;
   const top = named(root);
   for (const n of top) {
@@ -344,22 +401,66 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node> } {
     }
     if (n.type !== 'class_declaration') throw unsupported(n, FEATURES[n.type] ?? n.type.replace(/_/g, ' '));
   }
-  const classes = top.filter((n) => n.type === 'class_declaration');
+  const topClasses = top.filter((n) => n.type === 'class_declaration');
   const NEED_MAIN = 'StepViz needs a public class Main with a main method.';
-  const mainClass = classes.find((c) => c.childForFieldName('name')?.text === 'Main');
-  if (!mainClass) throw new CompileError(classes[0] ? lineOf(classes[0]) : 1, NEED_MAIN);
-  const other = classes.find((c) => c !== mainClass);
-  if (other) throw unsupported(other, 'classes other than Main');
-
-  const methods = new Map<string, Node>();
-  for (const member of named(mainClass.childForFieldName('body'))) {
-    if (member.type !== 'method_declaration') throw unsupported(member, FEATURES[member.type] ?? member.type.replace(/_/g, ' '));
-    const modifiers = member.namedChildren.find((c) => c?.type === 'modifiers')?.text ?? '';
-    if (!/\bstatic\b/.test(modifiers)) throw unsupported(member, 'methods that are not static');
-    const name = member.childForFieldName('name')!.text;
-    if (methods.has(name)) throw unsupported(member, 'two methods with the same name');
-    methods.set(name, member);
+  const mainClass = topClasses.find((c) => c.childForFieldName('name')?.text === 'Main');
+  if (!mainClass) throw new CompileError(topClasses[0] ? lineOf(topClasses[0]) : 1, NEED_MAIN);
+  const modifiersOf = (c: Node) => c.namedChildren.find((x) => x?.type === 'modifiers')?.text ?? '';
+  // Other classes: next to Main (class Dog { }), or inside it as static class Dog { }.
+  const others: Node[] = [];
+  for (const c of topClasses) {
+    if (c === mainClass) continue;
+    if (/\bpublic\b/.test(modifiersOf(c))) {
+      throw new CompileError(lineOf(c), `Only one class in a file can be public: remove public from class ${c.childForFieldName('name')!.text}.`);
+    }
+    others.push(c);
   }
+  for (const member of named(mainClass.childForFieldName('body'))) {
+    if (member.type !== 'class_declaration') continue;
+    if (!/\bstatic\b/.test(modifiersOf(member))) throw unsupported(member, 'inner classes (write static class instead)');
+    others.push(member);
+  }
+  classNames = new Set(others.map((c) => c.childForFieldName('name')!.text));
+
+  const classes = new Map<string, ClassInfo>();
+  for (const c of [mainClass, ...others]) {
+    const name = c.childForFieldName('name')!.text;
+    if (c !== mainClass && TAKEN_NAMES.has(name)) throw unsupported(c, `a class called ${name}`);
+    if (classes.has(name)) throw unsupported(c, 'two classes with the same name');
+    if (c.childForFieldName('superclass')) throw unsupported(c, 'inheritance (extends)');
+    if (c.childForFieldName('interfaces')) throw unsupported(c, 'interfaces (implements)');
+    if (c.childForFieldName('type_parameters')) throw unsupported(c, 'generic classes');
+    const info: ClassInfo = { name, node: c, fields: [], constructors: [], methods: new Map() };
+    for (const member of named(c.childForFieldName('body'))) {
+      if (member.type === 'class_declaration') {
+        if (c === mainClass) continue; // handled above
+        throw unsupported(member, 'classes inside classes other than Main');
+      }
+      if (member.type === 'method_declaration') {
+        if (c === mainClass && !isStaticMember(member)) throw unsupported(member, 'methods that are not static');
+        const m = member.childForFieldName('name')!.text;
+        if (info.methods.has(m)) throw unsupported(member, 'two methods with the same name');
+        info.methods.set(m, member);
+        continue;
+      }
+      if (member.type === 'constructor_declaration' && c !== mainClass) {
+        if (member.childForFieldName('name')?.text !== name) throw new CompileError(lineOf(member), `A constructor must have the class name, ${name}.`);
+        info.constructors.push(member);
+        continue;
+      }
+      if (member.type === 'field_declaration' && c !== mainClass) {
+        if (isStaticMember(member)) throw unsupported(member, 'static variables');
+        for (const d of member.childrenForFieldName('declarator')) {
+          if (!d) continue;
+          info.fields.push({ name: d.childForFieldName('name')!.text, type: declType(member.childForFieldName('type'), d), init: d.childForFieldName('value'), declarator: d, isPrivate: isPrivateMember(member) });
+        }
+        continue;
+      }
+      throw unsupported(member, FEATURES[member.type] ?? member.type.replace(/_/g, ' '));
+    }
+    classes.set(name, info);
+  }
+  const methods = classes.get('Main')!.methods;
   const main = methods.get('main');
   const params = named(main?.childForFieldName('parameters'));
   const okMain =
@@ -369,8 +470,27 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node> } {
     /^String\s*\[\s*\]$|^String\.\.\.$/.test(params[0].childForFieldName('type')?.text ?? '');
   if (!main || !okMain) throw new CompileError(main ? lineOf(main) : lineOf(mainClass), NEED_MAIN);
 
-  // Everything inside the methods must be in the supported subset.
-  for (const m of methods.values()) {
+  // Everything inside the methods, constructors and fields must be in the supported subset.
+  const allowed = (t: string) => ALLOWED_TYPES.has(t) || classNames.has(t);
+  const bodies = [...classes.values()].flatMap((c) => [...c.methods.values(), ...c.constructors]);
+  for (const c of classes.values()) {
+    for (const fd of named(c.node.childForFieldName('body')).filter((x) => x.type === 'field_declaration')) {
+      for (const part of named(fd)) if (part.type !== 'modifiers') visitSubset(part);
+    }
+  }
+  for (const m of bodies) {
+    visitSubset(m.childForFieldName('body')!);
+    if (m !== main) for (const p of named(m.childForFieldName('parameters'))) visitSubset(p);
+    const rt = m.childForFieldName('type');
+    if (rt) visitSubset(rt);
+    for (const t of named(named(m).find((c) => c.type === 'throws'))) {
+      if (!(t.text in EXCEPTION_PARENT)) throw unsupported(t, `the type ${t.text}`);
+    }
+  }
+  checkExceptions(bodies, methods);
+  return { main, methods, classes };
+
+  function visitSubset(root: Node) {
     const visit = (n: Node) => {
       const feature = FEATURES[n.type];
       if (feature) throw unsupported(n, feature);
@@ -381,7 +501,7 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node> } {
       if (n.type === 'switch_label' && named(n).some((c) => !['decimal_integer_literal', 'character_literal', 'string_literal', 'unary_expression', 'identifier'].includes(c.type))) {
         throw unsupported(n, 'this kind of case');
       }
-      if (n.type === 'type_identifier' && !ALLOWED_TYPES.has(n.text)) throw unsupported(n, `the type ${n.text}`);
+      if (n.type === 'type_identifier' && !allowed(n.text)) throw unsupported(n, `the type ${n.text}`);
       if (n.type === 'generic_type') {
         checkGeneric(n);
         return;
@@ -395,7 +515,10 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node> } {
         const type = n.childForFieldName('type');
         const isList = type?.type === 'generic_type' && named(type)[0]?.text === 'ArrayList';
         const isException = !!type && type.text in EXCEPTION_PARENT;
-        if (isException) {
+        if (n.childForFieldName('body') || named(n).some((x) => x.type === 'class_body')) throw unsupported(n, 'anonymous classes');
+        if (type && classNames.has(type.text)) {
+          // new Dog(...): a class of the program
+        } else if (isException) {
           const args = named(n.childForFieldName('arguments'));
           if (args.length > 1) throw unsupported(n, 'exceptions with a cause');
         } else if (!isList && !/^new\s+Scanner\s*\(\s*System\.in\s*\)$/.test(n.text)) {
@@ -412,16 +535,8 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node> } {
       }
       for (const c of named(n)) visit(c);
     };
-    visit(m.childForFieldName('body')!);
-    if (m !== main) for (const p of named(m.childForFieldName('parameters'))) visit(p);
-    const rt = m.childForFieldName('type');
-    if (rt) visit(rt);
-    for (const t of named(named(m).find((c) => c.type === 'throws'))) {
-      if (!(t.text in EXCEPTION_PARENT)) throw unsupported(t, `the type ${t.text}`);
-    }
+    visit(root);
   }
-  checkExceptions(methods);
-  return { main, methods };
 }
 
 /** throws Exception after a method's brackets */
@@ -429,11 +544,11 @@ const throwsChecked = (m: Node | undefined) => !!m && named(named(m).find((c) =>
 const catchTypes = (clause: Node): Node[] => named(named(named(clause).find((c) => c.type === 'catch_formal_parameter')).find((c) => c.type === 'catch_type'));
 
 /** Java's compile rules: Exception must be caught or declared, and a catch can't come after one that already covers it. */
-function checkExceptions(methods: Map<string, Node>) {
+function checkExceptions(bodies: Node[], methods: Map<string, Node>) {
   const handled = (n: Node): boolean => {
     let child = n;
     for (let p = n.parent; p; child = p, p = p.parent) {
-      if (p.type === 'method_declaration') return throwsChecked(p);
+      if (p.type === 'method_declaration' || p.type === 'constructor_declaration') return throwsChecked(p);
       if (p.type === 'try_statement' && p.childForFieldName('body')?.id === child.id) {
         if (named(p).some((c) => c.type === 'catch_clause' && catchTypes(c).some((t) => CHECKED.has(t.text)))) return true;
       }
@@ -441,7 +556,7 @@ function checkExceptions(methods: Map<string, Node>) {
     return false;
   };
   const NEEDS = 'Java needs this Exception to be handled: put this line inside a try/catch, or add throws Exception after the method name and brackets.';
-  for (const m of methods.values()) {
+  for (const m of bodies) {
     const visit = (n: Node) => {
       if (n.type === 'throw_statement') {
         const what = named(n)[0];
@@ -684,8 +799,9 @@ function declType(typeNode: Node | null, declarator?: Node | null): DeclType {
   if (extraDims) return { t: 'array', elem: primOf(typeNode.text) };
   if (typeNode.type === 'generic_type') {
     const arg = named(named(typeNode)[1])[0];
-    return { t: 'list', elem: arg ? WRAPPERS[arg.text] : undefined };
+    return { t: 'list', elem: arg ? WRAPPERS[arg.text] ?? (arg.text as Prim) : undefined };
   }
+  if (classNames.has(typeNode.text)) return { t: 'object', cls: typeNode.text };
   if (typeNode.text in WRAPPERS && typeNode.text !== 'String') return { t: WRAPPERS[typeNode.text], box: true };
   if (typeNode.text === 'Scanner') return { t: 'Scanner' };
   if (typeNode.text in EXCEPTION_PARENT) return { t: 'exception', cls: typeNode.text };
@@ -705,7 +821,7 @@ function declaredIn(stmts: Node[]): { name: string; type: DeclType }[] {
   return out;
 }
 
-const statementsOf = (n: Node | null): Node[] => (!n ? [] : n.type === 'block' ? named(n) : [n]);
+const statementsOf = (n: Node | null): Node[] => (!n ? [] : n.type === 'block' || n.type === 'constructor_body' ? named(n) : [n]);
 const rangeOf = (n: Node | null): [number, number] | undefined => {
   const s = statementsOf(n);
   return s.length ? [lineOf(s[0]), s[s.length - 1].endPosition.row + 1] : undefined;
@@ -806,14 +922,19 @@ class Interp {
   private nameIds = new Map<string, number>();
   private scope: Scope = new Scope(null);
   private input: Input;
+  /** The class whose code is running (for private fields and for calls without an object). */
+  private currentClass = 'Main';
+  /** The object a constructor is making (a return in a constructor gives it back). */
+  private making: JVal | null = null;
 
   constructor(
-    private methods: Map<string, Node>,
+    private classes: Map<string, ClassInfo>,
     plan: ListPlan,
     opts: RunOptions & { input?: string },
   ) {
     this.input = new Input(opts.input ?? '', (message) => new JavaException('NoSuchElementException', message));
     this.rt = new Recorder(this.nameSets, plan, { ...opts, rootLabel: 'main()', format: formatJava });
+    objectToText = (v) => this.objectToString(v);
   }
 
   private namesId(names: string[]): number {
@@ -896,6 +1017,13 @@ class Interp {
   // ---- statements ---------------------------------------------------------------
 
   private targetName(n: Node): string {
+    // this.name = ... / rex.age = ...: the object changes. name = ... inside a method, for a field: this changes.
+    if (n.type === 'field_access') {
+      let o = n;
+      while (o.type === 'field_access') o = o.childForFieldName('object')!;
+      return o.type === 'this' ? 'this' : o.text;
+    }
+    if (n.type === 'identifier' && !this.scope.lookup(n.text) && this.scope.lookup('this')) return 'this';
     return arrayBase(n) ?? n.text;
   }
 
@@ -992,7 +1120,8 @@ class Interp {
       case 'return_statement': {
         const e = named(s)[0];
         const value = e ? this.eval(e) : VOID;
-        this.rt.hooks.ret(lineOf(s), value.t === 'array' || value.t === 'list' ? (value.v as JVal[]) : value);
+        // return; in a constructor gives back the new object (its return step is recorded there).
+        if (!this.making) this.rt.hooks.ret(lineOf(s), value.t === 'array' || value.t === 'list' ? (value.v as JVal[]) : value);
         throw new ReturnSignal(value);
       }
       case 'throw_statement': {
@@ -1206,38 +1335,213 @@ class Interp {
 
   // ---- methods ------------------------------------------------------------------
 
-  private call(node: Node, name: string, args: JVal[]): JVal {
-    const m = this.methods.get(name);
+  /** A method with no object in front: factorial(3), or describe() inside a Dog method (on this). */
+  private callUnqualified(node: Node, name: string, args: JVal[]): JVal {
+    let cls = this.classes.get(this.currentClass)!;
+    let m = cls.methods.get(name);
+    if (!m && cls.name !== 'Main' && this.classes.get('Main')!.methods.has(name)) {
+      cls = this.classes.get('Main')!;
+      m = cls.methods.get(name);
+    }
     if (!m || name === 'main') throw unsupported(node, `the method ${name}`);
+    if (cls.name === 'Main' || isStaticMember(m)) return this.callMethod(node, cls, m, args, null, name);
+    const self = this.scope.lookup('this')?.v;
+    if (!self || typeof self === 'symbol') {
+      throw new CompileError(lineOf(node), `${name} belongs to each ${cls.name} object, so a static method can't call it without one.`);
+    }
+    return this.callMethod(node, cls, m, args, self, name);
+  }
+
+  /** Dog.create(...): a static method of a class. */
+  private callStatic(node: Node, clsName: string, name: string, args: JVal[]): JVal {
+    const cls = this.classes.get(clsName)!;
+    const m = cls.methods.get(name);
+    if (!m || name === 'main') throw new CompileError(lineOf(node), `${clsName} has no method called ${name}.`);
+    if (clsName !== 'Main' && !isStaticMember(m)) {
+      throw new CompileError(lineOf(node), `${name} belongs to each ${clsName} object: call it on one, like myObject.${name}().`);
+    }
+    this.checkPrivate(node, m, clsName, name);
+    return this.callMethod(node, cls, m, args, null, clsName === 'Main' ? name : `${clsName}.${name}`);
+  }
+
+  /** rex.bark(): a method of the object in rex. */
+  private callOnObject(node: Node, objNode: Node, target: JVal, name: string, argNodes: Node[]): JVal {
+    if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "${target.cls}.${name}()" because "${objNode.text}" is null`);
+    const o = target.v as JObject;
+    const cls = this.classes.get(o.cls)!;
+    const m = cls.methods.get(name);
+    const args = argNodes.map((a) => this.eval(a));
+    if (!m) {
+      // Every Java object has these, even without writing them.
+      if (name === 'toString' && !args.length) return str(this.objectToString(target));
+      if (name === 'equals' && args.length === 1) return bool(args[0].t === 'object' && args[0].v === o);
+      throw new CompileError(lineOf(node), `${o.cls} has no method called ${name}.`);
+    }
+    this.checkPrivate(node, m, o.cls, name);
+    const label = objNode.type === 'identifier' ? `${objNode.text}.${name}` : objNode.type === 'this' ? name : `${o.cls}.${name}`;
+    return this.callMethod(node, cls, m, args, isStaticMember(m) ? null : target, label);
+  }
+
+  private checkPrivate(node: Node, member: Node, owner: string, name: string) {
+    if (isPrivateMember(member) && this.currentClass !== owner) {
+      throw new CompileError(lineOf(node), `${name} is private in ${owner}, so only code inside ${owner} can use it.`);
+    }
+  }
+
+  /**
+   * Run a method (or a constructor, with `making` = the new object) in a new frame.
+   * Methods of an object have this as their first variable; the label leaves it out.
+   */
+  private callMethod(node: Node, cls: ClassInfo, m: Node, args: JVal[], self: JVal | null, label: string, making: JVal | null = null): JVal {
     const params = named(m.childForFieldName('parameters')).filter((p) => p.type === 'formal_parameter');
+    const shown = label.replace(/^new /, '');
     if (params.length !== args.length) {
-      throw new CompileError(lineOf(node), `${name} needs ${params.length} value${params.length === 1 ? '' : 's'}, not ${args.length}.`);
+      throw new CompileError(lineOf(node), `${shown} needs ${params.length} value${params.length === 1 ? '' : 's'}, not ${args.length}.`);
     }
     const saved = this.scope;
+    const savedClass = this.currentClass;
+    const savedMaking = this.making;
     const scope = new Scope(null);
     const names: string[] = [];
+    if (self) {
+      scope.vars.set('this', { t: 'object', cls: cls.name, v: self });
+      names.push('this');
+    }
     params.forEach((p, i) => {
       const type = declType(p.childForFieldName('type'), p);
       const pname = p.childForFieldName('name')!.text;
       scope.vars.set(pname, { ...type, v: this.coerce(args[i], type, node, pname) });
       names.push(pname);
     });
-    const returnType = declType(m.childForFieldName('type'), m);
+    const returnType: DeclType = making ? { t: 'void' } : declType(m.childForFieldName('type'), m);
     this.scope = scope;
-    this.rt.hooks.enter(name, this.namesId(names), this.getters(names));
+    this.currentClass = cls.name;
+    this.making = making;
+    this.rt.hooks.enter(label, this.namesId(names), this.getters(names), self ? 1 : 0);
     try {
       this.execBody(m.childForFieldName('body')!);
-      if (returnType.t !== 'void') throw new CompileError(lineOf(m), `${name} must return a value.`);
+      if (making) return this.made(m, making);
+      if (returnType.t !== 'void') throw new CompileError(lineOf(m), `${shown} must return a value.`);
       return VOID;
     } catch (e) {
-      if (e instanceof ReturnSignal) return returnType.t === 'void' ? VOID : this.coerce(e.value, returnType, node, name);
+      if (e instanceof ReturnSignal) {
+        if (making) return this.made(m, making);
+        return returnType.t === 'void' ? VOID : this.coerce(e.value, returnType, node, shown);
+      }
       this.rt.hooks.thrown(e);
       throw e;
     } finally {
       this.scope = scope;
       this.rt.hooks.leave();
       this.scope = saved;
+      this.currentClass = savedClass;
+      this.making = savedMaking;
     }
+  }
+
+  /** A constructor is done: its return step shows the new object. */
+  private made(ctor: Node, obj: JVal): JVal {
+    const top = this.rt.stack[this.rt.stack.length - 1];
+    this.rt.hooks.ret(top.pending ?? lineOf(ctor), obj);
+    return obj;
+  }
+
+  /** new Dog("Rex", 3): fields start at 0 / null / false, field values written in the class are set, then the constructor runs. */
+  private construct(node: Node, name: string, args: JVal[]): JVal {
+    const cls = this.classes.get(name)!;
+    const o: JObject = { cls: name, fields: new Map() };
+    const obj: JVal = { t: 'object', cls: name, v: o, id: freshId() };
+    for (const f of cls.fields) o.fields.set(f.name, { ...f.type, v: this.defaultOf(f.type) });
+    if (cls.fields.some((f) => f.init)) {
+      const saved = this.scope;
+      const savedClass = this.currentClass;
+      this.scope = new Scope(null);
+      this.scope.vars.set('this', { t: 'object', cls: name, v: obj });
+      this.currentClass = name;
+      try {
+        for (const f of cls.fields) {
+          if (!f.init) continue;
+          const value = f.init.type === 'array_initializer' ? this.arrayFrom(f.init, f.type.elem ?? 'int') : this.eval(f.init);
+          o.fields.get(f.name)!.v = this.coerce(value, f.type, f.declarator, f.name);
+        }
+      } finally {
+        this.scope = saved;
+        this.currentClass = savedClass;
+      }
+    }
+    if (!cls.constructors.length) {
+      if (args.length) throw new CompileError(lineOf(node), `${name} has no constructor that takes ${args.length} value${args.length === 1 ? '' : 's'}.`);
+      return obj;
+    }
+    const paramTypes = (c: Node) =>
+      named(c.childForFieldName('parameters'))
+        .filter((p) => p.type === 'formal_parameter')
+        .map((p) => declType(p.childForFieldName('type'), p));
+    const fits = (v: JVal, t: DeclType) => {
+      try {
+        this.coerce(v, t, node, 'this value');
+        return true;
+      } catch (e) {
+        if (e instanceof CompileError) return false;
+        throw e;
+      }
+    };
+    const ctor = cls.constructors.find((c) => {
+      const types = paramTypes(c);
+      return types.length === args.length && types.every((t, i) => fits(args[i], t));
+    });
+    if (!ctor) throw new CompileError(lineOf(node), `${name} has no constructor that takes ${args.length ? args.map((a) => formatJava(a)).join(', ') : 'no values'}.`);
+    this.checkPrivate(node, ctor, name, `This constructor of ${name}`);
+    return this.callMethod(node, cls, ctor, args, obj, `new ${name}`, obj);
+  }
+
+  /** The starting value of a field: 0, false, '\u0000' or null. */
+  private defaultOf(t: DeclType): JVal {
+    if (t.box) return { t: t.t, v: null, boxed: true };
+    if (t.t === 'array' || t.t === 'list') return { t: t.t, v: null as unknown as JVal[], elem: t.elem };
+    if (t.t === 'object') return { t: 'object', cls: t.cls, v: null };
+    if (t.t === 'exception') return { t: 'exception', v: null };
+    if (t.t === 'Scanner') return { t: 'Scanner', v: null };
+    return zeroOf(t.t as Prim);
+  }
+
+  /** println(rex): the class's own toString() runs (with its steps); without one, Java's Dog@1b6d3586. */
+  private objectToString(v: JVal): string {
+    const o = v.v as JObject;
+    const cls = this.classes.get(o.cls);
+    const m = cls?.methods.get('toString');
+    if (!cls || !m || isStaticMember(m) || named(m.childForFieldName('parameters')).length) return defaultObjectText(v);
+    const text = this.callMethod(m, cls, m, [], v, `${o.cls}.toString`);
+    if (text.t !== 'String') throw new CompileError(lineOf(m), 'toString must give back text (String).');
+    return text.v === null ? 'null' : (text.v as string);
+  }
+
+  /** The field cell for obj.name, with Java's checks (null object, unknown or private field). */
+  private fieldOf(n: Node, obj: JVal): { t: JType; elem?: Prim; box?: boolean; cls?: string; v: JVal | symbol } {
+    const objNode = n.childForFieldName('object')!;
+    const field = n.childForFieldName('field')!.text;
+    if (obj.v === null) throw new JavaException('NullPointerException', `Cannot read field "${field}" because "${objNode.text}" is null`);
+    const o = obj.v as JObject;
+    const cell = o.fields.get(field);
+    if (!cell) throw new CompileError(lineOf(n), `${o.cls} has no field called ${field}.`);
+    const info = this.classes.get(o.cls)!.fields.find((f) => f.name === field);
+    if (info?.isPrivate && this.currentClass !== o.cls) {
+      throw new CompileError(lineOf(n), `${field} is private in ${o.cls}, so only code inside ${o.cls} can use it.`);
+    }
+    return cell;
+  }
+
+  /** A name that is not a variable: a field of this object (name instead of this.name). */
+  private implicitField(id: Node) {
+    const self = this.scope.lookup('this')?.v;
+    if (self && typeof self !== 'symbol' && self.v !== null) {
+      const cell = (self.v as JObject).fields.get(id.text);
+      if (cell) return cell;
+    }
+    if (this.classes.get(this.currentClass)?.fields.some((f) => f.name === id.text)) {
+      throw new CompileError(lineOf(id), `${id.text} belongs to each ${this.currentClass} object, so a static method can't use it on its own.`);
+    }
+    return undefined;
   }
 
   // ---- expressions ----------------------------------------------------------------
@@ -1245,9 +1549,14 @@ class Interp {
   /** Assign rules: widening is fine; narrowing needs a cast. */
   private coerce(v: JVal, to: DeclType, at: Node, name: string): JVal {
     const t = to.t;
-    const what = t === 'array' ? `${to.elem} array` : t === 'list' ? `list of ${WRAPPER_OF[to.elem ?? 'int']}` : t;
+    const what = t === 'array' ? `${to.elem} array` : t === 'list' ? `list of ${typeName(to.elem)}` : t === 'object' ? to.cls! : t;
     const cantHold = () =>
-      new CompileError(lineOf(at), `${name} is ${t === 'int' || t === 'array' ? 'an' : 'a'} ${what} box, so it can't hold ${formatJava(v)}.`);
+      new CompileError(lineOf(at), `${name} is ${/^[aeiouAEIOU]/.test(what) ? 'an' : 'a'} ${what} box, so it can't hold ${formatJava(v)}.`);
+    if (t === 'object') {
+      if (v.t === 'null') return { t: 'object', cls: to.cls, v: null };
+      if (v.t !== 'object' || v.cls !== to.cls) throw cantHold();
+      return v;
+    }
     if (t === 'array') {
       if (v.t === 'null') return { t: 'array', v: null as unknown as JVal[], elem: to.elem };
       if (v.t !== 'array' || v.elem !== to.elem) throw cantHold();
@@ -1262,7 +1571,7 @@ class Interp {
         v.v = (v.v as JVal[]).map((x) => this.listItem(x, v, at, name));
       }
       if (v.elem !== to.elem) {
-        throw new CompileError(lineOf(at), `${name} holds ${WRAPPER_OF[to.elem!]} values, so it can't hold a list of ${WRAPPER_OF[v.elem!]} values.`);
+        throw new CompileError(lineOf(at), `${name} holds ${typeName(to.elem)} values, so it can't hold a list of ${typeName(v.elem)} values.`);
       }
       return v;
     }
@@ -1298,11 +1607,17 @@ class Interp {
 
   /** A value going into a list: boxed, and of the list's own type (Integer into ArrayList<Integer>). */
   private listItem(x: JVal, list: JVal, at: Node, name: string): JVal {
-    if (x.t === 'null') return { t: list.elem!, v: null, boxed: true };
-    if (list.elem && x.t !== list.elem) {
-      throw new CompileError(lineOf(at), `${name} holds ${WRAPPER_OF[list.elem]} values, so it can't hold ${formatJava(x)}.`);
+    const objects = isClassItem(list.elem);
+    if (x.t === 'null') return objects ? { t: 'object', cls: list.elem, v: null } : { t: list.elem!, v: null, boxed: true };
+    if (list.elem && (objects ? x.t !== 'object' || x.cls !== list.elem : x.t !== list.elem)) {
+      throw new CompileError(lineOf(at), `${name} holds ${typeName(list.elem)} values, so it can't hold ${formatJava(x)}.`);
     }
     return box(x);
+  }
+
+  /** The type of one item of an array: int, String, or a class of the program. */
+  private itemType(elem: Prim): DeclType {
+    return isClassItem(elem) ? { t: 'object', cls: elem } : { t: elem };
   }
 
   /** Binary numeric promotion: double > long > int. */
@@ -1396,26 +1711,34 @@ class Interp {
   }
 
   private assignTo(target: Node, value: JVal): JVal {
+    if (target.type === 'field_access') {
+      const obj = this.eval(target.childForFieldName('object')!);
+      if (obj.t !== 'object') throw unsupported(target, 'this kind of assignment');
+      const cell = this.fieldOf(target, obj);
+      cell.v = this.coerce(value, cell, target, target.childForFieldName('field')!.text);
+      return cell.v;
+    }
     if (target.type === 'array_access') {
       const { array, index, elem } = this.element(target);
-      array[index] = this.coerce(value, { t: elem }, target, target.text);
+      array[index] = this.coerce(value, this.itemType(elem), target, target.text);
       return array[index];
     }
     if (target.type !== 'identifier') throw unsupported(target, 'this kind of assignment');
-    const cell = this.scope.lookup(target.text);
+    const cell = this.scope.lookup(target.text) ?? this.implicitField(target);
     if (!cell) throw new CompileError(lineOf(target), `${target.text} is used but never declared.`);
     cell.v = this.coerce(value, cell, target, target.text);
     return cell.v;
   }
 
   private read(id: Node): JVal {
-    const cell = this.scope.lookup(id.text);
+    const cell = this.scope.lookup(id.text) ?? this.implicitField(id);
     if (!cell) throw new CompileError(lineOf(id), `${id.text} is used but never declared.`);
-    if (cell.v === UNSET) throw new CompileError(lineOf(id), `${id.text} is used before it was given a value.`);
+    if (typeof cell.v === 'symbol') throw new CompileError(lineOf(id), `${id.text} is used before it was given a value.`);
     return cell.v;
   }
 
   private readTarget(n: Node): JVal {
+    if (n.type === 'field_access') return this.eval(n);
     if (n.type === 'array_access') {
       const { array, index } = this.element(n);
       return array[index];
@@ -1434,7 +1757,7 @@ class Interp {
   }
 
   private arrayFrom(init: Node, elem: Prim): JVal {
-    const items = named(init).map((e) => this.coerce(this.eval(e), { t: elem }, e, 'this array'));
+    const items = named(init).map((e) => this.coerce(this.eval(e), this.itemType(elem), e, 'this array'));
     return { t: 'array', v: items, elem, id: freshId() };
   }
 
@@ -1471,6 +1794,11 @@ class Interp {
         return bool(false);
       case 'null_literal':
         return NULL;
+      case 'this': {
+        const self = this.scope.lookup('this');
+        if (!self) throw new CompileError(lineOf(n), "this can only be used inside an object's own methods and constructors.");
+        return self.v as JVal;
+      }
       case 'identifier':
         return this.read(n);
       case 'parenthesized_expression':
@@ -1545,8 +1873,13 @@ class Interp {
         const object = n.childForFieldName('object')!;
         const field = n.childForFieldName('field')!.text;
         if (object.text === 'Integer' && (field === 'MAX_VALUE' || field === 'MIN_VALUE')) return int(field === 'MAX_VALUE' ? 2147483647 : -2147483648);
+        const value = this.eval(object);
+        if (value.t === 'object') {
+          const cell = this.fieldOf(n, value);
+          return cell.v as JVal;
+        }
         if (field === 'length') {
-          const arr = this.eval(object);
+          const arr = value;
           if (arr.t === 'list') throw new CompileError(lineOf(n), `${object.text} is a list: use ${object.text}.size() for how many items it has.`);
           if (arr.t === 'String') throw new CompileError(lineOf(n), `${object.text} is text: use ${object.text}.length() with brackets.`);
           if (arr.t === 'array') {
@@ -1558,6 +1891,7 @@ class Interp {
       }
       case 'object_creation_expression': {
         const type = n.childForFieldName('type')!;
+        if (classNames.has(type.text)) return this.construct(n, type.text, named(n.childForFieldName('arguments')).map((a) => this.eval(a)));
         if (type.text in EXCEPTION_PARENT) {
           const msgNode = named(n.childForFieldName('arguments'))[0];
           const msg = msgNode ? this.eval(msgNode) : null;
@@ -1566,7 +1900,7 @@ class Interp {
         }
         if (type.type !== 'generic_type') return { t: 'Scanner', v: null, id: freshId() };
         const arg = named(named(type)[1])[0];
-        const list: JVal = { t: 'list', v: [], elem: arg ? WRAPPERS[arg.text] : undefined, id: freshId(), mod: 0 };
+        const list: JVal = { t: 'list', v: [], elem: arg ? WRAPPERS[arg.text] ?? (arg.text as Prim) : undefined, id: freshId(), mod: 0 };
         const from = named(n.childForFieldName('arguments'))[0];
         if (!from) return list;
         // new ArrayList<>(Arrays.asList(1, 2, 3)) / (List.of(...)) / (other list) / (10 = room for 10)
@@ -1661,9 +1995,13 @@ class Interp {
       }
       throw unsupported(n, `Arrays.${name}`);
     }
-    if (!object || object.text === 'Main') return this.call(n, name, args());
+    if (!object) return this.callUnqualified(n, name, args());
+    if (object.type === 'identifier' && this.classes.has(object.text) && !this.scope.lookup(object.text)) {
+      return this.callStatic(n, object.text, name, args());
+    }
 
     const target = this.eval(object);
+    if (target.t === 'object') return this.callOnObject(n, object, target, name, argNodes);
     if (target.t === 'Scanner') return this.scan(n, name, argNodes.length);
     if (target.t === 'String') {
       if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "String.${name}()" because the value is null`);
@@ -2075,10 +2413,16 @@ export function javaReadsInput(tree: Tree): boolean {
 export function runJava(tree: Tree, opts: RunOptions & { input?: string }): RawRunResult {
   const problem = checkJava(tree);
   if (problem) return { status: 'syntax-error', steps: [], error: { line: problem.line, message: problem.message } };
-  const { main, methods } = checkSubset(tree);
-  const plan = planLists(methods);
+  const { main, classes } = checkSubset(tree);
+  // Lists changed inside loops, in every method and constructor of every class.
+  const bodies = new Map<string, Node>();
+  for (const c of classes.values()) {
+    for (const [k, m] of c.methods) bodies.set(`${c.name}.${k}`, m);
+    c.constructors.forEach((m, i) => bodies.set(`${c.name}.<new>${i}`, m));
+  }
+  const plan = planLists(bodies);
   nextId = 1;
-  const interp = new Interp(methods, plan, opts);
+  const interp = new Interp(classes, plan, opts);
   const rt = interp.rt;
   let status: RawRunResult['status'] = 'ok';
   let error: RawRunResult['error'] = null;

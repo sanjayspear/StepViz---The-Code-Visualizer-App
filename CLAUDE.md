@@ -49,8 +49,9 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
    - T2 (done): the catch kind for Python (tracer.py: except headers get no step)
      and JavaScript (instrumenter rewrites try/catch/finally and throw); all five
      languages now show caught errors alike.
-   - Planned, not built: simple Java classes; C++ structs and classes, basic
-     pointers, map.
+   - K1 (done): simple Java classes (fields, constructors, methods, this,
+     private, toString, objects in arrays/lists).
+   - Planned, not built: C++ structs and classes, basic pointers, map.
 
 Phase 1 covers:
 
@@ -231,6 +232,26 @@ Playwright tests. Static build for GitHub Pages.
   catch lines); the try line itself keeps its step in Python and JavaScript, as
   before. JavaScript: names starting with __sv stay on Home ("Line 2: names
   starting with __sv are used by StepViz. Please choose another name.").
+- Java classes (K1, decided by me on the owner's "you only review and continue"):
+  objects show in the variables line as text, no new screen design: rex = Dog
+  {name: "Rex", age: 3} (an object inside an object: Node {…}; frames still cut
+  text at 40 characters). A constructor runs in a frame "new Dog("Rex", 3)" with
+  this first (this = Dog {name: null, age: 0}, then the values); a method on an
+  object: "rex.birthday()" with this first; static method of a class:
+  "Node.pair(1, 2)"; toString when printing: "Dog.toString()". Texts: "We make a
+  new Dog object. new Dog("Rex", 3) starts in a new box with name = "Rex", age =
+  3." / "this.name changes from null to "Rex"." (any language: one field of an
+  object text changed) / "The new Dog object is ready: ... " / "The new Dog object
+  is stored in rex." / after any call that gives nothing back (all languages):
+  "Back in main(): rex.birthday() has finished, so the program carries on."
+  Java's rules: one public class per file ("Only one class in a file can be
+  public: remove public from class Dog."), private ("name is private in Dog, so
+  only code inside Dog can use it."), fields in static methods ("age belongs to
+  each Dog object, so a static method can't use it on its own."), constructors
+  ("Dog has no constructor that takes no values."). Unsupported: extends,
+  implements, static variables, inner (non-static) classes, generic classes,
+  anonymous classes, this(...)/super(...), Object (so equals(Object) can't be
+  written; == and the default equals compare objects, as in Java).
 - List changes read item by item in every language: "nums[0] changes from 5 to 2.",
   "3 is added to the end of squares.", "4 is taken off the end of squares.",
   "7 is put in at position 1 of xs.", "1 is taken out of xs at position 0.",
@@ -267,14 +288,15 @@ Paused on 2026-11-25.
 - S1: switch in Java, C++, C and JavaScript (new step kind switch-case).
 - L1 (2026-11-25): Java ArrayList + Collections + more String/Character methods (tests in `tests/arraylist-java.spec.ts`).
 - T1 (2026-11-25): try/catch in Java and C++, step kind catch (tests in `tests/trycatch-java.spec.ts`, `tests/trycatch-cpp.spec.ts`).
-- T2 (2026-11-25): catch steps for Python and JavaScript (tests in `tests/trycatch-tracer.spec.ts`; 163 tests pass).
+- T2 (2026-11-25): catch steps for Python and JavaScript (tests in `tests/trycatch-tracer.spec.ts`).
+- K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`; 169 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.
 - `wip/ai-explanations`: the older paused in-browser AI (WebLLM + Qwen). Superseded by `wip/llama-ai`; keep for reference only.
 
 ### Next step
-Continue the later stages in order: (1) Java ArrayList + more String methods (done, L1), (2) try/catch in Java and C++ (done, T1) and the catch kind for Python and JavaScript (done, T2); next: (3) simple Java classes, (4) C++ structs/classes, basic pointers, map. Stages 3 and 4 need a new way to show objects/pointers/maps: ask about layout and wording first.
+Continue the later stages in order: (1) Java ArrayList + more String methods (done, L1), (2) try/catch in Java and C++ (done, T1) and the catch kind for Python and JavaScript (done, T2); (3) simple Java classes (done, K1); next: (4) C++ structs/classes (same object text as Java), then basic pointers and map (pointers need a way to show "points to": decide, keeping the existing layout).
 
 ### Decisions to remember
 - The PDF is the source of truth; ask before adding anything not in it. Work in stages, commit each, push only when asked.
@@ -290,5 +312,5 @@ Continue the later stages in order: (1) Java ArrayList + more String methods (do
 - AI branch only: open Ollama (installed in /Applications, Llama 3.2 3B downloaded); nothing else needed on localhost.
 
 ### What the product owner still owes
-- Review of C3 and S1 (both live on the site), and L1 + T1 + T2 (not pushed).
-- Go-ahead for the next stage (simple Java classes), and how objects should look on screen.
+- Review of C3 and S1 (both live on the site), and L1 + T1 + T2 + K1 (not pushed); the owner said "you only review and continue", so I review each stage myself.
+- Whether to push to GitHub.

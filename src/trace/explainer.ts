@@ -225,6 +225,23 @@ const LIFE: Record<SubKind, string[]> = {
 // --------------------------------------------------------------------------
 // Values in sentences
 
+/** Fields of an object text like 'Dog {name: "Rex", age: 3}' or '{a: 1}', or null if it is not one (or cut short). */
+function objectFields(v: string): { cls: string; keys: string[]; values: string[] } | null {
+  const m = /^(\w+ )?\{(.*)\}$/.exec(v);
+  if (!m) return null;
+  const items = listItems(`[${m[2]}]`);
+  if (!items) return null;
+  const keys: string[] = [];
+  const values: string[] = [];
+  for (const item of items) {
+    const k = /^(\w+): ([\s\S]*)$/.exec(item);
+    if (!k) return null;
+    keys.push(k[1]);
+    values.push(k[2]);
+  }
+  return { cls: (m[1] ?? '').trim(), keys, values };
+}
+
 /** Items of a list text like "[1, 2, 'a']" (top level only), or null if cut short. */
 function listItems(v: string): string[] | null {
   if (!v.startsWith('[') || !v.endsWith(']')) return null;
@@ -391,9 +408,17 @@ function whatVariants(sub: SubKind, f: Facts): string[] {
     case 'call': {
       const callee = f.top.name;
       const caller = f.step.frames[f.step.frames.length - 2]?.name;
+      // Java: the object a method works on (this) is named in the label already (rex.bark()).
       const args = Object.entries(f.top.vars)
+        .filter(([k]) => k !== 'this')
         .map(([k, v]) => `${k} = ${sayValue(v)}`)
         .join(', ');
+      const made = /^new (\w+)\(/.exec(callee);
+      if (made) {
+        return args
+          ? [`We make a new ${made[1]} object. ${callee} starts in a new box with ${args}.`, `A new ${made[1]} object is being made: ${callee} gets its own box with ${args}.`]
+          : [`We make a new ${made[1]} object. ${callee} starts in a new box of its own.`];
+      }
       if (!caller || caller === 'Global' || caller.startsWith('main(')) {
         return args
           ? [`We call ${callee}. A new box, called a frame, opens with ${args}.`, `${callee} starts in a new box with ${args}.`]
@@ -403,6 +428,8 @@ function whatVariants(sub: SubKind, f: Facts): string[] {
     }
     case 'return': {
       const value = sayValue((f.top.returns ?? '').replace(/^returns /, ''));
+      const made = /^new (\w+)\(/.exec(f.top.name);
+      if (made) return [`The new ${made[1]} object is ready: ${value}. This box is removed on the next step.`, `${f.top.name} is done and hands back the new ${made[1]} object.`];
       return [`${f.top.name} is done and returns ${value}. Its box is removed on the next step.`, `${f.top.name} hands back ${value}. Its box will disappear next.`];
     }
     case 'return-nothing':
@@ -440,6 +467,10 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
     const value = prevTop.returns.replace(/^returns /, '');
     if (f.top.vars[targets[0]] === value) {
       const v = sayValue(value);
+      const made = /^new (\w+)\(/.exec(prevTop.name);
+      if (made) {
+        return { sub: 'assign-from-call', variants: [`The new ${made[1]} object is stored in ${targets[0]}.`, `${targets[0]} now holds the new ${made[1]} object.`] };
+      }
       return {
         sub: 'assign-from-call',
         variants: [`${targets[0]} gets the answer ${v} from ${prevTop.name}.`, `The answer ${v} from ${prevTop.name} is stored in ${targets[0]}.`],
@@ -500,6 +531,26 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
             ],
           };
         }
+      }
+    }
+  }
+  // An object where fields changed: "this.name changes from null to "Rex"."
+  if (changes.length === 1 && changes[0].kind === 'change') {
+    const t = changes[0].t;
+    const was = objectFields(before[t] ?? '');
+    const now = objectFields(f.top.vars[t]);
+    if (was && now && was.cls === now.cls && was.keys.join() === now.keys.join()) {
+      const diff = now.keys.filter((_k, i) => now.values[i] !== was.values[i]);
+      const at = (o: NonNullable<typeof was>, k: string) => sayValue(o.values[o.keys.indexOf(k)]);
+      if (diff.length === 1) {
+        const k = diff[0];
+        return {
+          sub: 'assign-change',
+          variants: [`${t}.${k} changes from ${at(was, k)} to ${at(now, k)}.`, `In ${t}, ${k} was ${at(was, k)} and is now ${at(now, k)}.`],
+        };
+      }
+      if (diff.length > 1) {
+        return { sub: 'assign-several', variants: [`${t} changes: ${diff.map((k) => `${k} becomes ${at(now, k)}`).join(', ')}.`] };
       }
     }
   }
@@ -601,6 +652,13 @@ export function explainTrace(trace: Trace): TraceStep['explain'][] {
       variants = whatVariants(sub, f);
     }
 
+    // The line that called a function that gave nothing back (rex.birthday();): the call is over.
+    const prevTop = f.prev?.frames[f.prev.frames.length - 1];
+    if (kind === 'other' && f.prev?.kind === 'return' && prevTop && f.prev.frames.length > step.frames.length) {
+      const callerName = f.top.name;
+      sub = 'return-nothing';
+      variants = [`Back in ${callerName}: ${prevTop.name} has finished, so the program carries on.`, `${prevTop.name} is over, and ${callerName} carries on from where it stopped.`];
+    }
     let what = pick(sub, variants, 0);
     if (!what) {
       sub = 'other';
