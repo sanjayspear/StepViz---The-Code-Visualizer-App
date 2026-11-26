@@ -11,8 +11,10 @@ import { SOLUTIONS as RECURSION_BACKTRACKING } from './recursion-backtracking.so
 import { SOLUTIONS as SORTING_GREEDY_INTERVALS } from './sorting-greedy-intervals.solutions';
 import { SOLUTIONS as DYNAMIC_PROGRAMMING } from './dynamic-programming.solutions';
 import { SOLUTIONS as GRAPHS } from './graphs.solutions';
+import { SOLUTIONS as LINKED_LISTS } from './linked-lists.solutions';
 
 export const CPP_SOLUTIONS_BY_TOPIC: Record<string, Record<number, string>> = {
+  'linked-lists': LINKED_LISTS,
   graphs: GRAPHS,
   'dynamic-programming': DYNAMIC_PROGRAMMING,
   'sorting-greedy-intervals': SORTING_GREEDY_INTERVALS,

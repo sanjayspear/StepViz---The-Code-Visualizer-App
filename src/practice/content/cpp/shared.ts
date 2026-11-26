@@ -11,6 +11,7 @@ export function placeholder(header: string): string {
   if (type === 'bool') return 'return false;';
   if (type === 'char') return "return ' ';";
   if (type === 'string') return 'return "";';
+  if (type.endsWith('*')) return 'return nullptr;';
   return `${type} none;\n    return none;`;
 }
 

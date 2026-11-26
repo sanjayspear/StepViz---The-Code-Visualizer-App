@@ -11,7 +11,7 @@ import type { Node, Parser, Tree } from 'web-tree-sitter';
 import type { PracticeTest, Value } from './content/types';
 import type { CheckResult, CheckTestResult } from '../runner/protocol';
 import { checkCpp, runCppQuiet, type CVal } from '../runner/cpp/interpreter';
-import { expectedText, exportValue, keyOf, same, shapeOk, shownCall, textOf, type JsForbid } from './jsHarness';
+import { expectedText, exportValue, keyOf, nodesOf, same, shapeOk, shownCall, textOf, type JsForbid } from './jsHarness';
 import { forbiddenJava } from './javaHarness';
 import { errorSentence } from '../trace/explain';
 
@@ -100,8 +100,71 @@ function readShape(tree: Tree): Shape {
 /** The value type written in a parameter: const vector<int>& -> vector<int>. */
 const bare = (t: string) => t.replace(/\bconst\b/g, '').replace(/&/g, '').replace(/\s+/g, ' ').trim().replace(/\s*([<>,])\s*/g, '$1');
 
+/**
+ * Nodes written for one test: the lines that build them (before the declaration that uses them),
+ * the variables holding them (for the "copy" and "returns index" checks), and their type.
+ */
+let nodeCtx: { lines: string[]; nodes: string[]; nodeType: string; n: number } = { lines: [], nodes: [], nodeType: '', n: 0 };
+const isNodeMarker = (m: Record<string, Any>) => ['$list', '$cycle', '$tree', '$randlist', '$graph'].some((k) => k in m);
+
+/** ListNode* (or struct Node* in C): build the nodes with new, linked by ->, and give the first one. */
+function nodes(type: string, m: Record<string, Any>): string {
+  const ctx = nodeCtx;
+  const cls = type.replace(/\*$/, '').replace(/^struct\s+/, '').trim();
+  if (!ctx.nodeType) ctx.nodeType = type;
+  const make = (prefix: string, v: Value) => {
+    const name = `stepviz${prefix}${ctx.n++}`;
+    ctx.lines.push(`${type} ${name} = new ${cls}(${literal('int', v)});`);
+    ctx.nodes.push(name);
+    return name;
+  };
+  if ('$list' in m || '$cycle' in m) {
+    const values: Value[] = m.$list ?? m.$cycle;
+    if (!values.length) return 'nullptr';
+    const names = values.map((v) => make('N', v));
+    for (let i = 0; i + 1 < names.length; i++) ctx.lines.push(`${names[i]}->next = ${names[i + 1]};`);
+    if ((m.pos ?? -1) >= 0) ctx.lines.push(`${names[names.length - 1]}->next = ${names[m.pos]};`);
+    return names[0];
+  }
+  if ('$tree' in m) {
+    const values: Value[] = m.$tree;
+    if (!values.length || values[0] === null) return 'nullptr';
+    const root = make('T', values[0]);
+    const queue = [root];
+    let i = 1;
+    while (queue.length && i < values.length) {
+      const cur = queue.shift()!;
+      for (const side of ['left', 'right']) {
+        if (i < values.length && values[i] !== null) {
+          const name = make('T', values[i]);
+          ctx.lines.push(`${cur}->${side} = ${name};`);
+          queue.push(name);
+        }
+        i++;
+      }
+    }
+    return root;
+  }
+  if ('$randlist' in m) {
+    const pairs: [Value, number | null][] = m.$randlist;
+    if (!pairs.length) return 'nullptr';
+    const names = pairs.map(([v]) => make('R', v));
+    names.forEach((name, i) => {
+      if (i + 1 < names.length) ctx.lines.push(`${name}->next = ${names[i + 1]};`);
+      if (pairs[i][1] !== null) ctx.lines.push(`${name}->random = ${names[pairs[i][1]!]};`);
+    });
+    return names[0];
+  }
+  const adj: number[][] = m.$graph;
+  if (!adj.length) return 'nullptr';
+  const names = adj.map((_, i) => make('G', i + 1));
+  adj.forEach((nbrs, i) => nbrs.forEach((k) => ctx.lines.push(`${names[i]}->neighbors.push_back(${names[k - 1]});`)));
+  return names[0];
+}
+
 function literal(type: string, value: Value): string {
   type = bare(type);
+  if (value && typeof value === 'object' && !Array.isArray(value) && type.endsWith('*') && isNodeMarker(value as Record<string, Any>)) return nodes(type, value as Record<string, Any>);
   if (value === null) return type.endsWith('*') ? 'nullptr' : '{}';
   const vec = /^(?:std::)?vector<(.+)>$/.exec(type);
   if (vec) return `{${(value as Value[]).map((x) => literal(vec[1], x)).join(', ')}}`;
@@ -148,8 +211,11 @@ function declare(type: string, name: string, value: Value): string {
 // ---- reading the answer back ------------------------------------------------------------------
 
 function mirror(v: CVal | undefined, memo: Map<unknown, Any>): Any {
-  if (!v || v.v === null || v.v === undefined || v.t === 'void') return null;
+  if (!v || v.v === null || v.v === undefined || typeof v.v === 'symbol' || v.t === 'void') return null;
   switch (v.t) {
+    case 'pointer':
+      // A node: follow the pointer (the same node gives the same object, so shared nodes stay shared).
+      return mirror((v.v as unknown as { cell: { v: CVal } }).cell.v, memo);
     case 'int':
     case 'long':
     case 'double':
@@ -233,6 +299,12 @@ export function checkCppAnswer(parser: Parser, source: string, spec: { tests: Pr
 
     const globals: string[] = [];
     const body: string[] = [];
+    nodeCtx = { lines: [], nodes: [], nodeType: '', n: 0 };
+    /** A declaration, after the lines that build the nodes it uses. */
+    const declareHere = (type: string, name: string, value: Value) => {
+      const d = declare(type, name, value);
+      body.push(...nodeCtx.lines.splice(0), d);
+    };
     const keep = (type: string, name: string, expr: string) => {
       globals.push(`${bare(type)} ${name};`);
       body.push(`${name} = ${expr};`);
@@ -249,7 +321,7 @@ export function checkCppAnswer(parser: Parser, source: string, spec: { tests: Pr
           const m = cls!.get(op[0] as string);
           if (!m) throw new Error(`missing:${t.cls}::${op[0]}`);
           const args = op.slice(1).map((a, i) => {
-            body.push(declare(m.params[i]?.type ?? 'int', `stepvizA${k}_${i}`, a));
+            declareHere(m.params[i]?.type ?? 'int', `stepvizA${k}_${i}`, a);
             return `stepvizA${k}_${i}`;
           });
           const call = `stepvizObj.${op[0]}(${args.join(', ')})`;
@@ -257,10 +329,29 @@ export function checkCppAnswer(parser: Parser, source: string, spec: { tests: Pr
           else keep(m.ret, `stepvizOp${k}`, call);
         });
       } else {
-        const names = (t.args ?? []).map((a, i) => {
-          body.push(declare(fn!.params[i]?.type ?? 'int', `stepvizArg${i}`, a));
-          return `stepvizArg${i}`;
-        });
+        let names: string[];
+        if (t.setup?.intersect) {
+          // Two lists that join: both end in the same common nodes.
+          const s = t.setup.intersect;
+          const type = bare(fn!.params[0]?.type ?? 'ListNode*');
+          const common = literal(type, { $list: s.common });
+          const withTail = (values: Value[]) => {
+            if (!values.length) return common;
+            const head = literal(type, { $list: values });
+            nodeCtx.lines.push(`${nodeCtx.nodes[nodeCtx.nodes.length - 1]}->next = ${common};`);
+            return head;
+          };
+          const heads = [withTail(s.a), withTail(s.b)];
+          body.push(...nodeCtx.lines.splice(0));
+          nodeCtx.nodes = [];
+          names = heads;
+        } else {
+          names = (t.args ?? []).map((a, i) => {
+            declareHere(fn!.params[i]?.type ?? 'int', `stepvizArg${i}`, a);
+            return `stepvizArg${i}`;
+          });
+        }
+        if (nodeCtx.nodes.length) keep(nodeCtx.nodeType, 'stepvizInput', nodeCtx.nodes[0]);
         const call = `${t.call}(${names.join(', ')})`;
         if (t.then) keep(shape.functions.get(t.then)!.ret, 'stepvizResult', `${t.then}(${call})`);
         else if (bare(fn!.ret) === 'void') body.push(`${call};`);
@@ -315,13 +406,21 @@ export function checkCppAnswer(parser: Parser, source: string, spec: { tests: Pr
     let got: Any;
     if (isOps) got = [null, ...(t.ops ?? []).slice(1).map((op, k) => (bare(cls!.get(op[0] as string)!.ret) === 'void' ? null : mirror(run.value(`stepvizOp${k}`), memo)))];
     else got = mirror(run.value('stepvizResult'), memo);
+    const input = mirror(run.value('stepvizInput'), memo);
 
     if (how === 'output') {
       entry.passed = run.output === t.expected;
       entry.got = JSON.stringify(run.output);
       continue;
     }
-    const gotPlain = exportValue(got);
+    let gotPlain: Value;
+    if (t.returns === 'index') {
+      const order: Any[] = [];
+      for (let n = input; n && !order.includes(n); n = n.next) order.push(n);
+      const i = got ? order.indexOf(got) : -1;
+      gotPlain = got && i === -1 ? 'a node that is not in the list' : i;
+    } else if (t.returns === 'value') gotPlain = got ? exportValue(got.val) : null;
+    else gotPlain = exportValue(got);
     let passed = ['topo', 'peak', 'gray', 'inorder', 'balanced'].includes(how) ? shapeOk(how, gotPlain, structuredClone(t.args ?? []), t.expected) : same(gotPlain, t.expected, how);
     let gotText = textOf(gotPlain);
     if (t.mutated) {
@@ -342,6 +441,13 @@ export function checkCppAnswer(parser: Parser, source: string, spec: { tests: Pr
       else if (t.expected === null) gotText = `Argument ${m.arg + 1} became ${textOf(after)}.`;
       else gotText = `It gave ${gotText}, and ${arg} became ${textOf(after)}.`;
       passed = okAfter && okReturn;
+    }
+    if (t.copy && passed) {
+      const inputs = new Set(nodesOf(input));
+      if (nodesOf(got).some((n) => inputs.has(n))) {
+        Object.assign(entry, { passed: false, got: gotText, problem: 'shared' });
+        continue;
+      }
     }
     entry.passed = passed;
     entry.got = gotText;

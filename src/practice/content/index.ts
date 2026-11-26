@@ -15,6 +15,7 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { LINKED_LISTS_CPP } from './cpp/linked-lists';
 import { GRAPHS_CPP } from './cpp/graphs';
 import { DYNAMIC_PROGRAMMING_CPP } from './cpp/dynamic-programming';
 import { SORTING_GREEDY_INTERVALS_CPP } from './cpp/sorting-greedy-intervals';
@@ -113,6 +114,7 @@ export const JAVA_TOPICS: Record<string, PracticeContent[]> = {
 
 /** C++ content by topic id (tests from the Python content; answers run in StepViz's C++ interpreter). */
 export const CPP_TOPICS: Record<string, PracticeContent[]> = {
+  'linked-lists': LINKED_LISTS_CPP,
   graphs: GRAPHS_CPP,
   'dynamic-programming': DYNAMIC_PROGRAMMING_CPP,
   'sorting-greedy-intervals': SORTING_GREEDY_INTERVALS_CPP,
