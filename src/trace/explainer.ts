@@ -240,6 +240,16 @@ function mapEntries(v: string): Map<string, string> | null {
   return out;
 }
 
+/** Items of a set text like {1, 2} or {"a", 'b'} (not a map, which has key: value), or set() for an empty Python set. */
+function setItems(v: string): Set<string> | null {
+  if (v === 'set()') return new Set();
+  const m = /^\{(.*)\}$/.exec(v);
+  if (!m) return null;
+  const items = listItems(`[${m[1]}]`);
+  if (!items || items.some((x) => /^("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|-?\d+(?:\.\d+)?|\w+): /.test(x))) return null;
+  return new Set(items);
+}
+
 /** The class a constructor frame makes: "new Dog(...)" (Java) or "Dog::Dog(...)" (C++). */
 function madeBy(frameName: string): RegExpExecArray | null {
   return /^new (\w+)\(/.exec(frameName) ?? /^(\w+)::\1\(/.exec(frameName);
@@ -650,6 +660,19 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
       }
       if (removed.length === 1 && !added.length && !changed.length) return { sub: 'assign-change', variants: [`${removed[0]} is taken out of ${t}.`] };
       if (!now.size && was.size) return { sub: 'assign-change', variants: [`${t} is emptied: it has no keys now.`] };
+    }
+  }
+  // Sets: one item added or taken out; adding one that is already there changes nothing.
+  if (changes.length === 1) {
+    const c = changes[0];
+    const was = setItems(before[c.t] ?? '');
+    const now = setItems(f.top.vars[c.t]);
+    if (was && now && c.kind !== 'new') {
+      const added = [...now].filter((x) => !was.has(x));
+      const removed = [...was].filter((x) => !now.has(x));
+      if (added.length === 1 && !removed.length) return { sub: 'assign-change', variants: [`${sayValue(added[0])} is added to ${c.t}.`, `${c.t} gets ${sayValue(added[0])}.`] };
+      if (removed.length === 1 && !added.length) return { sub: 'assign-change', variants: [`${sayValue(removed[0])} is taken out of ${c.t}.`] };
+      if (!added.length && !removed.length) return { sub: 'assign-same', variants: [`${c.t} does not change: a set holds each value only once.`] };
     }
   }
   // Pointers: "p now points to y instead of x." / "We make a pointer called p. It points to x."

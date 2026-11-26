@@ -218,6 +218,8 @@ _SAFE_INDEX_NODES = (
     ast.Add, ast.Sub, ast.Mult, ast.FloorDiv, ast.Mod, ast.USub, ast.UAdd,
 )
 _LIST_MUTATORS = {"append", "insert", "pop", "remove", "sort", "reverse", "extend", "clear"}
+# Methods that change a list, set or dictionary in place (the line is an assign step).
+_CHANGERS = _LIST_MUTATORS | {"add", "discard", "update", "setdefault", "popitem"}
 
 
 def _safe_index(node):
@@ -377,7 +379,7 @@ def _line_kinds(tree, source):
             and isinstance(node.value, ast.Call)
             and isinstance(node.value.func, ast.Attribute)
             and isinstance(node.value.func.value, ast.Name)
-            and node.value.func.attr in _LIST_MUTATORS
+            and node.value.func.attr in _CHANGERS
         ):
             info[node.lineno] = {"kind": "assign", "targets": [node.value.func.value.id]}
         elif isinstance(node, ast.Delete):

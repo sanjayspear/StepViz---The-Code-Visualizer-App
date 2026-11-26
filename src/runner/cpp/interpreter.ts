@@ -61,7 +61,7 @@ import {
 // Values
 
 type Prim = 'int' | 'long' | 'double' | 'bool' | 'char' | 'string';
-type CType = Prim | 'vector' | 'array' | 'void' | 'auto' | 'exception' | 'struct' | 'pointer' | 'map' | 'iter';
+type CType = Prim | 'vector' | 'array' | 'void' | 'auto' | 'exception' | 'struct' | 'pointer' | 'map' | 'iter' | 'set';
 
 /** A map's entries by key ("s:Sam", "n:3"): [key, value]. Shown and walked in key order, like std::map. */
 type MapEntries = Map<string, [CVal, CVal]>;
@@ -278,6 +278,8 @@ export function formatCpp(x: unknown): string | undefined {
       return pointerText(x, null);
     case 'map':
       return `{${sortedEntries(x.v as MapEntries).map(([k, v]) => `${formatCpp(k)}: ${formatCpp(v)}`).join(', ')}}`;
+    case 'set':
+      return `{${sortedEntries(x.v as MapEntries).map(([k]) => formatCpp(k)).join(', ')}}`;
     case 'vector':
     case 'array':
       if (x.elem === 'char') {
@@ -435,7 +437,7 @@ const FEATURES: Record<string, string> = {
 };
 
 const INCLUDES = new Set([
-  '<iostream>', '<vector>', '<string>', '<cmath>', '<algorithm>', '<iomanip>', '<utility>', '<climits>', '<bits/stdc++.h>', '<stdexcept>', '<exception>', '<map>',
+  '<iostream>', '<vector>', '<string>', '<cmath>', '<algorithm>', '<iomanip>', '<utility>', '<climits>', '<bits/stdc++.h>', '<stdexcept>', '<exception>', '<map>', '<set>',
 ]);
 const C_INCLUDES = new Set(['<stdio.h>', '<stdlib.h>', '<math.h>', '<string.h>', '<stdbool.h>', '<limits.h>']);
 
@@ -638,8 +640,10 @@ function checkSubset(tree: Tree): Program {
     if (n.type === 'template_type') {
       const name = n.childForFieldName('name')?.text;
       if (name === 'unordered_map') throw unsupported(n, 'unordered_map (map works)');
-      if (name !== 'vector' && name !== 'map') throw unsupported(n, name ?? 'templates');
+      if (name === 'unordered_set') throw unsupported(n, 'unordered_set (set works)');
+      if (name !== 'vector' && name !== 'map' && name !== 'set') throw unsupported(n, name ?? 'templates');
       const args = named(n.childForFieldName('arguments'));
+      if (name === 'set' && args.some((a) => /vector|map|set|</.test(a.text))) throw unsupported(n, 'sets of lists');
       if (name === 'map' && args.some((a) => /vector|map|set|</.test(a.text))) throw unsupported(n, 'maps of lists');
       // vector<vector<int>> is fine (a list of rows); vector<map<...>> and sets are not.
       if (name === 'vector' && args.some((a) => /map|set/.test(a.text))) throw unsupported(n, 'lists of maps');
@@ -692,6 +696,14 @@ function typeOf(typeNode: Node | null): DeclType {
     if (isStructItem(k)) throw unsupported(typeNode, 'maps with struct keys');
     return { t: 'map', kt: k, elem: v };
   }
+  if (typeNode?.type === 'template_type' && typeNode.childForFieldName('name')?.text === 'set') {
+    const arg = named(named(typeNode.childForFieldName('arguments'))[0]).find((c) => c.type !== 'type_qualifier') ?? null;
+    const elem = primOf(arg);
+    if (elem === 'void' || elem === 'auto') throw unsupported(typeNode, 'this kind of set');
+    if (isStructItem(elem)) throw unsupported(typeNode, 'sets of structs');
+    return { t: 'set', kt: elem, elem };
+  }
+  if (typeNode?.type === 'qualified_identifier' && /^std::(map|set)/.test(typeNode.text)) return typeOf(typeNode.childForFieldName('name'));
   if (typeNode?.type === 'qualified_identifier' && /map/.test(typeNode.text) && !/vector/.test(typeNode.text)) return typeOf(typeNode.childForFieldName('name'));
   // vector<int> as a type, or as the start of a value (vector<int>(4, 0)).
   if (typeNode?.type === 'template_type' || (typeNode?.type === 'template_function' && /vector$/.test(typeNode.childForFieldName('name')?.text ?? ''))) {
@@ -1461,6 +1473,14 @@ class Interp {
         binding.cell.v = { t: 'vector', elem: type.elem, v: items };
         continue;
       }
+      if (type.t === 'set') {
+        // set<int> s;  set<int> s = {3, 1, 2};  set<int> copy = other;
+        const set: CVal = { t: 'set', kt: type.kt, elem: type.elem, v: new Map() };
+        if (info.value?.type === 'initializer_list') for (const e of named(info.value)) this.setInsert(set, this.eval(e), e, info.name);
+        else if (info.value) binding.cell.v = this.copy(this.convert(this.eval(info.value), type, d, info.name));
+        if (!info.value || info.value.type === 'initializer_list') binding.cell.v = set;
+        continue;
+      }
       if (type.t === 'map') {
         // map<string, int> m;  m = {{"a", 1}, {"b", 2}};  map<...> copy = other;
         binding.cell.v = info.value ? this.mapFrom(info.value, type, d, info.name) : { t: 'map', kt: type.kt, elem: type.elem, v: new Map() };
@@ -1507,7 +1527,7 @@ class Interp {
   /** Lists, text and structs are copied when assigned or passed by value (a struct copies its arrays too). */
   private copy(v: CVal): CVal {
     if (v.t === 'vector') return { ...v, v: (v.v as CVal[]).map((x) => this.copy(x)) };
-    if (v.t === 'map') return { ...v, v: new Map([...(v.v as MapEntries)].map(([k, [key, val]]) => [k, [key, this.copy(val)] as [CVal, CVal]])) };
+    if (v.t === 'map' || v.t === 'set') return { ...v, v: new Map([...(v.v as MapEntries)].map(([k, [key, val]]) => [k, [key, this.copy(val)] as [CVal, CVal]])) };
     if (v.t === 'struct') {
       const fields = new Map<string, CVal>();
       for (const [k, x] of v.v as Map<string, CVal>) fields.set(k, x.t === 'array' ? { ...x, v: (x.v as CVal[]).map((y) => this.copy(y)) } : this.copy(x));
@@ -1541,6 +1561,45 @@ class Interp {
       entries.set(keyOf(key), entry);
     }
     return entry;
+  }
+
+  /** insert: a set holds each value once, in order. */
+  private setInsert(set: CVal, v: CVal, at: Node, name: string): boolean {
+    const key = this.convert(v, { t: set.elem! }, at, name);
+    const entries = set.v as MapEntries;
+    if (entries.has(keyOf(key))) return false;
+    entries.set(keyOf(key), [key, key]);
+    return true;
+  }
+
+  private setMethod(n: Node, objNode: Node, set: CVal, method: string, argNodes: Node[]): CVal {
+    const entries = set.v as MapEntries;
+    const value = () => this.convert(this.eval(argNodes[0]), { t: set.elem! }, argNodes[0], objNode.text);
+    switch (method) {
+      case 'insert':
+        this.setInsert(set, this.eval(argNodes[0]), argNodes[0], objNode.text);
+        return VOID;
+      case 'erase':
+        return int(entries.delete(keyOf(value())) ? 1 : 0);
+      case 'count':
+        return int(entries.has(keyOf(value())) ? 1 : 0);
+      case 'contains':
+        return bool(entries.has(keyOf(value())));
+      case 'size':
+        return lng(entries.size);
+      case 'empty':
+        return bool(entries.size === 0);
+      case 'clear':
+        entries.clear();
+        return VOID;
+      case 'find': {
+        const k = keyOf(value());
+        return { t: 'iter', v: entries.has(k) ? k : null };
+      }
+      case 'end':
+        return { t: 'iter', v: null };
+    }
+    throw unsupported(n, `set.${method}()`);
   }
 
   private mapMethod(n: Node, objNode: Node, m: CVal, method: string, argNodes: Node[]): CVal {
@@ -2018,8 +2077,8 @@ class Interp {
       }
       if (s.type === 'for_range_loop') {
         const list = this.eval(s.childForFieldName('right')!);
-        if (list.t !== 'vector' && list.t !== 'array' && list.t !== 'string') throw unsupported(s, 'this kind of range-for loop');
-        items = list.t === 'string' ? [...(list.v as string)].map(chr) : (list.v as CVal[]);
+        if (list.t !== 'vector' && list.t !== 'array' && list.t !== 'string' && list.t !== 'set') throw unsupported(s, 'this kind of range-for loop');
+        items = list.t === 'string' ? [...(list.v as string)].map(chr) : list.t === 'set' ? sortedEntries(list.v as MapEntries).map(([k]) => k) : (list.v as CVal[]);
         const declNode = s.childForFieldName('declarator')!;
         isRef = declNode.type === 'reference_declarator';
         if (isRef && list.t === 'string') throw unsupported(s, 'range-for loops with & over text');
@@ -2238,8 +2297,8 @@ class Interp {
   private convert(v: CVal, to: { t: CType; elem?: Prim; cls?: string; pt?: DeclType; kt?: Prim }, at: Node, name: string): CVal {
     if (v === UNSET_VAL) throw new CppCrash('Uninitialized', `${name} was given a value that has no value yet`);
     const t = to.t;
-    if (t === 'map' || v.t === 'map') {
-      if (t === 'auto' || (t === 'map' && v.t === 'map' && v.kt === to.kt && v.elem === to.elem)) return v;
+    if (t === 'map' || v.t === 'map' || t === 'set' || v.t === 'set') {
+      if (t === 'auto' || (t === v.t && v.kt === to.kt && v.elem === to.elem)) return v;
       return this.mismatch(v, to, at, name);
     }
     if (t === 'pointer' || v.t === 'pointer') {
@@ -2274,7 +2333,7 @@ class Interp {
 
   private mismatch(v: CVal, to: { t: CType; elem?: Prim; cls?: string; pt?: DeclType; kt?: Prim }, at: Node, name: string): never {
     const typeText = (d?: DeclType): string => (!d ? '?' : d.t === 'struct' ? d.cls! : d.t === 'vector' ? `vector<${d.elem}>` : d.t);
-    const what = to.t === 'map' ? `map<${to.kt}, ${to.elem}>` : to.t === 'pointer' ? `${typeText(to.pt)}*` : to.t === 'vector' ? `vector<${to.elem}>` : to.t === 'struct' ? to.cls! : to.t;
+    const what = to.t === 'set' ? `set<${to.elem}>` : to.t === 'map' ? `map<${to.kt}, ${to.elem}>` : to.t === 'pointer' ? `${typeText(to.pt)}*` : to.t === 'vector' ? `vector<${to.elem}>` : to.t === 'struct' ? to.cls! : to.t;
     throw new CompileError(lineOf(at), `${name} is ${/^[aeiou]/.test(what) ? 'an' : 'a'} ${what} box, so it can't hold ${formatCpp(v)}.`);
   }
 
@@ -2428,6 +2487,8 @@ class Interp {
         return this.stream.boolalpha ? String(v.v) : v.v ? '1' : '0';
       case 'vector':
       case 'array':
+      case 'set':
+      case 'map':
         throw unsupported(at, 'printing a whole list with cout');
       case 'struct': {
         const first = structs.get(v.cls!)!.fields[0]?.name ?? 'x';
@@ -2724,6 +2785,7 @@ class Interp {
       if (obj.t === 'exception' && method === 'what' && !argNodes.length) return strv(obj.v as string);
       if (obj.t === 'vector') return this.vectorMethod(n, objNode, obj, method, argNodes);
       if (obj.t === 'map') return this.mapMethod(n, objNode, obj, method, argNodes);
+      if (obj.t === 'set') return this.setMethod(n, objNode, obj, method, argNodes);
       let target = obj;
       let viaPointer: string | null = null;
       if (obj.t === 'pointer') {

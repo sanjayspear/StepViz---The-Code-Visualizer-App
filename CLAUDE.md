@@ -59,8 +59,7 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      HashMap/TreeMap/LinkedHashMap (done), P2 C/C++ pointer arithmetic + new/delete
      (done), K2 Java inheritance (done), C5 C++ inheritance (done). That list is
      finished. Then (2026-11-26, my order): try-line step removed in Python/JS
-     (done), I1 Java interfaces + Comparable (done), S2 sets (Java HashSet/
-     TreeSet/LinkedHashSet, C++ std::set).
+     (done), I1 Java interfaces + Comparable (done), S2 sets (done).
 
 Phase 1 covers:
 
@@ -315,6 +314,18 @@ Playwright tests. Static build for GitHub Pages.
   write class P implements Comparable<P> with a compareTo method." Unsupported:
   constants in interfaces, generic interfaces of the program, lambdas,
   Comparator, TreeMap/TreeSet with object keys.
+- Sets (S2): Java HashSet (printed in Java's HashMap order), TreeSet (sorted,
+  first/last), LinkedHashSet (as added); Set<T> as the box type; add (true if it
+  was new), remove, contains, size, isEmpty, clear, addAll / removeAll /
+  retainAll / containsAll; new HashSet<>(list or List.of(...)), new
+  ArrayList<>(set); for-each (changing the set inside it is a
+  ConcurrentModificationException). C++ std::set<int/string/...> (sorted):
+  insert, erase, count, contains, find(x) != end(), size, empty, clear,
+  range-for. Frames: s = {"pear", "fig"} / {1, 3, 5}. Sentences (all languages,
+  Python sets too): ""pear" is added to seen." / ""apple" is taken out of seen."
+  / "s does not change: a set holds each value only once." Python's add,
+  discard, update, setdefault, popitem now count as changes. Unsupported: sets
+  of the program's objects or structs, unordered_set, Set.of.
 - C++ inheritance (C5): class Dog : public Animal (one public base; struct bases
   are public by default). Members of all levels (base first): Dog {name: "Rex",
   breed: "Lab"}. The base part is made first, in a frame "Animal::Animal("Rex")"
@@ -433,7 +444,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`; 194 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`; 201 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

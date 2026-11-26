@@ -202,3 +202,10 @@ test('dictionaries read key by key, like C++ maps', () => {
   expect(e[2].what).toBe("d['a'] changes from 1 to 5.");
   expect(e[3].what).toBe("'a' is taken out of d.");
 });
+
+test('Python sets read item by item, like Java and C++ sets', () => {
+  const e = explainTrace(pyTrace('s = set()\ns.add(3)\ns.add(3)\ns.discard(3)'));
+  expect(e[1].what).toMatch(/^(3 is added to s|s gets 3)\.$/);
+  expect(e[2].what).toBe('s does not change: a set holds each value only once.');
+  expect(e[3].what).toBe('3 is taken out of s.');
+});
