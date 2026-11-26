@@ -61,7 +61,7 @@ import {
 // Values
 
 type Prim = 'int' | 'long' | 'double' | 'bool' | 'char' | 'string';
-type CType = Prim | 'vector' | 'array' | 'void' | 'auto' | 'exception' | 'struct' | 'pointer' | 'map' | 'iter' | 'set';
+type CType = Prim | 'vector' | 'array' | 'void' | 'auto' | 'exception' | 'struct' | 'pointer' | 'map' | 'iter' | 'set' | 'stream';
 
 /** A map's entries by key ("s:Sam", "n:3"): [key, value]. Shown and walked in key order, like std::map. */
 type MapEntries = Map<string, [CVal, CVal]>;
@@ -276,6 +276,8 @@ export function formatCpp(x: unknown): string | undefined {
       return structText(x, 0);
     case 'pointer':
       return pointerText(x, null);
+    case 'stream':
+      return 'cout';
     case 'map':
       return `{${sortedEntries(x.v as MapEntries).map(([k, v]) => `${formatCpp(k)}: ${formatCpp(v)}`).join(', ')}}`;
     case 'set':
@@ -513,15 +515,16 @@ function readStruct(spec: Node, name: string): CStruct {
         if (m.type === 'function_definition' && named(m.childForFieldName('body')).length) throw unsupported(m, 'destructors with code in them');
         continue;
       }
-      if (inner.type === 'operator_name') throw unsupported(m, 'operator overloading');
+      if (inner.type === 'operator_name' && !OPERATOR_OK.test(inner.text.replace(/\s+/g, ''))) throw unsupported(m, `the operator ${inner.text}`);
       if (m.type === 'declaration') {
         // Dog(string n, int a);  defined later as Dog::Dog(...)
         continue;
       }
       if (inner.text === name) info.ctors.push(m);
       else {
-        if (info.methods.has(inner.text)) throw unsupported(m, 'two methods with the same name');
-        info.methods.set(inner.text, m);
+        const key = inner.text.replace(/\s+/g, '');
+        if (info.methods.has(key)) throw unsupported(m, 'two methods with the same name');
+        info.methods.set(key, m);
         if (isPrivate) info.privateMethods.add(inner.text);
         if (isProtected) info.protectedMethods!.add(inner.text);
         if (isVirtual) info.virtuals!.add(inner.text);
@@ -533,13 +536,23 @@ function readStruct(spec: Node, name: string): CStruct {
   return info;
 }
 
-function functionName(def: Node): string {
-  const decl = def.childForFieldName('declarator')!;
-  return decl.childForFieldName('declarator')!.text;
+/** The function_declarator of a definition, also inside ostream& operator<<(...) (a reference_declarator). */
+function fnDeclarator(def: Node): Node {
+  let d = def.childForFieldName('declarator')!;
+  while (d.type === 'reference_declarator') d = named(d)[0];
+  return d;
 }
+function functionName(def: Node): string {
+  return fnDeclarator(def).childForFieldName('declarator')!.text;
+}
+
+/** The program's own operators written outside a struct (operator<<, operator<...), by name. */
+let operators = new Map<string, Node[]>();
+const OPERATOR_OK = /^operator(==|!=|<|>|<=|>=|\+|-|\*|\/|\+=|-=|<<)$/;
 
 function checkSubset(tree: Tree): Program {
   const functions = new Map<string, Node>();
+  operators = new Map();
   const globals: Node[] = [];
   structs = new Map();
   const outOfClass: Node[] = [];
@@ -583,6 +596,13 @@ function checkSubset(tree: Tree): Program {
         continue;
       case 'function_definition': {
         const name = functionName(n);
+        if (fnDeclarator(n).childForFieldName('declarator')?.type === 'operator_name') {
+          // bool operator<(const Point& a, const Point& b) / ostream& operator<<(ostream& os, const Point& p)
+          const key = name.replace(/\s+/g, '');
+          operators.set(key, [...(operators.get(key) ?? []), n]);
+          continue;
+        }
+        if (n.childForFieldName('declarator')?.type === 'reference_declarator') throw unsupported(n, 'functions that give back references');
         if (/::/.test(name)) {
           outOfClass.push(n); // int Dog::getAge() { ... }
           continue;
@@ -652,6 +672,12 @@ function checkSubset(tree: Tree): Program {
     for (const c of named(n)) visit(c);
   };
   for (const f of functions.values()) visit(f);
+  for (const list of operators.values()) {
+    for (const o of list) {
+      if (!OPERATOR_OK.test(functionName(o).replace(/\s+/g, ''))) throw unsupported(o, `the operator ${functionName(o).replace(/^operator/, '')}`);
+      visit(o);
+    }
+  }
   for (const g of globals) visit(g);
   for (const st of new Set(structs.values())) {
     for (const m of [...st.ctors, ...st.methods.values()]) visit(m);
@@ -724,6 +750,7 @@ function typeOf(typeNode: Node | null): DeclType {
   if (typeNode?.type === 'qualified_identifier' && /vector/.test(typeNode.text)) return typeOf(typeNode.childForFieldName('name'));
   const sname = structName(typeNode);
   if (sname) return { t: 'struct', cls: structs.get(sname)!.name };
+  if (/^(const\s+)?(std::)?ostream$/.test(typeNode?.text ?? '')) return { t: 'stream' };
   return { t: primOf(typeNode) };
 }
 
@@ -1165,7 +1192,7 @@ class Interp {
         if (e.type === 'update_expression') return { k: 'assign', t: [this.targetName(e.childForFieldName('argument')!)] };
         if (e.type === 'binary_expression') {
           const { head, items } = chain(e, '<<');
-          if (isStream(head, 'cout')) return { k: 'print' };
+          if (isStream(head, 'cout') || this.isStreamVar(head)) return { k: 'print' };
           const input = chain(e, '>>');
           if (isStream(input.head, 'cin')) return { k: 'input', t: input.items.map((i) => this.inputTarget(i)) };
           void items;
@@ -2204,8 +2231,8 @@ class Interp {
    * Run a function, a method (with `self`: this, the first variable of its frame)
    * or a constructor (with `making`: the new object; its member list runs first).
    */
-  private callFn(node: Node, f: Node, argNodes: Node[], self: CVal | null, label: string, making: CVal | null, st: CStruct | null, basePart = false): CVal {
-    const declarator = f.childForFieldName('declarator')!;
+  private callFn(node: Node, f: Node, argNodes: (Node | CVal)[], self: CVal | null, label: string, making: CVal | null, st: CStruct | null, basePart = false, fullLabel?: string): CVal {
+    const declarator = fnDeclarator(f);
     const params = named(declarator.childForFieldName('parameters')).filter((p) => p.type === 'parameter_declaration');
     const shown = label.replace(/^\w+::/, '');
     if (params.length !== argNodes.length) {
@@ -2221,7 +2248,14 @@ class Interp {
       const decl = p.childForFieldName('declarator');
       const info = decl ? declaratorInfo(decl) : { name: `arg${i}`, reference: false, arraySize: undefined, value: null };
       const type = typeOf(p.childForFieldName('type'));
-      const arg = argNodes[i];
+      const given = argNodes[i];
+      if (isCVal(given)) {
+        // A value already worked out (an operator's operands): a reference gets a box of its own.
+        scope.vars.set(info.name, { cell: { ...type, v: type.t === 'stream' ? given : this.copy(this.convert(given, type, node, info.name)) } });
+        names.push(info.name);
+        return;
+      }
+      const arg = given;
       if (info.reference) {
         // A reference shares the caller's box.
         if (arg.type !== 'identifier') throw unsupported(arg, 'passing this by reference');
@@ -2259,7 +2293,7 @@ class Interp {
       const text = v === UNSET ? '?' : v.t === 'pointer' ? pointerText(v, LABEL) : this.rt.fmt((v.t === 'vector' || v.t === 'array') && v.elem !== 'char' ? v.v : v);
       return text.replace(/ \(same box as [^)]*\)$/, '');
     });
-    this.rt.hooks.enter(label, this.namesId(names), this.getters(names, frame), self ? 1 : 0, `${label}(${shownArgs.join(', ')})`);
+    this.rt.hooks.enter(label, this.namesId(names), this.getters(names, frame), self ? 1 : 0, fullLabel ?? `${label}(${shownArgs.join(', ')})`);
     frame.label = this.rt.stack[this.rt.stack.length - 1].label;
     const ended: Binding[] = [];
     try {
@@ -2378,7 +2412,7 @@ class Interp {
     const op = n.childForFieldName('operator')!.type;
     if (op === '<<') {
       const { head, items } = chain(n, '<<');
-      if (isStream(head, 'cout')) return this.print(items);
+      if (isStream(head, 'cout') || this.isStreamVar(head)) return this.print(items);
     }
     if (op === '>>') {
       const { head, items } = chain(n, '>>');
@@ -2423,6 +2457,13 @@ class Interp {
       return bool(op === '==' ? same : !same);
     }
     if (a.t === 'struct' || b.t === 'struct') {
+      const own = this.callOperator(op, a, b, n.childForFieldName('left'), n, n.childForFieldName('right'));
+      if (own) return own;
+      // C++20: a != b uses the program's == (and gives the opposite answer).
+      if (op === '!=') {
+        const eq = this.callOperator('==', a, b, n.childForFieldName('left'), n, n.childForFieldName('right'));
+        if (eq) return bool(!this.truthy(eq));
+      }
       const s = (a.t === 'struct' ? a : b) as CVal;
       const first = structs.get(s.cls!)!.fields[0]?.name ?? 'x';
       if (['==', '!=', '<', '<=', '>', '>='].includes(op)) {
@@ -2474,9 +2515,56 @@ class Interp {
         continue;
       }
       const v = this.eval(item);
+      // cout << p with the program's own operator<<: it runs (its frame shows) and writes the text.
+      if (v.t === 'struct') {
+        const op = this.findFreeOperator('operator<<', [{ t: 'stream', v: null }, v]);
+        if (op) {
+          this.callFn(item, op, [{ t: 'stream', v: null }, v], null, 'operator<<', null, null, false, item.text.length <= 20 ? `operator<<(cout, ${item.text})` : undefined);
+          continue;
+        }
+      }
       this.rt.output += this.coutText(v, item);
     }
-    return VOID;
+    return { t: 'stream', v: null };
+  }
+
+  private isStreamVar(n: Node): boolean {
+    if (n.type !== 'identifier') return false;
+    const b = this.scope.lookup(n.text);
+    return !!b && b.cell.t === 'stream';
+  }
+
+  /** A free operator (written outside a struct) whose parameter types fit these values. */
+  private findFreeOperator(name: string, values: CVal[]): Node | null {
+    const fits = (p: Node, v: CVal) => {
+      const t = typeOf(p.childForFieldName('type'));
+      if (t.t === 'struct') return v.t === 'struct' && isDerived(v.cls!, t.cls!);
+      if (t.t === 'stream') return v.t === 'stream';
+      return t.t === v.t || (NUMERIC.has(t.t) && NUMERIC.has(v.t));
+    };
+    for (const def of operators.get(name) ?? []) {
+      const params = named(fnDeclarator(def).childForFieldName('parameters')).filter((p) => p.type === 'parameter_declaration');
+      if (params.length === values.length && params.every((p, i) => fits(p, values[i]))) return def;
+    }
+    return null;
+  }
+
+  /** a == b, a + b, a < b with the program's own operator (a method of a's struct, or a free one); null if there is none. */
+  private callOperator(op: string, a: CVal, b: CVal, leftNode: Node | null, at: Node, rightNode: Node | null = null): CVal | null {
+    const name = `operator${op}`;
+    // The label uses the operands as written, when they are short: a.operator+(b), operator<(a, b).
+    const text = (x: Node | null) => (x && x.text.length <= 20 ? x.text : null);
+    const l = text(leftNode);
+    const r = text(rightNode);
+    if (a.t === 'struct') {
+      const found = findStructMethod(a.cls!, name);
+      if (found) {
+        const label = leftNode?.type === 'identifier' ? `${leftNode.text}.${name}` : `${found.owner.name}::${name}`;
+        return this.callFn(at, found.m, [b], a, label, null, found.owner, false, l && r ? `${l}.${name}(${r})` : undefined);
+      }
+    }
+    const free = this.findFreeOperator(name, [a, b]);
+    return free ? this.callFn(at, free, [a, b], null, name, null, null, false, l && r ? `${name}(${l}, ${r})` : undefined) : null;
   }
 
   private coutText(v: CVal, at: Node): string {
@@ -2669,6 +2757,12 @@ class Interp {
         return { t: 'pointer', v: null };
       case 'new_expression':
         return this.newBox(n);
+      case 'compound_literal_expression': {
+        // Point{1, 2}: a new struct value
+        const t = typeOf(n.childForFieldName('type'));
+        if (t.t !== 'struct') throw unsupported(n, 'this kind of value');
+        return this.structFrom(n.childForFieldName('value')!, structs.get(t.cls!)!, t.cls!);
+      }
       case 'delete_expression':
         return this.deleteBox(n);
       case 'pointer_expression': {
@@ -2728,6 +2822,14 @@ class Interp {
         const current = this.readTarget(left);
         const right = this.eval(rightNode);
         const bin = op.slice(0, -1);
+        if (current.t === 'struct') {
+          // a += b: the struct's own operator+= (it changes a), or a = a + b with its operator+.
+          const found = findStructMethod(current.cls!, `operator${op}`);
+          if (found) return this.callFn(n, found.m, [right], current, `${left.text}.operator${op}`, null, found.owner, false, rightNode.text.length <= 20 ? `${left.text}.operator${op}(${rightNode.text})` : undefined);
+          const sum = this.callOperator(bin, current, right, left, n);
+          if (sum) return this.assignTo(left, sum);
+          throw new CompileError(lineOf(n), `${current.cls} has no operator${op} (or operator${bin}) for this.`);
+        }
         if (current.t === 'pointer') {
           // p += 2 / p -= 1
           if (bin !== '+' && bin !== '-') throw unsupported(n, 'this pointer arithmetic');
@@ -2880,7 +2982,30 @@ class Interp {
         const owner = (c: Node) => (c?.type === 'call_expression' ? c.childForFieldName('function')?.childForFieldName('argument')?.text : null);
         if (!owner(begin) || owner(begin) !== owner(end)) throw unsupported(n, 'sort like this');
         const list = this.eval(begin.childForFieldName('function')!.childForFieldName('argument')!);
-        if (isStructItem(list.elem)) throw new CompileError(lineOf(n), `sort can't put ${list.elem} values in order by itself.`);
+        if (isStructItem(list.elem)) {
+          // sort(v.begin(), v.end()) with the program's operator<: libstdc++'s insertion sort (its order of comparisons for up to 16 items).
+          const items = list.v as CVal[];
+          const less = (x: CVal, y: CVal) => {
+            const r = this.callOperator('<', x, y, null, n);
+            if (!r) throw new CompileError(lineOf(n), `sort can't put ${list.elem} values in order by itself: write bool operator<.`);
+            return this.truthy(r);
+          };
+          for (let i = 1; i < items.length; i++) {
+            const val = items[i];
+            if (less(val, items[0])) {
+              items.splice(i, 1);
+              items.unshift(val);
+            } else {
+              let j = i;
+              while (less(val, items[j - 1])) {
+                items[j] = items[j - 1];
+                j--;
+              }
+              items[j] = val;
+            }
+          }
+          return VOID;
+        }
         if (list.elem?.startsWith('vector<') || list.elem?.endsWith('[]')) throw unsupported(n, 'sorting a list of lists');
         (list.v as CVal[]).sort((x, y) => (x.t === 'string' ? String(x.v).localeCompare(String(y.v)) : this.num(x) - this.num(y)));
         return VOID;
