@@ -30,8 +30,9 @@ export type JavaMethod = [header: string, comment: string];
  * A starter: optional classes before Main (ListNode...), Main's methods, and main()'s body lines.
  * Every method is written `static` (headers here leave it out).
  */
-export function javaStarter(methods: JavaMethod[], mainBody: string, before = ''): string {
-  const ms = methods.map(([h, c]) => `    static ${h} {\n${body(c, `static ${h}`, '    ')}\n    }`).join('\n\n');
+export function javaStarter(methods: JavaMethod[], mainBody: string, before = '', helpers = ''): string {
+  const own = methods.map(([h, c]) => `    static ${h} {\n${body(c, `static ${h}`, '    ')}\n    }`).join('\n\n');
+  const ms = helpers ? `${helpers.replace(/\n+$/, '')}\n\n${own}` : own;
   const main = mainBody
     .split('\n')
     .map((l) => `        ${l}`)

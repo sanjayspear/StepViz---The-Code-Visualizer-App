@@ -183,6 +183,7 @@ class Writer {
   }
 
   private marker(type: string, m: Record<string, Any>): string {
+    if (!this.nodeType) this.nodeType = type;
     const item = (cls: string, v: Value) => `new ${cls}(${this.expr(this.valType(cls), v)})`;
     if ('$list' in m || '$cycle' in m) {
       const values: Value[] = m.$list ?? m.$cycle;
@@ -252,8 +253,9 @@ class Writer {
     throw new Error(`Practice tests can't write this ${type} value yet.`);
   }
 
-  /** The variables holding input nodes (for "copy" and "returns index"). */
+  /** The variables holding input nodes (for "copy" and "returns index"), and their class. */
   nodes: string[] = [];
+  nodeType = '';
   /** Node value types: TreeNode / ListNode hold int, the others too. */
   private valType(_cls: string) {
     return 'int';
@@ -392,7 +394,7 @@ export function checkJavaAnswer(parser: Parser, source: string, spec: { tests: P
             return name;
           });
         }
-        if (w.nodes.length) keep(m.params[0]?.type ?? 'ListNode', 'stepvizInput', w.nodes[0]);
+        if (w.nodes.length) keep(w.nodeType, 'stepvizInput', w.nodes[0]);
         const call = `${t.call}(${argNames.join(', ')})`;
         if (t.then) {
           const then = shape.methods.get('Main')!.get(t.then)!;
