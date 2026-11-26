@@ -15,6 +15,7 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { DYNAMIC_PROGRAMMING_C } from './c/dynamic-programming';
 import { SORTING_GREEDY_INTERVALS_C } from './c/sorting-greedy-intervals';
 import { RECURSION_BACKTRACKING_C } from './c/recursion-backtracking';
 import { BINARY_SEARCH_C } from './c/binary-search';
@@ -143,6 +144,7 @@ export const CPP_TOPICS: Record<string, PracticeContent[]> = {
 
 /** C content by topic id: only the questions that fit C (the others show C as coming soon). */
 export const C_TOPICS: Record<string, PracticeContent[]> = {
+  'dynamic-programming': DYNAMIC_PROGRAMMING_C,
   'sorting-greedy-intervals': SORTING_GREEDY_INTERVALS_C,
   'recursion-backtracking': RECURSION_BACKTRACKING_C,
   'binary-search': BINARY_SEARCH_C,

@@ -279,3 +279,28 @@ test('C++: a linked-list question builds its list input and reads the answer bac
   await page.getByRole('button', { name: 'Run tests' }).click();
   await expect(page.getByText(/of 6 tests passed/)).toBeVisible({ timeout: 30_000 });
 });
+
+test('C: the starter, Run tests in the C worker, Visualize my code, an array question; a question that needs lists says coming soon', async ({ page }) => {
+  await page.goto('./#/practice/q/3?from=basics-math');
+  await page.locator('.practice-question select').selectOption('c');
+  await expect(page.getByText('Example: digitSum(1234) returns 10.')).toBeVisible();
+  await expect(answer(page)).toContainText('int digitSum(int n) {');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  // The starter's placeholder return 0 passes digitSum(0) only.
+  await expect(page.getByText('1 of 5 tests passed')).toBeVisible({ timeout: 30_000 });
+  await typeAnswer(page, '#include <stdio.h>\n\nint digitSum(int n) {\n    int t = 0;\n    while (n > 0) {\n        t += n % 10;\n        n /= 10;\n    }\n    return t;\n}\n\nint main() {\n    printf("%d\\n", digitSum(42));\n    return 0;\n}\n');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.getByText('5 of 5 tests passed')).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('button', { name: 'Visualize my code' }).click();
+  await expect(page.getByRole('button', { name: /New code/ })).toBeVisible({ timeout: 30_000 });
+  // An array question: the length is passed after the array.
+  await page.goto('./#/practice/q/64?from=arrays-matrices');
+  await page.locator('.practice-question select').selectOption('c');
+  await expect(answer(page)).toContainText('int singleNumber(int nums[], int n) {');
+  await typeAnswer(page, '#include <stdio.h>\n\nint singleNumber(int nums[], int n) {\n    int x = 0;\n    for (int i = 0; i < n; i++) x ^= nums[i];\n    return x;\n}\n\nint main() {\n    return 0;\n}\n');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.getByText(/^(\d+) of \1 tests passed$/)).toBeVisible({ timeout: 30_000 });
+  // Q1 gives back a list, which C can't do without malloc.
+  await page.goto('./#/practice/q/1?from=basics-math');
+  await expect(page.locator('.practice-question select option', { hasText: 'C (coming soon)' })).toHaveCount(1);
+});
