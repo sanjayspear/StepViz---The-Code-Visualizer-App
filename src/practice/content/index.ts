@@ -15,6 +15,9 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { SORTING_GREEDY_INTERVALS_JS } from './javascript/sorting-greedy-intervals';
+import { DYNAMIC_PROGRAMMING_JS } from './javascript/dynamic-programming';
+import { GRAPHS_JS } from './javascript/graphs';
 import { TREES_BST_JS } from './javascript/trees-bst';
 import { LINKED_LISTS_JS } from './javascript/linked-lists';
 import { RECURSION_BACKTRACKING_JS } from './javascript/recursion-backtracking';
@@ -47,6 +50,9 @@ export const PYTHON_TOPICS: Record<string, PracticeContent[]> = {
 
 /** JavaScript content by topic id (tests from the Python content, see javascript/shared.ts). */
 export const JS_TOPICS: Record<string, PracticeContent[]> = {
+  'sorting-greedy-intervals': SORTING_GREEDY_INTERVALS_JS,
+  'dynamic-programming': DYNAMIC_PROGRAMMING_JS,
+  graphs: GRAPHS_JS,
   'trees-bst': TREES_BST_JS,
   'linked-lists': LINKED_LISTS_JS,
   'recursion-backtracking': RECURSION_BACKTRACKING_JS,

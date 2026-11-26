@@ -396,6 +396,22 @@ Playwright tests. Static build for GitHub Pages.
   carries from / q / d / hide), back to that list. Filters and typing update
   the URL in place (Back leaves the list). Daily count resets at local
   midnight (also while the page stays open); DAILY_GOAL in progress.ts.
+  P2 (JavaScript, owner 2026-11-26: "complete practice content for all
+  programs", order JavaScript, Java, C++, C, then worked answers): done for
+  all 320 questions. src/practice/jsHarness.ts is the twin of harness.py, run
+  in the locked-down JavaScript worker (message 'check'): Acorn syntax
+  messages, rules by tokens (text in quotes shows as "…" and regular
+  expressions as /…/ to patterns, so "+ \"\"" and /x/ can be caught), one
+  untraced run with a time check at every loop round and call, then each test
+  with its own limit; undefined counts as null, a Map or object answer
+  compares by its keys as text. Content in src/practice/content/javascript/
+  <topic>.ts via fromPython(): tests are the Python ones with camelCase names;
+  example, starter, rule and any hint that talks Python are JavaScript
+  (tests/practice-js.spec.ts checks no Python words are left and every Python
+  rule has a JavaScript version or null). Reference solutions in
+  tests/practice/js/<topic>.solutions.ts. Linked list / tree starters carry a
+  JavaScript ListNode / TreeNode with build / toList / buildTree helpers. Run
+  tests and Visualize my code follow the language picker.
   P2 (Python): done for all 320 questions, all 14 topics (owner on
   2026-11-26: "do for remaining all ... questions"; no per-topic stops). Content in
   src/practice/content/python/<topic>.ts (example, starter, tests, hint ending
