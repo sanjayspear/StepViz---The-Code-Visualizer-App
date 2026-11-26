@@ -8,12 +8,18 @@ import { createParser } from './treeSitter';
 import { checkJava, javaReadsInput, runJava } from './java/interpreter';
 import { lockDown } from './lockdown';
 import type { TreeFromWorker, TreeToWorker } from './protocol';
+import { checkJavaAnswer } from '../practice/javaHarness';
 
 declare const self: DedicatedWorkerGlobalScope;
 
 self.onmessage = async (event: MessageEvent<TreeToWorker>) => {
   const msg = event.data;
   const parser = await createParser(msg.files);
+  if (msg.type === 'check') {
+    const result = checkJavaAnswer(parser, msg.source, JSON.parse(msg.spec), { maxSeconds: msg.maxSeconds, beforeRun: lockDown });
+    self.postMessage({ type: 'check-result', result } satisfies TreeFromWorker);
+    return;
+  }
   const tree = parser.parse(msg.source);
   if (!tree) throw new Error('Java could not be read.');
   if (msg.type === 'analyze') {
@@ -22,7 +28,7 @@ self.onmessage = async (event: MessageEvent<TreeToWorker>) => {
       ? { ok: false as const, error: { line: problem.line, message: problem.message } }
       : { ok: true as const, readsInput: javaReadsInput(tree) };
     self.postMessage({ type: 'analyze-result', result } satisfies TreeFromWorker);
-  } else {
+  } else if (msg.type === 'run') {
     const result = runJava(tree, { maxSteps: msg.maxSteps, maxSeconds: msg.maxSeconds, input: msg.input, beforeRun: lockDown });
     self.postMessage({ type: 'run-result', result } satisfies TreeFromWorker);
   }

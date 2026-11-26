@@ -1427,6 +1427,12 @@ class Interp {
   /** Static variables by the name the static frame shows (count, Dog.total). */
   private statics = new Map<string, Cell & { owner: string; info: NonNullable<ClassInfo['statics']>[number] }>();
 
+  /** Practice tests: the value of one of Main's static variables after the run (undefined if unset). */
+  staticValue(name: string): JVal | undefined {
+    const cell = this.statics.get(name);
+    return cell && cell.v !== UNSET ? (cell.v as JVal) : undefined;
+  }
+
   /** count / total used by name: a static of this class (or the classes above), or of Main for a class inside Main. */
   private staticCell(name: string): (Cell & { owner: string; info: NonNullable<ClassInfo['statics']>[number] }) | undefined {
     for (let c = this.classes.get(this.currentClass); c; c = c.parent ? this.classes.get(c.parent) : undefined) {
@@ -4597,5 +4603,44 @@ export function runJava(tree: Tree, opts: RunOptions & { input?: string }): RawR
     } else throw e;
   }
   return finishRun(rt, plan, status, error);
+}
+
+/** What a quiet run (Practice tests) gives back: how it ended, what it printed, and Main's static variables. */
+export interface QuietJavaRun {
+  status: 'ok' | 'compile-error' | 'runtime-error' | 'timeout' | 'too-deep';
+  output: string;
+  error?: { line: number | null; type: string; message: string };
+  value: (name: string) => JVal | undefined;
+}
+
+/** Practice tests: run a Java program without recording steps (only the time limit applies). */
+export function runJavaQuiet(tree: Tree, opts: { maxSeconds: number; beforeRun?: () => void }): QuietJavaRun {
+  const problem = checkJava(tree);
+  const none = () => undefined;
+  if (problem) return { status: 'compile-error', output: '', error: { line: problem.line, type: 'CompileError', message: problem.message }, value: none };
+  const { main, classes } = checkSubset(tree);
+  nextId = 1;
+  const interp = new Interp(classes, { candidates: [], loopOf: {} } as unknown as ListPlan, { maxSteps: Infinity, maxSeconds: opts.maxSeconds, quiet: true });
+  const rt = interp.rt;
+  const value = (name: string) => interp.staticValue(name);
+  opts.beforeRun?.();
+  try {
+    try {
+      interp.runMain(main);
+    } catch (e) {
+      rt.hooks.thrown(e);
+      throw e;
+    }
+  } catch (e) {
+    if (e instanceof CompileError) return { status: 'compile-error', output: rt.output, error: { line: e.line, type: 'CompileError', message: e.message }, value };
+    if (e instanceof StopRun) return { status: (e as StopRun & { reason?: string }).reason === 'depth' ? 'too-deep' : 'timeout', output: rt.output, value };
+    if (e instanceof RangeError && /call stack/i.test(e.message)) return { status: 'too-deep', output: rt.output, value };
+    if (e instanceof JavaException) {
+      const crash = recordCrash(rt, e.javaType, e.message);
+      return { status: 'runtime-error', output: rt.output, error: { line: crash.line, type: e.javaType, message: e.message }, value };
+    }
+    throw e;
+  }
+  return { status: 'ok', output: rt.output, value };
 }
 

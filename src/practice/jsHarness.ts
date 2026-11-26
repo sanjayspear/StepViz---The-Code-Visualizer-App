@@ -335,7 +335,7 @@ export function exportValue(value: Any, depth = 0): Value {
   return out;
 }
 
-function nodesOf(value: Any): Any[] {
+export function nodesOf(value: Any): Any[] {
   const found: Any[] = [];
   const seen = new Set<Any>();
   const todo = [value];
@@ -379,9 +379,9 @@ export function textOf(value: Value): string {
 
 // ---- comparing --------------------------------------------------------------------------------
 
-const keyOf = (v: Value): string => JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort()) : x));
+export const keyOf = (v: Value): string => JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort()) : x));
 
-function same(got: Value, expected: Value, how = 'exact'): boolean {
+export function same(got: Value, expected: Value, how = 'exact'): boolean {
   if (how === 'unordered' && Array.isArray(got) && Array.isArray(expected)) {
     return same([...got].sort((a, b) => (keyOf(a) < keyOf(b) ? -1 : 1)), [...expected].sort((a, b) => (keyOf(a) < keyOf(b) ? -1 : 1)));
   }
@@ -446,7 +446,7 @@ function isBalanced(values: Value[]): boolean {
   return !nodes.length || height(0) >= 0;
 }
 
-function shapeOk(how: string, got: Value, args: Value[], expected: Value): boolean {
+export function shapeOk(how: string, got: Value, args: Value[], expected: Value): boolean {
   if (how === 'topo') {
     const [n, pre] = args as [number, number[][]];
     if (expected === false) return Array.isArray(got) && got.length === 0;
@@ -479,7 +479,7 @@ function shapeOk(how: string, got: Value, args: Value[], expected: Value): boole
 
 // ---- describing tests -------------------------------------------------------------------------
 
-function shownCall(t: PracticeTest): string {
+export function shownCall(t: PracticeTest): string {
   if (t.call === '$ops') {
     const ops = t.ops ?? [];
     return ops.map((op, i) => `${i === 0 ? 'new ' : ''}${op[0]}(${op.slice(1).map(textOf).join(', ')})`).join('; ');
@@ -494,7 +494,7 @@ function shownCall(t: PracticeTest): string {
   return t.then ? `${t.then}(${text})` : text;
 }
 
-function expectedText(t: PracticeTest): string {
+export function expectedText(t: PracticeTest): string {
   const how = t.compare ?? 'exact';
   if (how === 'output') return JSON.stringify(t.expected);
   if (how === 'topo') return t.expected !== false ? 'an order where each course comes after the ones it needs' : '[] (no order is possible)';

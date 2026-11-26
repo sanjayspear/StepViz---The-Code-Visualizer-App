@@ -24,6 +24,7 @@ import type { CodeLanguage } from '../../examples';
 import { contentFor } from '../../practice/content';
 import { pythonRunner } from '../../runner/pythonRunner';
 import { checkJavaScript } from '../../runner/jsRunner';
+import { checkJavaProgram } from '../../runner/javaRunner';
 import type { CheckResult, CheckTestResult } from '../../runner/protocol';
 import { CodeEditor } from '../Home/CodeEditor';
 import './Practice.css';
@@ -383,7 +384,10 @@ function QuestionPage({ id, scope, filters, progress, onVisualize }: { id: numbe
     setPromptOpen(false);
     try {
       const spec = JSON.stringify({ tests: content.tests, forbid: content.forbid });
-      const r = language === 'javascript' ? await checkJavaScript(code, spec) : await pythonRunner.check(code, spec);
+      const r =
+        language === 'javascript' ? await checkJavaScript(code, spec)
+        : language === 'java' ? await checkJavaProgram(code, spec)
+        : await pythonRunner.check(code, spec);
       setResult(r);
       const all = r.status === 'ok' && r.results.length > 0 && r.results.every((t) => t.passed);
       if (all && !progress.isSolved(q.id)) setPromptOpen(true);

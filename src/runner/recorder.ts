@@ -170,6 +170,8 @@ export interface RunOptions {
   rootLabel?: string;
   /** Short text for a value; return undefined to use the default. */
   format?: (v: unknown) => string | undefined;
+  /** Practice tests: keep the time limit and the output, but record no steps (no step limit either). */
+  quiet?: boolean;
 }
 
 export class Recorder {
@@ -297,6 +299,7 @@ export class Recorder {
   }
 
   record(line: number, opts: Parameters<Recorder['snapshot']>[1] = {}) {
+    if (this.opts.quiet) return { line, frames: [], output: '', kind: 'other' } as Recorder['steps'][number];
     if (this.steps.length >= this.opts.maxSteps) throw new StopRun('steps');
     const step = this.snapshot(line, opts);
     this.steps.push(step);

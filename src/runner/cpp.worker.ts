@@ -22,7 +22,7 @@ self.onmessage = async (event: MessageEvent<TreeToWorker>) => {
       ? { ok: false as const, error: { line: problem.line, message: problem.message } }
       : { ok: true as const, readsInput: cppReadsInput(tree) };
     self.postMessage({ type: 'analyze-result', result } satisfies TreeFromWorker);
-  } else {
+  } else if (msg.type === 'run') {
     const result = runCpp(tree, {
       maxSteps: msg.maxSteps,
       maxSeconds: msg.maxSeconds,

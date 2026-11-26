@@ -1,6 +1,6 @@
 // Main-thread side of the Java runner: a fresh worker per call, terminated
 // afterwards, with the same watchdog as the other runners.
-import type { RawRunResult, SyntaxErrorInfo, TreeFromWorker, TreeToWorker } from './protocol';
+import type { CheckResult, RawRunResult, SyntaxErrorInfo, TreeFromWorker, TreeToWorker } from './protocol';
 import { MAX_SECONDS, MAX_STEPS } from './pythonRunner';
 
 const WATCHDOG_GRACE_MS = 1500;
@@ -48,4 +48,13 @@ export async function runJavaProgram(source: string, input = ''): Promise<RawRun
     MAX_SECONDS * 1000 + WATCHDOG_GRACE_MS + 5000, // + time to load tree-sitter
   );
   return reply ? reply.result : { status: 'cap', steps: [], error: null };
+}
+
+/** Practice: run an answer against its tests (5 s in all, 2 s per test, + time to load tree-sitter). */
+export async function checkJavaProgram(source: string, spec: string): Promise<CheckResult> {
+  const reply = await inWorker<Extract<TreeFromWorker, { type: 'check-result' }>>(
+    { type: 'check', source, spec, maxSeconds: MAX_SECONDS, files: files() },
+    MAX_SECONDS * 1000 + WATCHDOG_GRACE_MS + 5000,
+  );
+  return reply ? reply.result : { status: 'timeout', results: [] };
 }

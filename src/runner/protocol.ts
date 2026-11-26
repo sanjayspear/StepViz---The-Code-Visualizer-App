@@ -87,7 +87,7 @@ export type JsFromWorker =
   | { type: 'check-result'; result: CheckResult };
 
 // Java (and later C++/C) worker: tree-sitter files come from our own site.
-export type TreeToWorker = Exclude<JsToWorker, { type: 'check' }> & {
+export type TreeToWorker = (Exclude<JsToWorker, { type: 'check' }> | { type: 'check'; source: string; spec: string; maxSeconds: number }) & {
   files: { engine: string; grammar: string };
   input?: string;
   /** C++ worker: 'c' runs the program as C */
@@ -95,4 +95,5 @@ export type TreeToWorker = Exclude<JsToWorker, { type: 'check' }> & {
 };
 export type TreeFromWorker =
   | { type: 'analyze-result'; result: { ok: true; readsInput: boolean } | { ok: false; error: SyntaxErrorInfo } }
-  | { type: 'run-result'; result: RawRunResult };
+  | { type: 'run-result'; result: RawRunResult }
+  | { type: 'check-result'; result: CheckResult };

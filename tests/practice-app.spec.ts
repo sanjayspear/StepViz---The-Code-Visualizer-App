@@ -231,3 +231,23 @@ test('JavaScript: the starter, Run tests in the JavaScript worker, a rule, and V
   await expect(page.getByRole('button', { name: /New code/ })).toBeVisible();
   await expect(page.locator('body')).toContainText('digitSum(42)');
 });
+
+test('Java: the starter, Run tests in the Java worker, a rule, and Visualize my code', async ({ page }) => {
+  await page.goto('./#/practice/q/3?from=basics-math');
+  await page.locator('.practice-question select').selectOption('java');
+  await expect(page.getByText('Example: digitSum(1234) returns 10.')).toBeVisible();
+  await expect(answer(page)).toContainText('static int digitSum(int n) {');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  // The starter's placeholder return 0 passes digitSum(0) only.
+  await expect(page.getByText('1 of 5 tests passed')).toBeVisible({ timeout: 30_000 });
+  await typeAnswer(page, 'public class Main {\n    static int digitSum(int n) {\n        int t = 0;\n        while (n > 0) {\n            t += n % 10;\n            n /= 10;\n        }\n        return t;\n    }\n\n    public static void main(String[] args) {\n        System.out.println(digitSum(42));\n    }\n}\n');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.getByText('5 of 5 tests passed')).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('button', { name: 'Visualize my code' }).click();
+  await expect(page.getByRole('button', { name: /New code/ })).toBeVisible({ timeout: 30_000 });
+  await page.goto('./#/practice/q/2?from=basics-math');
+  await page.locator('.practice-question select').selectOption('java');
+  await typeAnswer(page, 'public class Main {\n    static boolean isEven(int n) {\n        return n % 2 == 0;\n    }\n\n    public static void main(String[] args) {\n    }\n}\n');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.getByText('Line 3: This question asks you to find the answer without %. Your code uses %.')).toBeVisible({ timeout: 30_000 });
+});

@@ -15,6 +15,7 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { BASICS_MATH_JAVA } from './java/basics-math';
 import { SORTING_GREEDY_INTERVALS_JS } from './javascript/sorting-greedy-intervals';
 import { DYNAMIC_PROGRAMMING_JS } from './javascript/dynamic-programming';
 import { GRAPHS_JS } from './javascript/graphs';
@@ -67,9 +68,15 @@ export const JS_TOPICS: Record<string, PracticeContent[]> = {
 };
 
 const byId = (topics: Record<string, PracticeContent[]>) => new Map(Object.values(topics).flatMap((list) => list.map((c) => [c.id, c] as const)));
+/** Java content by topic id (tests from the Python content; answers run in StepViz's Java interpreter). */
+export const JAVA_TOPICS: Record<string, PracticeContent[]> = {
+  'basics-math': BASICS_MATH_JAVA,
+};
+
 const BY_LANGUAGE: Partial<Record<CodeLanguage, Map<number, PracticeContent>>> = {
   python: byId(PYTHON_TOPICS),
   javascript: byId(JS_TOPICS),
+  java: byId(JAVA_TOPICS),
 };
 
 export function contentFor(id: number, language: CodeLanguage): PracticeContent | undefined {
