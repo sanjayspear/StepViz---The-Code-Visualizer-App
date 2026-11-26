@@ -395,9 +395,10 @@ def _line_kinds(tree, source):
 
 def _try_lines(tree):
     """Lines of try statements: except headers, except bodies, finally bodies, raise statements."""
-    headers, handlers, finals, raises = set(), set(), set(), set()
+    headers, handlers, finals, raises, trys = set(), set(), set(), set(), set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Try):
+            trys.add(node.lineno)
             for h in node.handlers:
                 headers.add(h.lineno)
                 rng = _block_range(h.body)
@@ -408,7 +409,7 @@ def _try_lines(tree):
                 finals.update(range(rng[0], rng[1] + 1))
         elif isinstance(node, ast.Raise):
             raises.add(node.lineno)
-    return headers, handlers, finals, raises
+    return headers, handlers, finals, raises, trys
 
 
 def _in_range(line, rng):
@@ -508,7 +509,7 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
     plan = _ListPlan()
     plan.visit(tree)
     kinds = _line_kinds(tree, source)
-    except_headers, except_lines, finally_lines, raise_lines = _try_lines(tree)
+    except_headers, except_lines, finally_lines, raise_lines, try_lines = _try_lines(tree)
     list_names = plan.candidates + [n for n in plan.weak if n not in plan.candidates]
 
     out = io.StringIO()
@@ -676,6 +677,9 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
                 record_line(entry, frame.f_lineno)  # the previous line in this frame has finished
             entry[2] = frame.f_lineno
             entry[3] = False
+            if frame.f_lineno in try_lines:
+                entry[2] = None  # the try line itself is not a step (like Java and C++)
+                return local_trace
             if frame.f_lineno in plan.swaps and record_swap_before(frame, frame.f_lineno):
                 entry[2] = None  # already shown; the next step shows the swapped list
         elif event == "exception":

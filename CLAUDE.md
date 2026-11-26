@@ -235,9 +235,8 @@ Playwright tests. Static build for GitHub Pages.
   cause, printStackTrace; C++ custom exception classes, throw; outside a catch.
   Python says "except part" and "raises" ("The program raises a ValueError with
   the message "neg", and the except part takes over."); the others say "catch
-  part" and "throws". Python's except header lines get no step (like Java/C++
-  catch lines); the try line itself keeps its step in Python and JavaScript, as
-  before. JavaScript: names starting with __sv stay on Home ("Line 2: names
+  part" and "throws". Python's except header lines get no step, and the try line
+  itself gets no step in any language (since 2026-11-26), like Java/C++. JavaScript: names starting with __sv stay on Home ("Line 2: names
   starting with __sv are used by StepViz. Please choose another name.").
 - Java classes (K1, decided by me on the owner's "you only review and continue"):
   objects show in the variables line as text, no new screen design: rex = Dog

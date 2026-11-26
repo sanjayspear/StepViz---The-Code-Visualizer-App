@@ -25,11 +25,11 @@ test('Python: the failing line is a catch step; except headers get no step', () 
   const src = 'x = 0\ntry:\n    x = 10 / 0\n    print("no")\nexcept ValueError:\n    print("v")\nexcept ZeroDivisionError as e:\n    print("z", e)\nfinally:\n    print("f")\nprint(x)';
   const r = python(src);
   expect(r.status).toBe('ok');
-  expect(steps(r)).toEqual([[1, 'assign'], [2, 'other'], [3, 'catch'], [8, 'print'], [10, 'print'], [11, 'print']]);
-  expect(r.steps[2].detail).toEqual({ errorType: 'ZeroDivisionError' });
+  expect(steps(r)).toEqual([[1, 'assign'], [3, 'catch'], [8, 'print'], [10, 'print'], [11, 'print']]);
+  expect(r.steps[1].detail).toEqual({ errorType: 'ZeroDivisionError' });
   const e = explain('python', src, r);
-  expect(e[2].what).toMatch(/^Python can't divide a number by zero\. (Instead of stopping, the program jumps to the except part|The except part takes over, so the program does not stop)\.$/);
-  expect(e[2].life).not.toBe('');
+  expect(e[1].what).toMatch(/^Python can't divide a number by zero\. (Instead of stopping, the program jumps to the except part|The except part takes over, so the program does not stop)\.$/);
+  expect(e[1].life).not.toBe('');
 });
 
 test('Python: raise in a function, caught in the caller; uncaught raise names itself', () => {
@@ -49,8 +49,8 @@ test('Python: only a finally part runs first; the crash stays on the line that f
   const src = 'a = 1\ntry:\n    raise RuntimeError("boom")\nfinally:\n    print("clean")';
   const r = python(src);
   expect(r.status).toBe('runtime-error');
-  expect(steps(r)).toEqual([[1, 'assign'], [2, 'other'], [3, 'catch'], [5, 'print'], [3, 'crash']]);
-  expect(explain('python', src, r)[2].what).toBe('The program raises a RuntimeError with the message "boom". Nothing catches it here, so the finally part runs first.');
+  expect(steps(r)).toEqual([[1, 'assign'], [3, 'catch'], [5, 'print'], [3, 'crash']]);
+  expect(explain('python', src, r)[1].what).toBe('The program raises a RuntimeError with the message "boom". Nothing catches it here, so the finally part runs first.');
   const inFn = python('def f():\n    try:\n        return 1 / 0\n    finally:\n        print("f")\n\nb = 2\nf()');
   expect(inFn.steps.map((s) => s.kind)).not.toContain('return');
   expect(inFn.steps.at(-1)).toMatchObject({ line: 3, kind: 'crash' });
@@ -62,15 +62,15 @@ test('Python: only a finally part runs first; the crash stays on the line that f
 
 test('Python: a loop left by an error starts from its first round again', () => {
   const r = python('for i in range(2):\n    try:\n        x = 1 / i\n    except ZeroDivisionError:\n        x = 0\nprint(x)');
-  expect(steps(r)).toEqual([[1, 'loop-start'], [2, 'other'], [3, 'catch'], [5, 'assign'], [1, 'loop-next'], [2, 'other'], [3, 'assign'], [1, 'loop-end'], [6, 'print']]);
+  expect(steps(r)).toEqual([[1, 'loop-start'], [3, 'catch'], [5, 'assign'], [1, 'loop-next'], [3, 'assign'], [1, 'loop-end'], [6, 'print']]);
 });
 
 test('JavaScript: engine errors and the program\'s own throw become catch steps', () => {
   const src = 'let x = 0;\ntry {\n  x = null.y;\n  console.log("no");\n} catch (e) {\n  console.log("caught", e.name);\n} finally {\n  console.log("f");\n}\nconsole.log(x);';
   const r = js(src);
   expect(r.status).toBe('ok');
-  expect(steps(r)).toEqual([[1, 'assign'], [2, 'other'], [3, 'catch'], [6, 'print'], [8, 'print'], [10, 'print']]);
-  expect(r.steps[2].detail).toEqual({ errorType: 'TypeError' });
+  expect(steps(r)).toEqual([[1, 'assign'], [3, 'catch'], [6, 'print'], [8, 'print'], [10, 'print']]);
+  expect(r.steps[1].detail).toEqual({ errorType: 'TypeError' });
   expect(r.steps.at(-1)!.output).toBe('caught TypeError\nf\n0\n');
   const fn = 'function check(a) {\n  if (a < 0) {\n    throw new RangeError("neg");\n  }\n  return a;\n}\ntry {\n  const n = check(-1);\n} catch ({ message }) {\n  console.log(message);\n}';
   const t = js(fn);
@@ -83,9 +83,9 @@ test('JavaScript: engine errors and the program\'s own throw become catch steps'
 test('JavaScript: finally only, catch without a name, uncaught throw of a plain value', () => {
   const src = 'let a = 1;\ntry {\n  throw "boom";\n} finally {\n  console.log("clean");\n}';
   const r = js(src);
-  expect(steps(r)).toEqual([[1, 'assign'], [2, 'other'], [3, 'catch'], [5, 'print'], [3, 'crash']]);
+  expect(steps(r)).toEqual([[1, 'assign'], [3, 'catch'], [5, 'print'], [3, 'crash']]);
   const e = explain('javascript', src, r);
-  expect(e[2].what).toBe('The program throws the value "boom". Nothing catches it here, so the finally part runs first.');
+  expect(e[1].what).toBe('The program throws the value "boom". Nothing catches it here, so the finally part runs first.');
   expect(e.at(-1)!.what).toBe('The program throws the value "boom", and no catch part takes it, so the program stops.');
   expect(js('let t = 0;\ntry {\n  t = JSON.parse("{");\n} catch {\n  t = 2;\n}\nconsole.log(t);').steps.at(-1)!.output).toBe('2\n');
   // return inside try with finally still returns normally.

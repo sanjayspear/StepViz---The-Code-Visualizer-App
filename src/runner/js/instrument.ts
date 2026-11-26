@@ -512,6 +512,8 @@ export function instrument(source: string): Instrumented | { error: JsSyntaxErro
     const out: N[] = [];
     for (const stmt of body) {
       const info = LOOPS.has(stmt.type) ? loopInfo(stmt) : infoOf(stmt); // before the body is rewritten
+      // The try line itself is not a step (like Java and C++): its first inner line is.
+      const isTry = stmt.type === 'TryStatement';
       transformStatement(stmt, scope);
       if (LOOPS.has(stmt.type)) {
         // Loops report their header line at the start of each round, and a
@@ -523,6 +525,8 @@ export function instrument(source: string): Instrumented | { error: JsSyntaxErro
         );
       } else if (stmt.type === 'EmptyStatement') {
         continue;
+      } else if (isTry) {
+        out.push(stmt);
       } else {
         const swap = swapOf(stmt);
         out.push(hook(stmt.loc.start.line, scope, headOf(stmt), swap, swap.type === 'Literal' ? info : { k: 'swap' }), stmt);
