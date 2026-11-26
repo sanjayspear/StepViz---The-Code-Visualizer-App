@@ -51,8 +51,10 @@ export interface CheckTestResult {
   passed: boolean;
   expected: string;
   got: string;
-  /** missing: no such function; error: it crashed; timeout: too slow; skipped: no time left */
-  problem?: 'missing' | 'error' | 'timeout' | 'skipped';
+  /** missing: no such function or class; error: it crashed; timeout: too slow; skipped: no time left; shared: a "copy" reused the input's nodes */
+  problem?: 'missing' | 'error' | 'timeout' | 'skipped' | 'shared';
+  /** the function or class that is missing */
+  missing?: string;
   errorType?: string;
   message?: string;
   line?: number | null;

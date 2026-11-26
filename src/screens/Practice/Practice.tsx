@@ -568,7 +568,9 @@ function TestResults({ result }: { result: CheckResult }) {
 function testProblem(t: CheckTestResult): string {
   switch (t.problem) {
     case 'missing':
-      return `There is no function called ${t.call.split('(')[0]} in your code.`;
+      return `There is no function or class called ${t.missing ?? t.call.split('(')[0]} in your code.`;
+    case 'shared':
+      return `It gave ${t.got}, but it reuses nodes of the original. A copy must be made of new nodes.`;
     case 'timeout':
       return 'It took longer than 2 seconds, so it was stopped. Check that every loop can end, or look for a quicker way.';
     case 'skipped':

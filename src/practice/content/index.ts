@@ -2,9 +2,20 @@
 import type { CodeLanguage } from '../../examples';
 import type { PracticeContent } from './types';
 import { BASICS_MATH } from './python/basics-math';
+import { STRINGS } from './python/strings';
+import { HASH_MAPS_SETS } from './python/hash-maps-sets';
+import { ARRAYS_MATRICES } from './python/arrays-matrices';
+
+/** Python content by topic id (questions.json). */
+export const PYTHON_TOPICS: Record<string, PracticeContent[]> = {
+  'basics-math': BASICS_MATH,
+  strings: STRINGS,
+  'arrays-matrices': ARRAYS_MATRICES,
+  'hash-maps-sets': HASH_MAPS_SETS,
+};
 
 const BY_LANGUAGE: Partial<Record<CodeLanguage, Map<number, PracticeContent>>> = {
-  python: new Map(BASICS_MATH.map((c) => [c.id, c])),
+  python: new Map(Object.values(PYTHON_TOPICS).flatMap((list) => list.map((c) => [c.id, c] as const))),
 };
 
 export function contentFor(id: number, language: CodeLanguage): PracticeContent | undefined {

@@ -5,8 +5,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadPyodide } from 'pyodide';
 import data from '../src/practice/questions.json' with { type: 'json' };
+import { PYTHON_TOPICS } from '../src/practice/content';
 import { BASICS_MATH } from '../src/practice/content/python/basics-math';
 import type { PracticeContent } from '../src/practice/content/types';
+import { SOLUTIONS_BY_TOPIC } from './practice';
 import { SOLUTIONS } from './practice/basics-math.solutions';
 
 interface Result {
@@ -35,18 +37,22 @@ test.beforeAll(async () => {
 const check = (source: string, c: PracticeContent, seconds = 5): Outcome => JSON.parse(checkPy(source, JSON.stringify({ tests: c.tests, forbid: c.forbid }), seconds));
 const byId = (id: number) => BASICS_MATH.find((c) => c.id === id)!;
 
-const TOPIC: Record<string, PracticeContent[]> = { 'basics-math': BASICS_MATH };
-
-for (const [topic, items] of Object.entries(TOPIC)) {
+for (const [topic, items] of Object.entries(PYTHON_TOPICS)) {
+  const solutions = SOLUTIONS_BY_TOPIC[topic];
   test(`${topic}: content for every question of the topic, well formed`, () => {
     const ids = data.questions.filter((q) => q.topic === topic).map((q) => q.id);
     expect(items.map((c) => c.id)).toEqual(ids);
     for (const c of items) {
-      expect(c.tests.length, `Q${c.id}`).toBeGreaterThanOrEqual(4);
+      // At least 4 tests; a class question's tests are whole scenarios of calls, so 3 of those.
+      expect(c.tests.length, `Q${c.id}`).toBeGreaterThanOrEqual(c.tests.every((t) => t.call === '$ops') ? 3 : 4);
       expect(c.example, `Q${c.id}`).toMatch(/^Example: /);
       expect(c.hint, `Q${c.id}: the hint ends with a real-life comparison`).toMatch(/ Like [^.]+[.!]$|Like .+\.$/);
       expect(c.starter, `Q${c.id}: the starter calls the function once, so it can be visualised`).toMatch(/\nprint\(/);
-      for (const t of c.tests) expect(c.starter, `Q${c.id}: the starter defines ${t.call}`).toContain(`def ${t.call}(`);
+      for (const t of c.tests) {
+        if (t.call === '$ops') expect(c.starter, `Q${c.id}: the starter defines class ${t.cls}`).toMatch(new RegExp(`class ${t.cls}\\b`));
+        else expect(c.starter, `Q${c.id}: the starter defines ${t.call}`).toContain(`def ${t.call}(`);
+        if (t.then) expect(c.starter, `Q${c.id}: the starter defines ${t.then}`).toContain(`def ${t.then}(`);
+      }
       // Whole numbers past 2^53 lose digits in JavaScript before Python sees them: write those as text instead.
       const walk = (v: unknown): void => {
         if (typeof v === 'number' && Number.isInteger(v)) expect(Number.isSafeInteger(v), `Q${c.id}: ${v} is too big to be exact`).toBe(true);
@@ -59,7 +65,8 @@ for (const [topic, items] of Object.entries(TOPIC)) {
 
   for (const c of items) {
     test(`${topic} Q${c.id}: the reference solution passes all ${c.tests.length} tests; the starter runs but does not pass`, () => {
-      const ref = check(SOLUTIONS[c.id], c);
+      expect(solutions?.[c.id], `Q${c.id}: a reference solution exists`).toBeTruthy();
+      const ref = check(solutions[c.id], c);
       expect(ref.status, JSON.stringify(ref)).toBe('ok');
       for (const r of ref.results) expect(r.passed, `${r.call}: expected ${r.expected}, got ${r.got} ${r.problem ?? ''}`).toBe(true);
       const start = check(c.starter, c);
