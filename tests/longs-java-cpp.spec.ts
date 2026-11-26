@@ -66,3 +66,10 @@ test('C++: cin reads a long long exactly', () => {
   const r = runC('    long long x;\n    cin >> x;\n    cout << x * 2 << endl;', '4611686018427387905');
   expect(out(r)).toBe('-9223372036854775806\n');
 });
+
+test('C++: LLONG_MAX / LLONG_MIN (and LONG_ on 64-bit Linux, like g++) are exact', () => {
+  const r = runC(`    long long a = LLONG_MAX;
+    long long b = LLONG_MIN;
+    cout << a << " " << b << " " << (a > 2147483647) << " " << LONG_MAX << endl;`);
+  expect(out(r)).toBe('9223372036854775807 -9223372036854775808 1 9223372036854775807\n');
+});

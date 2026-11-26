@@ -3470,6 +3470,9 @@ class Interp {
       if (/^(std::)?string::npos$/.test(id.text.replace(/\s+/g, ''))) return NPOS;
       if (id.text === 'INT_MAX') return int(2147483647);
       if (id.text === 'INT_MIN') return int(-2147483648);
+      // long long limits: exact 64-bit values (kept as bigints beyond 2^53).
+      if (id.text === 'LLONG_MAX' || id.text === 'LONG_MAX') return lng(9223372036854775807n);
+      if (id.text === 'LLONG_MIN' || id.text === 'LONG_MIN') return lng(-9223372036854775808n);
       throw new CompileError(lineOf(id), `${id.text} is used but never declared.`);
     }
     if (b.cell.v === UNSET) throw new CppCrash('Uninitialized', `${id.text} was used before it was given a value`);

@@ -12,8 +12,10 @@ import { SOLUTIONS as SORTING_GREEDY_INTERVALS } from './sorting-greedy-interval
 import { SOLUTIONS as DYNAMIC_PROGRAMMING } from './dynamic-programming.solutions';
 import { SOLUTIONS as GRAPHS } from './graphs.solutions';
 import { SOLUTIONS as LINKED_LISTS } from './linked-lists.solutions';
+import { SOLUTIONS as TREES_BST } from './trees-bst.solutions';
 
 export const CPP_SOLUTIONS_BY_TOPIC: Record<string, Record<number, string>> = {
+  'trees-bst': TREES_BST,
   'linked-lists': LINKED_LISTS,
   graphs: GRAPHS,
   'dynamic-programming': DYNAMIC_PROGRAMMING,
