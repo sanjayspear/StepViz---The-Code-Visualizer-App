@@ -1467,6 +1467,13 @@ class Interp {
   private nameIds = new Map<string, number>();
   private scope: Scope = new Scope(null);
   private globals: Scope = new Scope(null);
+
+  /** Practice tests: a global variable's value after the run (undefined if unset). */
+  globalValue(name: string): CVal | undefined {
+    const b = this.globals.vars.get(name);
+    const v = b?.cell.v as CVal | typeof UNSET | undefined;
+    return v === undefined || v === UNSET || v === UNSET_VAL ? undefined : (v as CVal);
+  }
   private input: Input;
   /** cout's settings: fixed / setprecision / boolalpha stay; setw is for the next value only; setfill and left / right stay. */
   private stream = { fixed: false, precision: 6, boolalpha: false, width: 0, fill: ' ', left: false };
@@ -4312,3 +4319,42 @@ export function runCpp(tree: Tree, opts: RunOptions & { input?: string; dialect?
   }
   return finishRun(rt, plan, status, error);
 }
+
+/** What a quiet run (Practice tests) gives back: how it ended, what it printed, and the global variables. */
+export interface QuietCppRun {
+  status: 'ok' | 'compile-error' | 'runtime-error' | 'timeout' | 'too-deep';
+  output: string;
+  error?: { line: number | null; type: string; message: string };
+  value: (name: string) => CVal | undefined;
+}
+
+/** Practice tests: run a C++ (or C) program without recording steps (only the time limit applies). */
+export function runCppQuiet(tree: Tree, opts: { maxSeconds: number; dialect?: Dialect; beforeRun?: () => void }): QuietCppRun {
+  const none = () => undefined;
+  const problem = checkCpp(tree, opts.dialect ?? 'cpp');
+  if (problem) return { status: 'compile-error', output: '', error: { line: problem.line, type: 'CompileError', message: problem.message }, value: none };
+  const program = checkSubset(tree);
+  const interp = new Interp(program, { candidates: [], loopOf: {} } as unknown as ListPlan, { maxSteps: Infinity, maxSeconds: opts.maxSeconds, quiet: true, dialect: opts.dialect ?? 'cpp' } as RunOptions & { dialect: Dialect });
+  const rt = interp.rt;
+  const value = (name: string) => interp.globalValue(name);
+  opts.beforeRun?.();
+  try {
+    try {
+      interp.run();
+    } catch (e) {
+      rt.hooks.thrown(e);
+      throw e;
+    }
+  } catch (e) {
+    if (e instanceof CompileError) return { status: 'compile-error', output: rt.output, error: { line: e.line, type: 'CompileError', message: e.message }, value };
+    if (e instanceof StopRun) return { status: e.reason === 'depth' ? 'too-deep' : 'timeout', output: rt.output, value };
+    if (e instanceof RangeError && /call stack/i.test(e.message)) return { status: 'too-deep', output: rt.output, value };
+    if (e instanceof CppCrash) {
+      const crash = recordCrash(rt, e.kind, e.message);
+      return { status: 'runtime-error', output: rt.output, error: { line: crash.line, type: e.kind, message: e.message }, value };
+    }
+    throw e;
+  }
+  return { status: 'ok', output: rt.output, value };
+}
+

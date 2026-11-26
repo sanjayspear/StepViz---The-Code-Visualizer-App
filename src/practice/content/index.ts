@@ -15,6 +15,7 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { BASICS_MATH_CPP } from './cpp/basics-math';
 import { SORTING_GREEDY_INTERVALS_JAVA } from './java/sorting-greedy-intervals';
 import { DYNAMIC_PROGRAMMING_JAVA } from './java/dynamic-programming';
 import { GRAPHS_JAVA } from './java/graphs';
@@ -99,10 +100,16 @@ export const JAVA_TOPICS: Record<string, PracticeContent[]> = {
   'basics-math': BASICS_MATH_JAVA,
 };
 
+/** C++ content by topic id (tests from the Python content; answers run in StepViz's C++ interpreter). */
+export const CPP_TOPICS: Record<string, PracticeContent[]> = {
+  'basics-math': BASICS_MATH_CPP,
+};
+
 const BY_LANGUAGE: Partial<Record<CodeLanguage, Map<number, PracticeContent>>> = {
   python: byId(PYTHON_TOPICS),
   javascript: byId(JS_TOPICS),
   java: byId(JAVA_TOPICS),
+  cpp: byId(CPP_TOPICS),
 };
 
 export function contentFor(id: number, language: CodeLanguage): PracticeContent | undefined {

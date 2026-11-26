@@ -25,6 +25,7 @@ import { contentFor } from '../../practice/content';
 import { pythonRunner } from '../../runner/pythonRunner';
 import { checkJavaScript } from '../../runner/jsRunner';
 import { checkJavaProgram } from '../../runner/javaRunner';
+import { checkCppProgram } from '../../runner/cppRunner';
 import type { CheckResult, CheckTestResult } from '../../runner/protocol';
 import { CodeEditor } from '../Home/CodeEditor';
 import './Practice.css';
@@ -387,6 +388,7 @@ function QuestionPage({ id, scope, filters, progress, onVisualize }: { id: numbe
       const r =
         language === 'javascript' ? await checkJavaScript(code, spec)
         : language === 'java' ? await checkJavaProgram(code, spec)
+        : language === 'cpp' || language === 'c' ? await checkCppProgram(code, spec, language)
         : await pythonRunner.check(code, spec);
       setResult(r);
       const all = r.status === 'ok' && r.results.length > 0 && r.results.every((t) => t.passed);

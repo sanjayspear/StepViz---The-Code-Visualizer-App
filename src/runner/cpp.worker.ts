@@ -8,12 +8,18 @@ import { createParser } from './treeSitter';
 import { checkCpp, cppReadsInput, runCpp } from './cpp/interpreter';
 import { lockDown } from './lockdown';
 import type { TreeFromWorker, TreeToWorker } from './protocol';
+import { checkCppAnswer } from '../practice/cppHarness';
 
 declare const self: DedicatedWorkerGlobalScope;
 
 self.onmessage = async (event: MessageEvent<TreeToWorker>) => {
   const msg = event.data;
   const parser = await createParser(msg.files);
+  if (msg.type === 'check') {
+    const result = checkCppAnswer(parser, msg.source, JSON.parse(msg.spec), { maxSeconds: msg.maxSeconds, dialect: msg.dialect ?? 'cpp', beforeRun: lockDown });
+    self.postMessage({ type: 'check-result', result } satisfies TreeFromWorker);
+    return;
+  }
   const tree = parser.parse(msg.source);
   if (!tree) throw new Error('C++ could not be read.');
   if (msg.type === 'analyze') {
