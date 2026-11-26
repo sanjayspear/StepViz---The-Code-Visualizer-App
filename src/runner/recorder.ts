@@ -11,6 +11,7 @@ import type { ListView } from '../trace/types';
 import type { JsListPlan as ListPlan, StepInfo } from './js/instrument';
 
 export type { ListPlan, StepInfo };
+export type { MemberChange } from './js/instrument';
 
 const MAX_REPR = 40;
 const MAX_DEPTH = 200;
@@ -80,6 +81,7 @@ function classify(
       kind = info.k;
       if (info.t?.length) detail.targets = info.t;
       if (info.s) detail.simultaneous = true;
+      if (info.m) detail.member = info.m;
       break;
     case 'print':
     case 'swap':

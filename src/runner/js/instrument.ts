@@ -49,6 +49,21 @@ export interface StepInfo {
   th?: boolean;
   /** catch: nothing catches it here, only a finally part runs first */
   fo?: boolean;
+  /** a member changed through a pointer (head->next = prev): see StepDetail.member */
+  m?: MemberChange;
+}
+
+/** head->next = prev: the member, its value before and after, and where the new value came from. */
+export interface MemberChange {
+  target: string;
+  was: string;
+  now: string;
+  /** the variable the new value was copied from (prev) */
+  from?: string;
+  /** the new value is an object just made with new */
+  made?: boolean;
+  /** the member holds a pointer */
+  pointer?: boolean;
 }
 
 export interface Instrumented {

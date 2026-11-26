@@ -555,8 +555,32 @@ function parsePointer(v: string): { target: string; frame?: string; value?: stri
   return { target: rest, gone };
 }
 
+/**
+ * head->next = prev (C, C++): a member of an object reached through a pointer. The interpreter tells
+ * what changed, because the frames only show such an object as ListNode {…}.
+ */
+function memberChange(f: Facts): { sub: SubKind; variants: string[] } | null {
+  const m = f.step.detail?.member;
+  if (!m) return null;
+  const kind = (text: string) => /^points to (\w+) \{…\}$/.exec(text)?.[1] ?? /^(\w+) \{/.exec(text)?.[1];
+  if (m.pointer) {
+    if (m.now === 'nullptr') {
+      if (m.was === 'nullptr') return { sub: 'assign-same', variants: [`${m.target} stays nullptr: it still points to nothing.`] };
+      return { sub: 'assign-change', variants: [`${m.target} is set to nullptr: it points to nothing now.`, `${m.target} now points to nothing (nullptr).`] };
+    }
+    if (m.made) return { sub: 'assign-change', variants: [`${m.target} now points to the new ${m.now}.`, `The new ${m.now} is linked in: ${m.target} points to it.`] };
+    const obj = kind(m.now) ?? 'box';
+    if (m.from) return { sub: 'assign-change', variants: [`${m.target} now points to the same ${obj} as ${m.from}.`, `${m.target} is linked to the ${obj} that ${m.from} points to.`] };
+    return { sub: 'assign-change', variants: [`${m.target} now points to another ${obj}.`] };
+  }
+  if (m.was === m.now) return { sub: 'assign-same', variants: [`${m.target} stays ${sayValue(m.now)}.`] };
+  return { sub: 'assign-change', variants: [`${m.target} changes from ${sayValue(m.was)} to ${sayValue(m.now)}.`] };
+}
+
 /** Assignment sentences: one clause per name ("total changes from 1 to 3"). */
 function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
+  const viaMember = memberChange(f);
+  if (viaMember) return viaMember;
   const viaPointer = throughPointer(f);
   if (viaPointer) return viaPointer;
   const targets = (f.step.detail?.targets ?? []).filter((t) => t in f.top.vars);

@@ -121,4 +121,9 @@ export interface StepDetail {
   thrown?: boolean;
   /** catch: no catch part takes it here; only a finally part runs before the error goes on */
   finallyOnly?: boolean;
+  /**
+   * A member changed through a pointer (C and C++: head->next = prev). The frames can't show it:
+   * the object has no name, and an object inside an object shows as ListNode {…}.
+   */
+  member?: { target: string; was: string; now: string; from?: string; made?: boolean; pointer?: boolean };
 }

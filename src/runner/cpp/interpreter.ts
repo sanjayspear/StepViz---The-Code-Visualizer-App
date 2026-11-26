@@ -56,6 +56,7 @@ import {
   type RunOptions,
   type StepInfo,
   type Swap,
+  type MemberChange,
 } from '../recorder';
 
 // --------------------------------------------------------------------------
@@ -536,8 +537,22 @@ function pointerText(x: CVal, here: string | null): string {
 /** How a struct shows: Point {x: 1, y: ?} (a struct inside it, one level deep: Point {…}). */
 function structText(x: CVal, depth: number): string {
   if (depth > 1) return `${x.cls} {…}`;
-  const parts = [...(x.v as Map<string, CVal>)].map(([k, v]) => `${k}: ${v.t === 'struct' ? structText(v, depth + 1) : formatCpp(v) ?? '?'}`);
+  const parts = [...(x.v as Map<string, CVal>)].map(([k, v]) => `${k}: ${v.t === 'struct' ? structText(v, depth + 1) : v.t === 'pointer' ? memberPointerText(v) : formatCpp(v) ?? '?'}`);
   return `${x.cls} {${parts.join(', ')}}`;
+}
+
+/**
+ * A pointer member inside an object: an object it points to is not opened again (a list or a tree
+ * would go on and on, and could come back round), like Node {…} in Java: next: points to ListNode {…}.
+ */
+function memberPointerText(p: CVal): string {
+  const t = p.v as PtrTarget | null | typeof UNSET;
+  if ((t as unknown) === UNSET) return '?';
+  if (t && t.heap && !t.arr && !t.owner?.dead) {
+    const v = t.cell.v as CVal;
+    if (v !== UNSET_VAL && v.t === 'struct') return `points to ${v.cls} {…}`;
+  }
+  return pointerText(p, null);
 }
 
 /** The text held in a char array: the letters up to '\0'. */
@@ -839,7 +854,9 @@ function readStruct(spec: Node, name: string): CStruct {
     if (/^static\b/.test(m.text) && !isStatic) throw unsupported(m, 'static members');
     const isVirtual = /^virtual\b/.test(m.text) || /\boverride\b/.test(m.childForFieldName('declarator')?.text ?? '');
     if (m.type === 'field_declaration') {
-      const d = m.childForFieldName('declarator');
+      const d0 = m.childForFieldName('declarator');
+      // TreeNode* find(int v);  a method declared here that gives back a pointer.
+      const d = d0?.type === 'pointer_declarator' && d0.childForFieldName('declarator')?.type === 'function_declarator' ? d0.childForFieldName('declarator') : d0;
       if (d?.type === 'function_declarator') {
         // int getAge();  defined later as int Dog::getAge() { ... }  /  virtual string speak() = 0;
         const mName = d.childForFieldName('declarator')!.text;
@@ -859,13 +876,24 @@ function readStruct(spec: Node, name: string): CStruct {
         if (!fd) continue;
         let node = fd;
         let size: Node | null | undefined;
+        // ListNode* next;  a member that points to another object (one level: no pointers to pointers).
+        let pointer = false;
+        if (node.type === 'pointer_declarator') {
+          pointer = true;
+          node = node.childForFieldName('declarator')!;
+        }
         if (node.type === 'array_declarator') {
+          if (pointer) throw unsupported(fd, 'arrays of pointers');
           size = node.childForFieldName('size') ?? null;
           node = node.childForFieldName('declarator')!;
         }
-        if (node.type !== 'field_identifier') throw unsupported(fd, node.type === 'pointer_declarator' ? 'pointers' : 'this kind of member');
+        if (node.type !== 'field_identifier') throw unsupported(fd, node.type === 'pointer_declarator' ? 'pointers to pointers' : 'this kind of member');
         if (info.parent && allMembers(info.parent).some((f) => f.name === node.text)) throw unsupported(fd, `a member with the same name as one in ${info.parent}`);
-        info.fields.push({ name: node.text, type: typeOf(typeNode), size, def: m.childForFieldName('default_value'), isPrivate, isProtected });
+        const fieldType = typeOf(typeNode);
+        if (!pointer && fieldType.t === 'struct' && fieldType.cls === name) {
+          throw new CompileError(lineOf(fd), `A ${name} can't hold a whole ${name} inside itself: use a pointer, like ${name}* ${node.text};`);
+        }
+        info.fields.push({ name: node.text, type: pointer ? { t: 'pointer', pt: fieldType } : fieldType, size, def: m.childForFieldName('default_value'), isPrivate, isProtected });
       }
       continue;
     }
@@ -904,11 +932,16 @@ function readStruct(spec: Node, name: string): CStruct {
   return info;
 }
 
-/** The function_declarator of a definition, also inside ostream& operator<<(...) (a reference_declarator). */
+/** The function_declarator of a definition, also inside ostream& operator<<(...) (a reference_declarator) or ListNode* next(...) (a pointer_declarator). */
 function fnDeclarator(def: Node): Node {
   let d = def.childForFieldName('declarator')!;
-  while (d.type === 'reference_declarator') d = named(d)[0];
+  while (d.type === 'reference_declarator' || d.type === 'pointer_declarator') d = d.type === 'pointer_declarator' ? d.childForFieldName('declarator')! : named(d)[0];
   return d;
+}
+/** The type a function gives back: ListNode* reverse(...) gives a pointer to a ListNode. */
+function returnTypeOf(def: Node): DeclType {
+  const type = typeOf(def.childForFieldName('type'));
+  return def.childForFieldName('declarator')?.type === 'pointer_declarator' ? { t: 'pointer', pt: type } : type;
 }
 function functionName(def: Node): string {
   return fnDeclarator(def).childForFieldName('declarator')!.text;
@@ -927,7 +960,14 @@ function checkSubset(tree: Tree): Program {
   const outOfClass: Node[] = [];
   const addStruct = (spec: Node, name: string) => {
     if (structs.has(name)) throw unsupported(spec, 'two structs with the same name');
-    structs.set(name, readStruct(spec, name));
+    // The name is known while the members are read, so ListNode* next; inside ListNode works (like C++).
+    structs.set(name, { name, fields: [], ctors: [], methods: new Map(), privateMethods: new Set() } as unknown as CStruct);
+    try {
+      structs.set(name, readStruct(spec, name));
+    } catch (e) {
+      structs.delete(name);
+      throw e;
+    }
   };
   for (const n of named(tree.rootNode)) {
     switch (n.type) {
@@ -1047,7 +1087,6 @@ function checkSubset(tree: Tree): Program {
       (n.parent?.type === 'argument_list' || (n.parent?.type === 'init_declarator' && n.parent.parent?.childForFieldName('type')?.text === 'auto'));
     if (feature && !scanfAddress && !itemPointer && !lambdaOk) throw unsupported(n, feature);
     if (n.type === 'pointer_declarator' && n.childForFieldName('declarator')?.type === 'pointer_declarator') throw unsupported(n, 'pointers to pointers');
-    if (n.type === 'pointer_declarator' && n.childForFieldName('declarator')?.type === 'function_declarator') throw unsupported(n, 'functions that give back pointers');
     if (dialect === 'c' && n.type === 'reference_declarator') throw unsupported(n, 'references (&)');
     if (n.type === 'unary_expression' && n.childForFieldName('operator')?.type === '&') throw unsupported(n, 'pointers');
     // Inside functions: struct Point p (a type) is fine; a struct definition is not.
@@ -1614,6 +1653,45 @@ class Interp {
 
   // ---- statements ---------------------------------------------------------------
 
+  /** head->next = ... / p->val = ...: the member changed through a pointer (no calls or ++ in it, so it can be read twice). */
+  private memberTarget(e: Node): Node | null {
+    if (e.type !== 'assignment_expression') return null;
+    const left = e.childForFieldName('left')!;
+    if (left.type !== 'field_expression' || !/->/.test(left.text)) return null;
+    if (left.descendantsOfType(['call_expression', 'update_expression', 'assignment_expression']).length) return null;
+    // Only for objects made with new: an object with a name (pa points to a) is explained through it.
+    if (left.childForFieldName('operator')?.type !== '->') return null;
+    const owner = this.peek(left.childForFieldName('argument')!);
+    if (owner?.t !== 'pointer' || !(owner.v as PtrTarget | null)?.heap) return null;
+    return left;
+  }
+
+  /** The value of a member (null if it can't be read: nullptr on the way, no value yet). */
+  private peek(member: Node): CVal | null {
+    try {
+      const v = this.eval(member);
+      return v === UNSET_VAL ? null : v;
+    } catch {
+      return null;
+    }
+  }
+
+  private memberChange(member: Node, right: Node, was: CVal, now: CVal): MemberChange {
+    const text = (v: CVal) => (v.t === 'pointer' ? memberPointerText(v) : formatCpp(v) ?? '?');
+    const change: MemberChange = { target: member.text.replace(/\s+/g, ''), was: text(was), now: text(now) };
+    if (now.t === 'pointer') {
+      change.pointer = true;
+      const t = now.v as PtrTarget | null;
+      if (right.type === 'new_expression' && t && t.heap && !t.arr) {
+        change.made = true;
+        const obj = t.cell.v as CVal;
+        if (obj.t === 'struct') change.now = structText(obj, 0);
+      }
+    }
+    if (right.type === 'identifier' && right.text !== 'nullptr' && right.text !== 'NULL') change.from = right.text;
+    return change;
+  }
+
   private targetName(n: Node): string {
     // *p = 5 / (*p)++: the box p points to changes (the explainer finds it from p).
     if (n.type === 'parenthesized_expression') return this.targetName(named(n)[0]);
@@ -1738,14 +1816,24 @@ class Interp {
           return [swap[0], () => this.indexValue(swap[1], scope), () => this.indexValue(swap[2], scope)];
         })()
       : null;
-    this.hook(lineOf(s), swapInfo ? { k: 'swap' } : this.infoOf(s), this.readsOf(this.headOf(s)), swapInfo);
+    const info: StepInfo = swapInfo ? { k: 'swap' } : this.infoOf(s);
+    this.hook(lineOf(s), info, this.readsOf(this.headOf(s)), swapInfo);
     switch (s.type) {
       case 'declaration':
         this.declare(s, false);
         return;
-      case 'expression_statement':
-        if (named(s)[0]) this.eval(named(s)[0]);
+      case 'expression_statement': {
+        const e = named(s)[0];
+        if (!e) return;
+        const member = this.memberTarget(e);
+        const was = member ? this.peek(member) : null;
+        this.eval(e);
+        if (member && was !== null) {
+          const now = this.peek(member);
+          if (now !== null) info.m = this.memberChange(member, e.childForFieldName('right')!, was, now);
+        }
         return;
+      }
       case 'if_statement': {
         const cond = this.truthy(this.eval(conditionOf(s)));
         let branch = cond ? s.childForFieldName('consequence') : s.childForFieldName('alternative');
@@ -2237,7 +2325,8 @@ class Interp {
           this.currentStruct = saved;
         }
         v = { t: 'array', elem, v: Array.from({ length: n }, () => (isStructItem(elem) ? this.blank(structs.get(elem)!, zero) : zero ? this.zeroOf(elem) : UNSET_VAL)) };
-      } else if (f.type.t === 'struct') v = this.blank(structs.get(f.type.cls!)!, zero);
+      } else if (f.type.t === 'pointer') v = { t: 'pointer', pt: f.type.pt, v: zero ? null : (UNSET as unknown as null) };
+      else if (f.type.t === 'struct') v = this.blank(structs.get(f.type.cls!)!, zero);
       else if (f.type.t === 'vector') v = { t: 'vector', elem: f.type.elem, v: [], coll: f.type.coll };
       else if (f.type.t === 'string') v = strv('');
       else v = zero ? this.zeroOf(f.type.t as Prim) : UNSET_VAL;
@@ -2383,7 +2472,8 @@ class Interp {
         const inner = structs.get(field.type.cls!)!;
         value = args.length === 1 && !inner.ctors.length ? this.structFrom(args[0], inner, fname) : this.construct(fi, inner, args);
       } else if (field.type.t === 'vector') value = args.length ? { t: 'vector', elem: field.type.elem, v: this.vectorFrom(args[0], field.type.elem!) } : { t: 'vector', elem: field.type.elem, v: [], coll: field.type.coll };
-      else if (!args.length) value = field.type.t === 'string' ? strv('') : this.zeroOf(field.type.t as Prim);
+      else if (!args.length) value = field.type.t === 'string' ? strv('') : field.type.t === 'pointer' ? { t: 'pointer', pt: field.type.pt, v: null } : this.zeroOf(field.type.t as Prim);
+      else if (field.type.t === 'pointer') value = this.convert(this.decay(this.eval(args[0]), args[0]), field.type, fi, fname);
       else value = this.convert(this.eval(args[0]), field.type, fi, fname);
       fields.set(fname, this.copy(value));
     }
@@ -2808,7 +2898,7 @@ class Interp {
       }
       names.push(info.name);
     });
-    const returnType = making ? ({ t: 'void' } as DeclType) : typeOf(f.childForFieldName('type'));
+    const returnType = making ? ({ t: 'void' } as DeclType) : returnTypeOf(f);
     const saved = this.scope;
     const savedStruct = this.currentStruct;
     const savedConst = this.constMethod;
