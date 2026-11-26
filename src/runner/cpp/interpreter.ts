@@ -1462,11 +1462,24 @@ class Interp {
       fields.set(f.name, v);
     }
     const obj: CVal = { t: 'struct', cls: st.name, v: fields };
-    // int count = 0; written in the struct: set as the object is made.
-    for (const f of st.fields) {
-      if (!f.def) continue;
-      const value = f.def.type === 'initializer_list' && f.type.t === 'struct' ? this.structFrom(f.def, structs.get(f.type.cls!)!, f.name) : this.eval(f.def);
-      fields.set(f.name, this.copy(this.convert(value, f.type, f.def, f.name)));
+    // int count = 0; / int b = a + 1; written in the struct: set as the object is made,
+    // inside the object (other members are read from it, not from the caller).
+    if (st.fields.some((f) => f.def)) {
+      const saved = this.scope;
+      const savedStruct = this.currentStruct;
+      this.scope = new Scope(this.globals, true);
+      this.scope.vars.set('this', { cell: { t: 'struct', cls: st.name, v: obj } });
+      this.currentStruct = st;
+      try {
+        for (const f of st.fields) {
+          if (!f.def) continue;
+          const value = f.def.type === 'initializer_list' && f.type.t === 'struct' ? this.structFrom(f.def, structs.get(f.type.cls!)!, f.name) : this.eval(f.def);
+          fields.set(f.name, this.copy(this.convert(value, f.type, f.def, f.name)));
+        }
+      } finally {
+        this.scope = saved;
+        this.currentStruct = savedStruct;
+      }
     }
     return obj;
   }

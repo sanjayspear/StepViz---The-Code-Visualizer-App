@@ -273,8 +273,8 @@ Playwright tests. Static build for GitHub Pages.
   usual Uninitialized crash. Input into a member reads "We read 16 with scanf and
   store it in s.age." Unsupported: inheritance, virtual, operator overloading,
   static members, friends, destructors, protected, structs inside functions, ->
-  except this->. Known limit: a member value written in the struct that uses
-  another member (int b = a + 1;) is not supported correctly.
+  except this->. A member value written in the struct may use members above
+  it (int b = a + 1;).
 - Pointers and maps (P1, my call): a pointer shows "p = points to x", "points to x
   in main()" when x is in another frame, "points to local in f() (gone)" after
   its block or function ended, "nullptr". Call labels show &x: "addOne(&x)".

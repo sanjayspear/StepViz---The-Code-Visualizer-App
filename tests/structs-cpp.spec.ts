@@ -141,3 +141,7 @@ int main() {
   expect(e[3].what).toMatch(/^(We read 16 with scanf and store it in s\.age|s\.age gets 16, the next value from the input)\.$/);
   expect(runC('#include <stdio.h>\nint main() {\n    class A {};\n    return 0;\n}').status).toBe('syntax-error');
 });
+
+test('a member value written in the struct can use members above it', () => {
+  expect(out(prog('    int a = 100;\n    Box b;\n    cout << b.a << " " << b.c << endl;', 'struct Box {\n    int a = 2;\n    int c = a * 10;\n};\n\n'))).toBe('2 20\n');
+});
