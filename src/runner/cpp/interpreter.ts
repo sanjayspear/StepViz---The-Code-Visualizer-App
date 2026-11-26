@@ -127,7 +127,7 @@ let nextAddress = 1;
 /** A C++ value. char values hold the character; lists hold their items; an exception holds its what() text. */
 interface CVal {
   t: CType;
-  v: number | boolean | string | CVal[] | null | Map<string, CVal> | PtrTarget | MapEntries;
+  v: number | bigint | boolean | string | CVal[] | null | Map<string, CVal> | PtrTarget | MapEntries;
   elem?: Prim;
   /** exception: its class (runtime_error, out_of_range...); struct: its struct or class name */
   cls?: string;
@@ -249,8 +249,28 @@ const isCVal = (x: unknown): x is CVal => typeof x === 'object' && x !== null &&
 const NUMERIC = new Set<CType>(['int', 'long', 'double', 'char', 'bool']);
 
 const int = (n: number): CVal => ({ t: 'int', v: n | 0 });
-const lng = (n: number): CVal => ({ t: 'long', v: Math.trunc(n) });
+/**
+ * long / long long: an exact 64-bit whole number that wraps like g++ does. It is kept as a plain number
+ * while it fits exactly (up to 2^53) and as a bigint beyond that.
+ */
+const MAX_EXACT = BigInt(Number.MAX_SAFE_INTEGER);
+function long64(b: bigint): number | bigint {
+  const w = BigInt.asIntN(64, b);
+  return w >= -MAX_EXACT && w <= MAX_EXACT ? Number(w) : w;
+}
+const lng = (n: number | bigint): CVal => {
+  if (typeof n === 'bigint') return { t: 'long', v: long64(n) };
+  const x = Math.trunc(n);
+  if (Number.isSafeInteger(x)) return { t: 'long', v: x };
+  // A double too big for a long: x86 gives the smallest long (g++ calls it undefined).
+  return { t: 'long', v: Number.isFinite(x) && Math.abs(x) < 2 ** 63 ? long64(BigInt(x)) : long64(-(2n ** 63n)) };
+};
 const dbl = (n: number): CVal => ({ t: 'double', v: n });
+/** A whole number read from input: an int when it fits, a long otherwise (the box it goes into decides the rest). */
+const wholeFrom = (word: string): CVal => {
+  const b = BigInt(word);
+  return b >= -2147483648n && b <= 2147483647n ? int(Number(b)) : lng(b);
+};
 const bool = (b: boolean): CVal => ({ t: 'bool', v: b });
 const chr = (c: string): CVal => ({ t: 'char', v: c });
 const strv = (s: string): CVal => ({ t: 'string', v: s });
@@ -2464,8 +2484,8 @@ class Interp {
     if (t === 'auto' || v.t === t) return v.t === 'vector' && v.elem !== to.elem && to.elem ? this.mismatch(v, to, at, name) : v;
     if (NUMERIC.has(t) && NUMERIC.has(v.t)) {
       const x = this.num(v);
-      if (t === 'int') return int(Math.trunc(x));
-      if (t === 'long') return lng(x);
+      if (t === 'int') return v.t === 'long' ? int(Number(BigInt.asIntN(32, this.big(v)))) : int(Math.trunc(x));
+      if (t === 'long') return v.t === 'double' ? lng(x) : lng(this.big(v));
       if (t === 'double') return dbl(x);
       if (t === 'char') return chr(String.fromCharCode(Math.trunc(x) & 0xff));
       if (t === 'bool') return bool(x !== 0);
@@ -2484,7 +2504,13 @@ class Interp {
     if (v === UNSET_VAL) throw new CppCrash('Uninitialized', 'a value was used before it was given one');
     if (v.t === 'char') return (v.v as string).charCodeAt(0);
     if (v.t === 'bool') return v.v ? 1 : 0;
-    return v.v as number;
+    return Number(v.v);
+  }
+
+  /** The exact whole number in an int, long, char or bool value. */
+  private big(v: CVal): bigint {
+    if (typeof v.v === 'bigint') return v.v;
+    return BigInt(Math.trunc(this.num(v)));
   }
 
   private arith(op: string, a: CVal, b: CVal, at: Node): CVal {
@@ -2499,9 +2525,27 @@ class Interp {
         case '%': throw new CompileError(lineOf(at), '% only works on whole numbers in C++.');
       }
     }
-    const isLong = a.t === 'long' || b.t === 'long';
-    const wrap = (n: number): CVal => (isLong ? lng(n) : int(n));
+    // A shift keeps the type of its left side (int << long long is an int).
+    const isLong = a.t === 'long' || (b.t === 'long' && op !== '<<' && op !== '>>');
     if ((op === '/' || op === '%') && y === 0) throw new CppCrash('DivideByZero', 'whole-number division by zero');
+    if (isLong) {
+      // Exact 64-bit arithmetic that wraps like g++ (BigInt division and % round toward zero, as C++ does).
+      const p = this.big(a);
+      const q = this.big(b);
+      switch (op) {
+        case '+': return lng(p + q);
+        case '-': return lng(p - q);
+        case '*': return lng(p * q);
+        case '/': return lng(p / q);
+        case '%': return lng(p % q);
+        case '&': return lng(p & q);
+        case '|': return lng(p | q);
+        case '^': return lng(p ^ q);
+        case '<<': return lng(p << (q & 63n));
+        case '>>': return lng(p >> (q & 63n));
+      }
+    }
+    const wrap = (n: number): CVal => int(n);
     switch (op) {
       case '+': return wrap(x + y);
       case '-': return wrap(x - y);
@@ -2595,8 +2639,9 @@ class Interp {
       throw new CompileError(lineOf(n), `${op} does not work on text.`);
     }
     if (['==', '!=', '<', '<=', '>', '>='].includes(op)) {
-      const x = this.num(a);
-      const y = this.num(b);
+      const exact = (a.t === 'long' || b.t === 'long') && a.t !== 'double' && b.t !== 'double';
+      const x = exact ? this.big(a) : this.num(a);
+      const y = exact ? this.big(b) : this.num(b);
       return bool(op === '==' ? x === y : op === '!=' ? x !== y : op === '<' ? x < y : op === '<=' ? x <= y : op === '>' ? x > y : x >= y);
     }
     if (!NUMERIC.has(a.t) || !NUMERIC.has(b.t)) throw new CompileError(lineOf(n), `${op} only works on numbers.`);
@@ -2720,7 +2765,7 @@ class Interp {
         value = bool(this.input.word() === '1');
       } else {
         if (!/^[+-]?\d+$/.test(word)) throw new CppCrash('BadInput', `"${word}" is not a whole number`);
-        value = int(Number(this.input.word()));
+        value = wholeFrom(this.input.word());
       }
       this.assignTo(t, value);
     }
@@ -2913,8 +2958,9 @@ class Interp {
         const text = n.text.replace(/'/g, '').toLowerCase();
         if (/[.e]/.test(text) && !text.startsWith('0x')) return dbl(parseFloat(text.replace(/f$/, '')));
         const digits = text.replace(/[ul]+$/, '');
-        const value = digits.startsWith('0x') ? parseInt(digits, 16) : digits.startsWith('0b') ? parseInt(digits.slice(2), 2) : Number(digits);
-        return /l$/.test(text) ? lng(value) : int(value);
+        const value = BigInt(digits.startsWith('0x') || digits.startsWith('0b') ? digits : /^0\d/.test(digits) ? `0o${digits.slice(1)}` : digits);
+        // A whole number too big for an int is a long in C++ (3000000000 needs no L).
+        return /l$/.test(text) || value > 2147483647n ? lng(value) : int(Number(value));
       }
       case 'string_literal': {
         const raw = n.text.slice(1, -1);
@@ -2960,9 +3006,9 @@ class Interp {
         if (op === '!' || op === 'not') return bool(!this.truthy(v));
         const x = this.num(v);
         const t = v.t === 'char' || v.t === 'bool' ? 'int' : v.t;
-        if (op === '-') return t === 'double' ? dbl(-x) : t === 'long' ? lng(-x) : int(-x);
-        if (op === '+') return t === 'double' ? dbl(x) : t === 'long' ? lng(x) : int(x);
-        if (op === '~') return int(~x);
+        if (op === '-') return t === 'double' ? dbl(-x) : t === 'long' ? lng(-this.big(v)) : int(-x);
+        if (op === '+') return t === 'double' ? dbl(x) : t === 'long' ? v : int(x);
+        if (op === '~') return t === 'long' ? lng(~this.big(v)) : int(~x);
         throw unsupported(n, `the operator ${op}`);
       }
       case 'update_expression': {
@@ -3199,13 +3245,20 @@ class Interp {
       }
       case 'to_string': {
         const v = args()[0];
-        return strv(v.t === 'double' ? (v.v as number).toFixed(6) : String(this.num(v)));
+        return strv(v.t === 'double' ? (v.v as number).toFixed(6) : v.t === 'long' ? String(v.v) : String(this.num(v)));
       }
       case 'stoi': {
         const s = args()[0];
         const m = /^\s*([+-]?\d+)/.exec(String(s.v));
         if (!m) throw libraryException('invalid_argument', `"${s.v}" is not a whole number`, 'stoi');
         return int(Number(m[1]));
+      }
+      case 'stol':
+      case 'stoll': {
+        const s = args()[0];
+        const m = /^\s*([+-]?\d+)/.exec(String(s.v));
+        if (!m) throw libraryException('invalid_argument', `"${s.v}" is not a whole number`, name);
+        return lng(BigInt(m[1]));
       }
       case 'stod': {
         const s = args()[0];
@@ -3216,11 +3269,17 @@ class Interp {
       case 'max':
       case 'min': {
         const [a, b] = args();
-        const pick = name === 'max' ? this.num(a) >= this.num(b) : this.num(a) <= this.num(b);
+        const exact = a.t === 'long' && b.t === 'long';
+        const [x, y] = exact ? [this.big(a), this.big(b)] : [this.num(a), this.num(b)];
+        const pick = name === 'max' ? x >= y : x <= y;
         return pick ? a : b;
       }
       case 'abs': {
         const a = args()[0];
+        if (a.t === 'long') {
+          const x = this.big(a);
+          return lng(x < 0n ? -x : x);
+        }
         return a.t === 'double' ? dbl(Math.abs(a.v as number)) : int(Math.abs(this.num(a)));
       }
       case 'sqrt':
@@ -3258,7 +3317,7 @@ class Interp {
         case 'i':
         case 'u':
           if (!['int', 'long', 'char', 'bool'].includes(v.t)) throw bad(conv, v);
-          text = String(this.num(v));
+          text = v.t === 'long' ? String(v.v) : String(this.num(v));
           if (flags.includes('+') && this.num(v) >= 0) text = `+${text}`;
           break;
         case 'f':
@@ -3348,7 +3407,7 @@ class Interp {
         value = dbl(Number(this.input.word()));
       } else {
         if (!/^[+-]?\d+$/.test(word)) throw new CppCrash('BadInput', `"${word}" is not a whole number`);
-        value = int(Number(this.input.word()));
+        value = wholeFrom(this.input.word());
       }
       this.assignTo(place, value);
     });

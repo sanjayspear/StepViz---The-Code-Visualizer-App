@@ -125,7 +125,7 @@ function javaHash(k: JVal): number {
     case 'boolean':
       return k.v ? 1231 : 1237;
     case 'long': {
-      const b = BigInt(Math.trunc(k.v as number));
+      const b = typeof k.v === 'bigint' ? k.v : BigInt(Math.trunc(k.v as number));
       return Number(BigInt.asIntN(32, b ^ (BigInt.asUintN(64, b) >> 32n)));
     }
     case 'double': {
@@ -209,7 +209,7 @@ const WRAPPER_OF: Record<Prim, string> = { int: 'Integer', long: 'Long', double:
  */
 export interface JVal {
   t: JType;
-  v: number | boolean | string | null | JVal[] | JObject | MapData | [JVal, JVal] | JFunc | StreamData | JVal;
+  v: number | bigint | boolean | string | null | JVal[] | JObject | MapData | [JVal, JVal] | JFunc | StreamData | JVal;
   elem?: Prim;
   id?: string | number;
   boxed?: boolean;
@@ -371,6 +371,18 @@ export function formatJava(x: unknown): string | undefined {
 }
 
 const int = (n: number): JVal => ({ t: 'int', v: n | 0 });
+/**
+ * A long: an exact 64-bit whole number that wraps like Java's. It is kept as a plain number while it
+ * fits exactly (up to 2^53) and as a bigint beyond that, so most of the program never sees a bigint.
+ */
+const MAX_EXACT = BigInt(Number.MAX_SAFE_INTEGER);
+function long64(b: bigint): number | bigint {
+  const w = BigInt.asIntN(64, b);
+  return w >= -MAX_EXACT && w <= MAX_EXACT ? Number(w) : w;
+}
+const lng = (b: bigint): JVal => ({ t: 'long', v: long64(b) });
+/** The exact whole number in an int, long or char value. */
+const bigOf = (v: JVal): bigint => (v.t === 'char' ? BigInt((v.v as string).charCodeAt(0)) : typeof v.v === 'bigint' ? v.v : BigInt(Math.trunc(v.v as number)));
 const dbl = (n: number): JVal => ({ t: 'double', v: n });
 const bool = (b: boolean): JVal => ({ t: 'boolean', v: b });
 const str = (s: string, id: string | number = freshId()): JVal => ({ t: 'String', v: s, id });
@@ -1296,7 +1308,7 @@ function javaFormat(format: string, args: JVal[]): string {
       case 'd':
         if (a.t !== 'int' && a.t !== 'long') throw new JavaException('IllegalFormatConversionException', `d != ${a.t}`);
         text = String(a.v);
-        if (flags.includes(',')) text = Number(a.v).toLocaleString('en-US');
+        if (flags.includes(',')) text = text.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
         if (flags.includes('+') && Number(a.v) >= 0) text = `+${text}`;
         break;
       case 'f':
@@ -2287,7 +2299,7 @@ class Interp {
 
   private num(v: JVal): number {
     if (v.v === null) throw new JavaException('NullPointerException', `Cannot unbox a null ${WRAPPER_OF[v.t as Prim] ?? 'value'}`);
-    return v.t === 'char' ? (v.v as string).charCodeAt(0) : (v.v as number);
+    return v.t === 'char' ? (v.v as string).charCodeAt(0) : Number(v.v);
   }
 
   /** A value going into a list: boxed, and of the list's own type (Integer into ArrayList<Integer>). */
@@ -2319,9 +2331,28 @@ class Interp {
         case '%': return dbl(x % y);
       }
     }
-    const isLong = a.t === 'long' || b.t === 'long';
-    const wrap = (n: number): JVal => (isLong ? { t: 'long', v: Math.trunc(n) } : int(n));
+    // A shift keeps the type of its left side (int << long is an int).
+    const isLong = a.t === 'long' || (b.t === 'long' && !['<<', '>>', '>>>'].includes(op));
     if ((op === '/' || op === '%') && y === 0) throw new JavaException('ArithmeticException', '/ by zero');
+    if (isLong) {
+      // Exact 64-bit arithmetic that wraps like Java (BigInt division and % round toward zero, as Java does).
+      const p = bigOf(unbox(a));
+      const q = bigOf(unbox(b));
+      switch (op) {
+        case '+': return lng(p + q);
+        case '-': return lng(p - q);
+        case '*': return lng(p * q);
+        case '/': return lng(p / q);
+        case '%': return lng(p % q);
+        case '&': return lng(p & q);
+        case '|': return lng(p | q);
+        case '^': return lng(p ^ q);
+        case '<<': return lng(p << (q & 63n));
+        case '>>': return lng(p >> (q & 63n));
+        case '>>>': return lng(BigInt.asUintN(64, p) >> (q & 63n));
+      }
+    }
+    const wrap = (n: number): JVal => int(n);
     switch (op) {
       case '+': return wrap(x + y);
       case '-': return wrap(x - y);
@@ -2361,7 +2392,7 @@ class Interp {
       let same: boolean;
       // Two Integer objects: == asks "the same object?", like Java (small ones are shared).
       if (a.boxed && b.boxed && a.v !== null && b.v !== null) same = a.id === b.id;
-      else if (NUMERIC.has(a.t) && NUMERIC.has(b.t)) same = this.num(a) === this.num(b);
+      else if (NUMERIC.has(a.t) && NUMERIC.has(b.t)) same = (a.t === 'long' || b.t === 'long') && a.t !== 'double' && b.t !== 'double' ? bigOf(unbox(a)) === bigOf(unbox(b)) : this.num(a) === this.num(b);
       else if (a.t === 'boolean' && b.t === 'boolean' && a.v !== null && b.v !== null) same = a.v === b.v;
       else if (a.v === null || b.v === null) same = a.v === b.v;
       // Text and arrays: == asks "the same object?", like Java (use .equals() for the letters).
@@ -2370,8 +2401,9 @@ class Interp {
     }
     if (['<', '<=', '>', '>='].includes(op)) {
       if (!NUMERIC.has(a.t) || !NUMERIC.has(b.t)) throw new CompileError(lineOf(n), `${op} only works on numbers.`);
-      const x = this.num(a);
-      const y = this.num(b);
+      const exact = (a.t === 'long' || b.t === 'long') && a.t !== 'double' && b.t !== 'double';
+      const x = exact ? bigOf(unbox(a)) : this.num(a);
+      const y = exact ? bigOf(unbox(b)) : this.num(b);
       return bool(op === '<' ? x < y : op === '<=' ? x <= y : op === '>' ? x > y : x >= y);
     }
     if ((op === '&' || op === '|' || op === '^') && a.t === 'boolean' && b.t === 'boolean') {
@@ -2441,10 +2473,19 @@ class Interp {
 
   private castTo(t: JType, v: JVal, at: Node): JVal {
     if (!NUMERIC.has(v.t) && t !== v.t) throw unsupported(at, 'this cast');
-    if (t === 'int') return int(Math.trunc(this.num(v)));
-    if (t === 'long') return { t: 'long', v: Math.trunc(this.num(v)) };
+    // double to int / long: Java cuts off the part after the point and stops at the type's limits (NaN gives 0).
+    const fromDouble = (lo: number, hi: number) => {
+      const x = this.num(v);
+      return Number.isNaN(x) ? 0 : x <= lo ? lo : x >= hi ? hi : Math.trunc(x);
+    };
+    if (t === 'int') return v.t === 'double' ? int(fromDouble(-2147483648, 2147483647)) : int(Number(BigInt.asIntN(32, bigOf(unbox(v)))));
+    if (t === 'long') {
+      if (v.t !== 'double') return lng(bigOf(unbox(v)));
+      const x = this.num(v);
+      return Number.isNaN(x) ? lng(0n) : x >= 9223372036854775807 ? lng(9223372036854775807n) : x <= -9223372036854775808 ? lng(-9223372036854775808n) : lng(BigInt(Math.trunc(x)));
+    }
     if (t === 'double') return dbl(this.num(v));
-    if (t === 'char') return { t: 'char', v: String.fromCharCode(this.num(v) & 0xffff) };
+    if (t === 'char') return { t: 'char', v: String.fromCharCode(v.t === 'double' ? fromDouble(-2147483648, 2147483647) & 0xffff : Number(BigInt.asUintN(16, bigOf(unbox(v))))) };
     if (t === v.t) return unbox(v);
     throw unsupported(at, 'this cast');
   }
@@ -2466,6 +2507,10 @@ class Interp {
         const text = n.text.replace(/_/g, '');
         const isLong = /[lL]$/.test(text);
         const digits = text.replace(/[lL]$/, '');
+        if (isLong) {
+          // 0x... / 0b... / 0... (octal) / decimal, exactly, then wrapped to 64 bits (0xFFFFFFFFFFFFFFFFL is -1).
+          return lng(BigInt(n.type === 'octal_integer_literal' ? `0o${digits.slice(1) || '0'}` : digits));
+        }
         const value =
           n.type === 'hex_integer_literal' ? parseInt(digits.slice(2), 16)
           : n.type === 'binary_integer_literal' ? parseInt(digits.slice(2), 2)
@@ -2511,9 +2556,9 @@ class Interp {
         if (!NUMERIC.has(v.t)) throw new CompileError(lineOf(n), `${op} only works on numbers.`);
         const x = this.num(v);
         const t = v.t === 'char' ? 'int' : v.t;
-        if (op === '-') return t === 'double' ? dbl(-x) : t === 'long' ? { t: 'long', v: -x } : int(-x);
-        if (op === '+') return t === 'double' ? dbl(x) : { t, v: x };
-        if (op === '~') return t === 'long' ? { t: 'long', v: ~x } : int(~x);
+        if (op === '-') return t === 'double' ? dbl(-x) : t === 'long' ? lng(-bigOf(unbox(v))) : int(-x);
+        if (op === '+') return t === 'double' ? dbl(x) : t === 'long' ? unbox(v) : int(x);
+        if (op === '~') return t === 'long' ? lng(~bigOf(unbox(v))) : int(~x);
         throw unsupported(n, `the operator ${op}`);
       }
       case 'update_expression': {
@@ -2603,6 +2648,7 @@ class Interp {
         const object = n.childForFieldName('object')!;
         const field = n.childForFieldName('field')!.text;
         if (object.text === 'Integer' && (field === 'MAX_VALUE' || field === 'MIN_VALUE')) return int(field === 'MAX_VALUE' ? 2147483647 : -2147483648);
+        if (object.text === 'Long' && (field === 'MAX_VALUE' || field === 'MIN_VALUE')) return lng(field === 'MAX_VALUE' ? 9223372036854775807n : -9223372036854775808n);
         const st = this.qualifiedStatic(n);
         if (st) return st.v as JVal;
         const value = this.eval(object);
@@ -2739,6 +2785,13 @@ class Interp {
     }
     if (object?.text === 'Collections') return this.collections(n, name, args());
     if (object?.text === 'Integer' && name === 'parseInt' && argNodes.length === 1) return this.parseInt(args()[0]);
+    if (object?.text === 'Long' && name === 'parseLong' && argNodes.length === 1) {
+      const s = args()[0];
+      const ok = s.t === 'String' && s.v !== null && /^[+-]?\d+$/.test(s.v as string);
+      const value = ok ? BigInt(s.v as string) : 0n;
+      if (!ok || value >= 1n << 63n || value < -(1n << 63n)) throw new JavaException('NumberFormatException', `For input string: "${s.v}"`);
+      return lng(value);
+    }
     if (object?.text === 'Double' && name === 'parseDouble' && argNodes.length === 1) {
       const s = args()[0];
       const x = s.t === 'String' && s.v !== null ? Number((s.v as string).trim()) : NaN;
@@ -3915,8 +3968,12 @@ class Interp {
         const w = this.input.peekWord();
         if (w === null) throw new JavaException('NoSuchElementException', 'No more input');
         if (!/^[+-]?\d+$/.test(w)) throw new JavaException('InputMismatchException', `For input string: "${w}"`);
+        // A number too big for the box is not "an int" / "a long" to Scanner either.
+        const value = BigInt(w);
+        const limit = name === 'nextLong' ? 63n : 31n;
+        if (value >= 1n << limit || value < -(1n << limit)) throw new JavaException('InputMismatchException', `For input string: "${w}"`);
         this.input.word();
-        return name === 'nextLong' ? { t: 'long', v: Number(w) } : int(Number(w));
+        return name === 'nextLong' ? lng(value) : int(Number(w));
       }
       case 'nextDouble': {
         const w = this.input.peekWord();
@@ -3957,14 +4014,20 @@ class Interp {
     });
     const anyDouble = a.some((v) => v.t === 'double');
     const anyLong = a.some((v) => v.t === 'long');
-    const same = (x: number): JVal => (anyDouble ? dbl(x) : anyLong ? { t: 'long', v: x } : int(x));
+    const same = (x: number): JVal => (anyDouble ? dbl(x) : anyLong ? lng(BigInt(Math.trunc(x))) : int(x));
+    if (anyLong && !anyDouble) {
+      // Exact for big longs (Math.abs(Long.MIN_VALUE) stays negative, like Java).
+      const [p, q] = a.map((v) => bigOf(unbox(v)));
+      if ((name === 'max' || name === 'min') && a.length === 2) return lng(name === 'max' ? (p >= q ? p : q) : p <= q ? p : q);
+      if (name === 'abs' && a.length === 1) return lng(p < 0n ? -p : p);
+    }
     if ((name === 'max' || name === 'min') && nums.length === 2) return same(name === 'max' ? Math.max(nums[0], nums[1]) : Math.min(nums[0], nums[1]));
     if (name === 'abs' && nums.length === 1) return same(Math.abs(nums[0]));
     if (name === 'sqrt' && nums.length === 1) return dbl(Math.sqrt(nums[0]));
     if (name === 'pow' && nums.length === 2) return dbl(Math.pow(nums[0], nums[1]));
     if (name === 'floor' && nums.length === 1) return dbl(Math.floor(nums[0]));
     if (name === 'ceil' && nums.length === 1) return dbl(Math.ceil(nums[0]));
-    if (name === 'round' && nums.length === 1) return anyDouble ? { t: 'long', v: Math.floor(nums[0] + 0.5) } : int(nums[0]);
+    if (name === 'round' && nums.length === 1) return anyDouble ? this.castTo('long', dbl(Math.floor(nums[0] + 0.5)), n) : a[0].t === 'long' ? unbox(a[0]) : int(nums[0]);
     throw unsupported(n, `Math.${name}`);
   }
 }

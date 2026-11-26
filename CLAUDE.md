@@ -346,6 +346,17 @@ Playwright tests. Static build for GitHub Pages.
   Home ("static variables inside functions"); before, it was wrongly reset on
   every call. Unsupported: several statics in one line, static arrays written
   with [ ], static pointers.
+- Exact long numbers (N1, a correctness fix found 2026-11-26): Java long and
+  C/C++ long / long long are exact 64-bit whole numbers that wrap like Java
+  and g++ (21! in a long prints -4249290049419214848; 9007199254740993L stays
+  exact; 1L << 40 is 1099511627776). Kept as plain numbers up to 2^53 and as
+  bigints beyond, so nothing else changes. Also: int << long stays an int;
+  (int) of a big double stops at the int limits (Java); (long) of a double
+  too; Long.MAX_VALUE / MIN_VALUE, Long.parseLong; Math.abs/max/min of longs
+  exact; Scanner.nextInt / nextLong of a number too big for the box is an
+  InputMismatchException; C++ whole-number literals too big for an int are
+  long (10000000000 needs no LL); cin / scanf read big numbers exactly;
+  printf %lld, to_string, stol / stoll, abs of long long exact.
 - Java streams (ST3): list.stream(), set.stream(), Arrays.stream(array),
   IntStream.range / rangeClosed / of, Stream.of; filter, map, mapToInt,
   mapToDouble, mapToObj, boxed, asDoubleStream, sorted() / sorted(cmp),
@@ -551,7 +562,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`; 226 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`; 230 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.
