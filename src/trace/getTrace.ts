@@ -81,7 +81,7 @@ export async function getTrace(
 
   if (raw.status === 'runtime-error' && raw.error && !raw.steps.some((s) => s.error)) {
     // Crashed before any step was recorded: stay on Home.
-    const sentence = errorSentence(raw.error.type ?? '', language);
+    const sentence = errorSentence(raw.error.type ?? '', language, raw.error.message ?? '');
     const where = raw.error.line ? `Line ${raw.error.line}: ` : '';
     return { kind: 'error', message: `${where}${sentence}`, line: raw.error.line ?? undefined };
   }

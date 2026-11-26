@@ -55,7 +55,7 @@ import {
 // Values
 
 type Prim = 'int' | 'long' | 'double' | 'boolean' | 'char' | 'String';
-export type JType = Prim | 'null' | 'void' | 'array' | 'list' | 'Scanner' | 'exception' | 'object' | 'map' | 'entry' | 'set' | 'func';
+export type JType = Prim | 'null' | 'void' | 'array' | 'list' | 'Scanner' | 'exception' | 'object' | 'map' | 'entry' | 'set' | 'func' | 'stream' | 'optional';
 
 /** A lambda, a method reference or a Comparator built from them (t = 'func'). */
 type JFunc =
@@ -63,7 +63,40 @@ type JFunc =
   | { kind: 'println' }
   | { kind: 'method'; cls: string; name: string }
   | { kind: 'comparing'; key: JFunc; reversed: boolean; then?: JFunc }
-  | { kind: 'natural'; reversed: boolean };
+  | { kind: 'natural'; reversed: boolean }
+  /** Integer::sum, String::length...: a method of Java's own classes */
+  | { kind: 'builtin'; name: string };
+
+/** Java's own methods that can be used as method references (Integer::sum, String::length...). */
+const BUILTIN_REFS = new Set([
+  'Integer::sum', 'Integer::max', 'Integer::min', 'Integer::compare', 'Integer::parseInt', 'Integer::intValue', 'Integer::valueOf',
+  'Double::sum', 'Double::max', 'Double::min', 'Double::compare',
+  'String::length', 'String::toUpperCase', 'String::toLowerCase', 'String::trim', 'String::isEmpty', 'String::valueOf',
+]);
+
+/**
+ * A stream: where its items come from and the steps they will go through. Nothing runs until the
+ * last call (collect, sum, forEach...), and then each item goes through all the steps before the next
+ * one starts, like Java (sorted waits for all items first).
+ */
+interface StreamData {
+  source: JVal[];
+  /** IntStream / DoubleStream (numbers that are not objects); undefined for a Stream of objects */
+  prim?: 'int' | 'double';
+  ops: StreamOp[];
+}
+type StreamOp =
+  | { k: 'filter' | 'peek'; f: JFunc }
+  | { k: 'map'; f: JFunc; to: 'int' | 'double' | 'obj' }
+  | { k: 'boxed' | 'asDouble' | 'distinct' }
+  | { k: 'sorted'; cmp?: JFunc }
+  | { k: 'limit' | 'skip'; n: number };
+/** One step of a running stream (Java's Sink): takes items, is told the end, and can ask to stop early. */
+interface Sink {
+  accept(x: JVal): void;
+  end(): void;
+  cancel(): boolean;
+}
 
 /** A HashMap / TreeMap / LinkedHashMap: entries by key id, in the order they were put in, and the table size. */
 export interface MapData {
@@ -176,7 +209,7 @@ const WRAPPER_OF: Record<Prim, string> = { int: 'Integer', long: 'Long', double:
  */
 export interface JVal {
   t: JType;
-  v: number | boolean | string | null | JVal[] | JObject | MapData | [JVal, JVal] | JFunc;
+  v: number | boolean | string | null | JVal[] | JObject | MapData | [JVal, JVal] | JFunc | StreamData | JVal;
   elem?: Prim;
   id?: string | number;
   boxed?: boolean;
@@ -188,6 +221,8 @@ export interface JVal {
   kind?: 'hash' | 'tree' | 'linked';
   /** keySet() / values() / entrySet(): the map they show (a for-each over them watches it) */
   src?: JVal;
+  /** a list from stream.toList(): it can only be read (changing it is an UnsupportedOperationException) */
+  fixed?: boolean;
 }
 
 /** Arrays and lists of the program's objects keep the class name as their item type (Dog[]: elem 'Dog'). */
@@ -272,10 +307,31 @@ export function javaString(val: JVal): string {
     case 'exception':
       if (val.cls === undefined) return 'null';
       return `${JAVA_UTIL.has(val.cls!) ? 'java.util' : 'java.lang'}.${val.cls}${val.v === null ? '' : `: ${val.v}`}`;
+    case 'optional': {
+      // Optional[5] / OptionalInt[5] / OptionalDouble[2.5] / Optional.empty
+      const kind = val.elem === 'int' ? 'OptionalInt' : val.elem === 'double' ? 'OptionalDouble' : 'Optional';
+      return val.v === null ? `${kind}.empty` : `${kind}[${javaString(val.v as JVal)}]`;
+    }
     default:
       if (val.v === null) return 'null';
       return String(val.v);
   }
+}
+
+/** DoubleStream.sum(): Java adds with Kahan's compensation (Collectors.sumWithCompensation / computeFinalSum). */
+function kahanSum(xs: number[]): number {
+  let sum = 0;
+  let comp = 0;
+  let simple = 0;
+  for (const x of xs) {
+    const tmp = x - comp;
+    const velvel = sum + tmp;
+    comp = velvel - sum - tmp;
+    sum = velvel;
+    simple += x;
+  }
+  const total = sum - comp;
+  return Number.isNaN(total) && !Number.isFinite(simple) ? simple : total;
 }
 
 /** TreeMap order: numbers by size, text by character codes. */
@@ -445,6 +501,7 @@ const IMPORTS = new Set([
   'java.util.InputMismatchException', 'java.util.NoSuchElementException', 'java.util.ConcurrentModificationException',
   'java.util.Map', 'java.util.HashMap', 'java.util.TreeMap', 'java.util.LinkedHashMap', 'java.util.Map.Entry',
   'java.util.Set', 'java.util.HashSet', 'java.util.TreeSet', 'java.util.LinkedHashSet',
+  'java.util.stream.Collectors', 'java.util.stream.IntStream', 'java.util.stream.Stream', 'java.util.stream.*', 'java.util.Optional',
 ]);
 const ALLOWED_TYPES = new Set([
   'int', 'long', 'double', 'float', 'boolean', 'char', 'short', 'byte', 'String', 'void', 'Scanner',
@@ -582,7 +639,7 @@ const isPrivateMember = (m: Node) => /\bprivate\b/.test(m.namedChildren.find((c)
 /** The program's own class names (set by checkSubset, for types like Dog and Dog[]). */
 let classNames = new Set<string>();
 /** Names a class of the program can't take, because StepViz already gives them a meaning. */
-const TAKEN_NAMES = new Set([...ALLOWED_TYPES, 'Math', 'System', 'Arrays', 'Collections', 'Object', 'Main']);
+const TAKEN_NAMES = new Set([...ALLOWED_TYPES, 'Math', 'System', 'Arrays', 'Collections', 'Object', 'Main', 'Collectors', 'IntStream', 'Stream', 'Optional']);
 
 function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; classes: Map<string, ClassInfo> } {
   const root = tree.rootNode;
@@ -828,7 +885,10 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
       }
       if (n.type === 'method_reference') {
         const [owner, member] = named(n);
-        const ok = (owner?.text === 'System.out' && member?.text === 'println') || (classNames.has(owner?.text ?? '') && member?.type === 'identifier');
+        const ok =
+          (owner?.text === 'System.out' && member?.text === 'println') ||
+          (classNames.has(owner?.text ?? '') && member?.type === 'identifier') ||
+          BUILTIN_REFS.has(`${owner?.text}::${member?.text}`);
         if (!ok) throw unsupported(n, `the method reference ${n.text}`);
       }
       if (n.type === 'instanceof_expression' && named(n).length > 2) throw unsupported(n, 'instanceof with a name (instanceof Dog d)');
@@ -1707,6 +1767,7 @@ class Interp {
       if (valueNode && s.childForFieldName('type')?.text === 'var') {
         // var x = 5;  the box takes the value's type (int), like Java.
         const value = this.eval(valueNode);
+        if (value.t === 'stream' || value.t === 'optional') throw unsupported(valueNode, value.t === 'stream' ? 'streams kept in a variable (use the stream in one statement)' : 'Optional kept in a variable');
         const t: DeclType = { t: value.t === 'null' ? 'void' : value.t, elem: value.elem, kt: value.kt, cls: value.cls, box: value.boxed && value.t !== 'String' };
         Object.assign(cell, t);
         cell.v = this.coerce(value, t, d!, name);
@@ -2568,6 +2629,7 @@ class Interp {
       case 'method_reference': {
         const [owner, member] = named(n);
         if (owner.text === 'System.out') return { t: 'func', v: { kind: 'println' } };
+        if (BUILTIN_REFS.has(`${owner.text}::${member.text}`) && !classNames.has(owner.text)) return { t: 'func', v: { kind: 'builtin', name: `${owner.text}::${member.text}` } };
         return { t: 'func', v: { kind: 'method', cls: owner.text, name: member.text } };
       }
       case 'object_creation_expression': {
@@ -2626,6 +2688,7 @@ class Interp {
         const values = args();
         if (values.length > 1) throw new CompileError(lineOf(n), `${name} takes one value.`);
         const v = values[0];
+        if (v?.t === 'stream') throw unsupported(argNodes[0], 'printing a stream (collect it into a list first)');
         // println(char[]) prints the letters, like Java.
         const text = !v ? '' : v.t === 'array' && v.elem === 'char' && v.v ? (v.v as JVal[]).map((c) => c.v).join('') : javaString(v);
         this.rt.output += text + (name === 'println' ? '\n' : '');
@@ -2686,6 +2749,13 @@ class Interp {
       const a = args()[0];
       if (!a || a.t !== 'array') throw new CompileError(lineOf(n), `Arrays.${name} needs an array.`);
       if (name === 'toString') return str(a.v === null ? 'null' : arrayText(a));
+      if (name === 'stream' && argNodes.length === 1) {
+        // Arrays.stream(int[]) is an IntStream; String[] / Dog[] give a Stream of objects.
+        if (a.v === null) throw new JavaException('NullPointerException', 'Cannot read the array because it is null');
+        if (a.elem === 'int' || a.elem === 'double') return this.stream([...(a.v as JVal[])], a.elem);
+        if (a.elem === 'char' || a.elem === 'boolean' || a.elem === 'long') throw unsupported(n, `Arrays.stream of a ${a.elem} array`);
+        return this.stream([...(a.v as JVal[])]);
+      }
       if (name === 'deepToString') {
         const deep = (x: JVal): string => (x.t === 'array' ? (x.v === null ? 'null' : `[${(x.v as JVal[]).map(deep).join(', ')}]`) : javaString(x));
         return str(deep(a));
@@ -2701,6 +2771,22 @@ class Interp {
       }
       throw unsupported(n, `Arrays.${name}`);
     }
+    if (object?.text === 'IntStream' || object?.text === 'Stream') {
+      // IntStream.range(0, 5) / rangeClosed(1, 5) / IntStream.of(3, 1) / Stream.of("a", "b")
+      const values = args();
+      if (object.text === 'IntStream' && (name === 'range' || name === 'rangeClosed') && values.length === 2) {
+        const [a, b] = values.map((v) => this.num(this.castTo('int', v, n)));
+        const end = name === 'range' ? b : b + 1;
+        return this.stream(Array.from({ length: Math.max(0, end - a) }, (_, i) => int(a + i)), 'int');
+      }
+      if (name === 'of' && values.length) {
+        if (object.text === 'IntStream') return this.stream(values.map((v) => this.castTo('int', v, n)), 'int');
+        return this.stream(values.map(box));
+      }
+      throw unsupported(n, `${object.text}.${name}`);
+    }
+    if (object?.text === 'Collectors') throw unsupported(n, `Collectors.${name}${['toList', 'toSet', 'joining'].includes(name) ? ' outside collect(...)' : ''}`);
+    if (object?.text === 'Optional') throw unsupported(n, `Optional.${name}`);
     if (!object) return this.callUnqualified(n, name, args());
     if (object.type === 'super') return this.callSuper(n, name, args());
     if (object.type === 'identifier' && this.classes.has(object.text) && !this.scope.lookup(object.text)) {
@@ -2718,6 +2804,9 @@ class Interp {
       if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "Set.${name}()" because the value is null`);
       return this.setMethod(n, target, name, argNodes, args());
     }
+    // collect(Collectors.toList()): the collector is read from the code, not run on its own.
+    if (target.t === 'stream') return this.streamMethod(n, target.v as StreamData, name, argNodes, name === 'collect' ? argNodes.map(() => NULL) : args());
+    if (target.t === 'optional') return this.optionalMethod(n, target, name, args());
     if (target.t === 'func') {
       const f = target.v as JFunc;
       if (name === 'reversed' && !argNodes.length) {
@@ -2826,6 +2915,342 @@ class Interp {
     }
   }
 
+  // ---- streams ------------------------------------------------------------------
+
+  private stream(source: JVal[], prim?: 'int' | 'double'): JVal {
+    return { t: 'stream', v: { source, prim, ops: [] } as StreamData };
+  }
+
+  /** A stream call: a step to add (filter, map, sorted...) or the last call that runs the stream. */
+  private streamMethod(n: Node, d: StreamData, name: string, argNodes: Node[], a: JVal[]): JVal {
+    const fn = (i = 0) => this.funcArg(a[i], n);
+    // add(op) keeps the kind of stream; add(op, undefined) makes it a Stream of objects again.
+    const add = (op: StreamOp, ...to: ['int' | 'double' | undefined] | []): JVal => ({ t: 'stream', v: { ...d, ops: [...d.ops, op], prim: to.length ? to[0] : d.prim } as StreamData });
+    const kind = d.prim === 'int' ? 'IntStream' : d.prim === 'double' ? 'DoubleStream' : 'Stream';
+    const needNumbers = () => {
+      if (!d.prim) throw new CompileError(lineOf(n), `${name}() works on a stream of numbers: use mapToInt(x -> x) first.`);
+    };
+    const count = (k: number) => {
+      if (a.length !== k) throw new CompileError(lineOf(n), `${name} needs ${k} value${k === 1 ? '' : 's'} here, not ${a.length}.`);
+    };
+    const size = (v: JVal) => {
+      const k = this.num(unbox(v));
+      if (k < 0) throw new JavaException('IllegalArgumentException', String(k));
+      return k;
+    };
+    switch (name) {
+      // Steps: nothing runs yet.
+      case 'filter':
+      case 'peek':
+        count(1);
+        return add({ k: name, f: fn() });
+      case 'map':
+        count(1);
+        return add({ k: 'map', f: fn(), to: d.prim ?? 'obj' });
+      case 'mapToInt':
+      case 'mapToDouble':
+        count(1);
+        if (d.prim && name === 'mapToInt') throw new CompileError(lineOf(n), `An ${kind} already holds numbers: use map(...).`);
+        return add({ k: 'map', f: fn(), to: name === 'mapToInt' ? 'int' : 'double' }, name === 'mapToInt' ? 'int' : 'double');
+      case 'mapToObj':
+        count(1);
+        needNumbers();
+        return add({ k: 'map', f: fn(), to: 'obj' }, undefined);
+      case 'boxed':
+        count(0);
+        needNumbers();
+        return add({ k: 'boxed' }, undefined);
+      case 'asDoubleStream':
+        count(0);
+        if (d.prim !== 'int') throw unsupported(n, `${kind}.asDoubleStream`);
+        return add({ k: 'asDouble' }, 'double');
+      case 'sorted':
+        if (a.length > 1) count(1);
+        if (d.prim && a.length) throw new CompileError(lineOf(n), `An ${kind} sorts its numbers from small to large only: use boxed().sorted(...) for another order.`);
+        return add({ k: 'sorted', cmp: a.length && a[0].t !== 'null' ? fn() : undefined });
+      case 'distinct':
+        count(0);
+        return add({ k: 'distinct' });
+      case 'limit':
+      case 'skip':
+        count(1);
+        return add({ k: name, n: size(a[0]) });
+
+      // The last call: the stream runs now.
+      case 'forEach':
+      case 'forEachOrdered': {
+        count(1);
+        const f = fn();
+        this.runStream(d, { accept: (x) => void this.callFunc(f, [x], n), end: () => {}, cancel: () => false }, n);
+        return VOID;
+      }
+      case 'collect': {
+        count(1);
+        if (d.prim) throw new CompileError(lineOf(n), `An ${kind} can't collect(...) directly: use boxed() first.`);
+        const c = argNodes[0];
+        const how = c.type === 'method_invocation' && c.childForFieldName('object')?.text === 'Collectors' ? c.childForFieldName('name')!.text : '';
+        const cArgs = c.type === 'method_invocation' ? named(c.childForFieldName('arguments')) : [];
+        if ((how === 'toList' || how === 'toSet') && !cArgs.length) {
+          const items = this.collectAll(d, n);
+          if (how === 'toList') return { t: 'list', v: items, id: freshId(), mod: 0 };
+          const set: JVal = { t: 'set', kind: 'hash', v: { entries: new Map(), cap: 16 }, id: freshId(), mod: 0 };
+          for (const x of items) if (!(set.v as MapData).entries.has(keyId(x))) this.mapPut(set, x, x);
+          return set;
+        }
+        if (how === 'joining' && (cArgs.length <= 1 || cArgs.length === 3)) {
+          const parts = cArgs.map((x) => this.eval(x));
+          if (parts.some((p) => p.t !== 'String')) throw new CompileError(lineOf(c), 'Collectors.joining needs text in quotes.');
+          const [sep, pre, post] = parts.map((p) => p.v as string);
+          const items = this.collectAll(d, n);
+          if (items.some((x) => x.t !== 'String')) throw new CompileError(lineOf(n), 'Collectors.joining joins text only: use map(String::valueOf) first.');
+          return str((pre ?? '') + items.map(javaString).join(sep ?? '') + (post ?? ''));
+        }
+        throw unsupported(c, c.text.replace(/\(.*$/s, ''));
+      }
+      case 'toList': {
+        count(0);
+        if (d.prim) throw new CompileError(lineOf(n), `An ${kind} has no toList(): use boxed() first.`);
+        return { t: 'list', v: this.collectAll(d, n), id: freshId(), mod: 0, fixed: true };
+      }
+      case 'toArray': {
+        count(0);
+        if (!d.prim) throw unsupported(n, 'toArray() on a Stream of objects');
+        return { t: 'array', elem: d.prim, v: this.collectAll(d, n), id: freshId() };
+      }
+      case 'count': {
+        count(0);
+        // Java 9 and later: when no step can change how many items there are, count() does not run the steps.
+        if (!d.ops.some((o) => ['filter', 'distinct', 'limit', 'skip'].includes(o.k))) return { t: 'long', v: d.source.length };
+        let k = 0;
+        this.runStream(d, { accept: () => void k++, end: () => {}, cancel: () => false }, n);
+        return { t: 'long', v: k };
+      }
+      case 'sum': {
+        count(0);
+        needNumbers();
+        const items = this.collectAll(d, n).map((x) => this.num(x));
+        if (d.prim === 'int') return int(items.reduce((t, x) => (t + x) | 0, 0));
+        return dbl(kahanSum(items));
+      }
+      case 'average': {
+        count(0);
+        needNumbers();
+        const items = this.collectAll(d, n).map((x) => this.num(x));
+        const v = !items.length ? null : d.prim === 'int' ? dbl(items.reduce((t, x) => t + x, 0) / items.length) : dbl(kahanSum(items) / items.length);
+        return { t: 'optional', v, elem: 'double' };
+      }
+      case 'min':
+      case 'max': {
+        if (d.prim) {
+          count(0);
+          const items = this.collectAll(d, n);
+          const pick = (x: JVal, y: JVal) => (name === 'min' ? (this.num(y) < this.num(x) ? y : x) : this.num(y) > this.num(x) ? y : x);
+          return { t: 'optional', v: items.length ? items.reduce(pick) : null, elem: d.prim };
+        }
+        if (a.length !== 1) throw new CompileError(lineOf(n), `${name} on a Stream needs a Comparator, like ${name}(Comparator.naturalOrder()).`);
+        // BinaryOperator.minBy / maxBy: compare(best so far, next).
+        const cmp = fn();
+        return this.reduceStream(d, n, (x, y) => {
+          const c = this.compareWith(cmp, x, y, n);
+          return name === 'min' ? (c <= 0 ? x : y) : c >= 0 ? x : y;
+        });
+      }
+      case 'reduce': {
+        if (a.length === 1) {
+          const f = fn();
+          return this.reduceStream(d, n, (x, y) => this.streamItem(this.callFunc(f, [x, y], n), d.prim ?? 'obj', n));
+        }
+        count(2);
+        const f = fn(1);
+        let acc = this.streamItem(a[0], d.prim ?? 'obj', n);
+        this.runStream(d, { accept: (x) => void (acc = this.streamItem(this.callFunc(f, [acc, x], n), d.prim ?? 'obj', n)), end: () => {}, cancel: () => false }, n);
+        return acc;
+      }
+      case 'anyMatch':
+      case 'allMatch':
+      case 'noneMatch': {
+        count(1);
+        const f = fn();
+        // Java's MatchOps: stop at the first item that decides the answer.
+        const stopWhen = name === 'anyMatch';
+        let stop = false;
+        let value = name !== 'anyMatch';
+        this.runStream(
+          d,
+          {
+            accept: (x) => {
+              if (!stop && this.test(f, x, n) === stopWhen) {
+                stop = true;
+                value = name === 'anyMatch';
+              }
+            },
+            end: () => {},
+            cancel: () => stop,
+          },
+          n,
+        );
+        return bool(value);
+      }
+      case 'findFirst':
+      case 'findAny': {
+        count(0);
+        let found: JVal | null = null;
+        this.runStream(d, { accept: (x) => void (found ??= x), end: () => {}, cancel: () => found !== null }, n);
+        return { t: 'optional', v: found, elem: d.prim };
+      }
+    }
+    throw unsupported(n, `${kind}.${name}`);
+  }
+
+  /** Every item that comes out of the stream, in order. */
+  private collectAll(d: StreamData, at: Node): JVal[] {
+    const out: JVal[] = [];
+    this.runStream(d, { accept: (x) => void out.push(x), end: () => {}, cancel: () => false }, at);
+    return out;
+  }
+
+  /** reduce(op) / min / max: the first item is the start, then op(so far, next). */
+  private reduceStream(d: StreamData, at: Node, op: (x: JVal, y: JVal) => JVal): JVal {
+    let acc: JVal | null = null;
+    this.runStream(d, { accept: (x) => void (acc = acc === null ? x : op(acc, x)), end: () => {}, cancel: () => false }, at);
+    return { t: 'optional', v: acc, elem: d.prim };
+  }
+
+  private test(f: JFunc, x: JVal, at: Node): boolean {
+    const r = this.callFunc(f, [x], at);
+    if (r.t !== 'boolean') throw new CompileError(lineOf(at), 'This lambda must give back true or false.');
+    return unbox(r).v as boolean;
+  }
+
+  /** A value going into a stream: an int in an IntStream, a double in a DoubleStream, an object (Integer...) otherwise. */
+  private streamItem(v: JVal, to: 'int' | 'double' | 'obj', at: Node): JVal {
+    if (to === 'obj') {
+      if (v.t === 'void') throw new CompileError(lineOf(at), 'This lambda must give back a value.');
+      return box(v);
+    }
+    const u = unbox(v);
+    if (to === 'int') {
+      if (u.t !== 'int' && u.t !== 'char') throw new CompileError(lineOf(at), `This lambda must give back an int here, not ${formatJava(v)}.`);
+      return int(this.num(u));
+    }
+    if (!NUMERIC.has(u.t)) throw new CompileError(lineOf(at), `This lambda must give back a number here, not ${formatJava(v)}.`);
+    return dbl(this.num(u));
+  }
+
+  /** Run the stream: each item goes through every step before the next one starts (Java's sink chain). */
+  private runStream(d: StreamData, terminal: Sink, at: Node) {
+    let sink = terminal;
+    for (let i = d.ops.length - 1; i >= 0; i--) sink = this.opSink(d.ops[i], sink, at);
+    for (const x of d.source) {
+      if (sink.cancel()) break;
+      sink.accept(x);
+    }
+    sink.end();
+  }
+
+  private opSink(op: StreamOp, down: Sink, at: Node): Sink {
+    const pass = { end: () => down.end(), cancel: () => down.cancel() };
+    switch (op.k) {
+      case 'filter':
+        return { ...pass, accept: (x) => this.test(op.f, x, at) && down.accept(x) };
+      case 'peek':
+        return { ...pass, accept: (x) => (this.callFunc(op.f, [x], at), down.accept(x)) };
+      case 'map':
+        return { ...pass, accept: (x) => down.accept(this.streamItem(this.callFunc(op.f, [x], at), op.to, at)) };
+      case 'boxed':
+        return { ...pass, accept: (x) => down.accept(box(x)) };
+      case 'asDouble':
+        return { ...pass, accept: (x) => down.accept(dbl(this.num(x))) };
+      case 'distinct': {
+        // Equal values pass once (objects of the program's classes: the same object).
+        const seen = new Set<string>();
+        return {
+          ...pass,
+          accept: (x) => {
+            const key = x.t === 'object' ? `o:${String(x.id)}:${x.v === null ? 'null' : ''}` : keyId(x);
+            if (seen.has(key)) return;
+            seen.add(key);
+            down.accept(x);
+          },
+        };
+      }
+      case 'limit': {
+        let m = op.n;
+        return {
+          end: () => down.end(),
+          cancel: () => m === 0 || down.cancel(),
+          accept: (x) => {
+            if (m > 0) {
+              m--;
+              down.accept(x);
+            }
+          },
+        };
+      }
+      case 'skip': {
+        let k = op.n;
+        return { ...pass, accept: (x) => (k > 0 ? void k-- : down.accept(x)) };
+      }
+      case 'sorted': {
+        // Waits for every item, sorts them (Java's TimSort, so a comparing lambda is called in Java's order), then passes them on.
+        const buffer: JVal[] = [];
+        return {
+          accept: (x) => void buffer.push(x),
+          cancel: () => false,
+          end: () => {
+            this.sortItems(buffer, at, op.cmp);
+            for (const x of buffer) {
+              if (down.cancel()) break;
+              down.accept(x);
+            }
+            down.end();
+          },
+        };
+      }
+    }
+  }
+
+  /** Optional / OptionalInt / OptionalDouble: get the value, or say what to do when there is none. */
+  private optionalMethod(n: Node, o: JVal, name: string, a: JVal[]): JVal {
+    const kind = o.elem === 'int' ? 'OptionalInt' : o.elem === 'double' ? 'OptionalDouble' : 'Optional';
+    const value = o.v as JVal | null;
+    const getter = o.elem === 'int' ? 'getAsInt' : o.elem === 'double' ? 'getAsDouble' : 'get';
+    if ((name === getter || name === 'orElseThrow') && !a.length) {
+      if (value === null) throw new JavaException('NoSuchElementException', 'No value present');
+      return value;
+    }
+    if (['get', 'getAsInt', 'getAsDouble'].includes(name)) throw new CompileError(lineOf(n), `An ${kind} gives its value with ${getter}().`);
+    if (name === 'isPresent' && !a.length) return bool(value !== null);
+    if (name === 'isEmpty' && !a.length) return bool(value === null);
+    if (name === 'orElse' && a.length === 1) return value ?? this.streamItem(a[0], o.elem === 'int' || o.elem === 'double' ? o.elem : 'obj', n);
+    if (name === 'ifPresent' && a.length === 1) {
+      if (value !== null) this.callFunc(this.funcArg(a[0], n), [value], n);
+      return VOID;
+    }
+    throw unsupported(n, `${kind}.${name}`);
+  }
+
+  /** Integer::sum, String::length...: Java's own methods used as method references. */
+  private callBuiltin(name: string, args: JVal[], at: Node): JVal {
+    const [cls, method] = name.split('::');
+    const x = args[0];
+    if (cls === 'String' && method === 'valueOf') return str(javaString(x));
+    if (cls === 'String') {
+      if (x.t !== 'String') throw new CompileError(lineOf(at), `${name} works on text, not ${formatJava(x)}.`);
+      if (x.v === null) throw new JavaException('NullPointerException', `Cannot invoke "String.${method}()" because the value is null`);
+      return this.stringMethod(at, x, method, []);
+    }
+    if (method === 'parseInt') return this.parseInt(x);
+    if (method === 'intValue') return int(this.num(unbox(x)));
+    if (method === 'valueOf') return box(int(this.num(unbox(x))));
+    const [p, q] = args.map((v) => this.num(unbox(v)));
+    const make = cls === 'Integer' ? int : dbl;
+    if (method === 'sum') return make(p + q);
+    if (method === 'max') return make(Math.max(p, q));
+    if (method === 'min') return make(Math.min(p, q));
+    return int(p < q ? -1 : p > q ? 1 : 0); // compare
+  }
+
   private funcArg(v: JVal, at: Node): JFunc {
     if (v.t !== 'func') throw new CompileError(lineOf(at), 'This needs a lambda (like x -> ...) or a method reference (like Dog::getName).');
     return v.v as JFunc;
@@ -2844,6 +3269,7 @@ class Interp {
       if (!found) throw new CompileError(lineOf(at), `${f.cls} has no method called ${f.name}.`);
       return this.callMethod(at, found.owner, found.m, args.slice(1), self, `${f.cls}.${f.name}`);
     }
+    if (f.kind === 'builtin') return this.callBuiltin(f.name, args, at);
     if (f.kind !== 'lambda') return int(this.compareWith(f, args[0], args[1], at));
     const node = f.node;
     const paramsNode = node.childForFieldName('parameters')!;
@@ -3046,6 +3472,8 @@ class Interp {
 
   private listMethod(n: Node, list: JVal, name: string, argNodes: Node[], a: JVal[]): JVal {
     const items = list.v as JVal[];
+    if (name === 'stream' && !a.length) return this.stream([...items]);
+    if (list.fixed && (LIST_CHANGERS.has(name) || ['sort', 'removeIf', 'replaceAll'].includes(name))) throw new JavaException('UnsupportedOperationException', '');
     if (name === 'sort' && a.length === 1) {
       // list.sort(comparator) / list.sort(null) (natural order)
       this.sortItems(items, n, a[0].t === 'null' ? undefined : this.funcArg(a[0], n));
@@ -3246,6 +3674,9 @@ class Interp {
     const itemsOf = (v: JVal) => (v.t === 'set' ? mapOrder(v, compareKeys).map(([k]) => k) : v.t === 'list' ? (v.v as JVal[]) : null);
     const changed = () => (set.mod = (set.mod ?? 0) + 1);
     switch (name) {
+      case 'stream':
+        if (a.length) break;
+        return this.stream(mapOrder(set, compareKeys).map(([k]) => k));
       case 'add': {
         const x = item();
         if (data.entries.has(keyId(x))) return bool(false);

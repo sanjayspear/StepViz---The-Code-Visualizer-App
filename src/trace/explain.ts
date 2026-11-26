@@ -51,8 +51,11 @@ const ERROR_SENTENCES: Record<string, string> = {
 const LANGUAGE_NAMES = { python: 'Python', javascript: 'JavaScript', java: 'Java', cpp: 'C++', c: 'C' } as const;
 
 /** A plain-words sentence for an error type. */
-export function errorSentence(type: string, language: keyof typeof LANGUAGE_NAMES = 'python'): string {
+export function errorSentence(type: string, language: keyof typeof LANGUAGE_NAMES = 'python', message = ''): string {
   const name = LANGUAGE_NAMES[language] ?? 'Python';
+  // Java: get() on an empty Optional is a NoSuchElementException too, but not about input.
+  if (type === 'NoSuchElementException' && message === 'No value present') return 'There is no value to get here: the stream had no items to give an answer from.';
+  if (type === 'UnsupportedOperationException') return "This list can only be read: a list from toList() can't be changed.";
   return (ERROR_SENTENCES[type] ?? '{lang} stopped with an error.').replace('{lang}', name);
 }
 

@@ -62,8 +62,8 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      (done), I1 Java interfaces + Comparable (done), S2 sets (done), ST1 Java
      static variables and constants (done), PY1 Python and JavaScript classes
      (done), SW2 Java switch values + var (done), L2 Java lambdas + Comparator
-     (done), OP1 C++ operator overloading (done), ST2 C++ static members (done). Next
-     idea: Java streams.
+     (done), OP1 C++ operator overloading (done), ST2 C++ static members (done), ST3
+     Java streams (done). The list of ideas is finished.
 
 Phase 1 covers:
 
@@ -346,6 +346,34 @@ Playwright tests. Static build for GitHub Pages.
   Home ("static variables inside functions"); before, it was wrongly reset on
   every call. Unsupported: several statics in one line, static arrays written
   with [ ], static pointers.
+- Java streams (ST3): list.stream(), set.stream(), Arrays.stream(array),
+  IntStream.range / rangeClosed / of, Stream.of; filter, map, mapToInt,
+  mapToDouble, mapToObj, boxed, asDoubleStream, sorted() / sorted(cmp),
+  distinct, limit, skip, peek; collect(Collectors.toList() / toSet() /
+  joining(...)), toList() (read-only: changing it is an
+  UnsupportedOperationException, "This list can only be read: a list from
+  toList() can't be changed."), toArray (IntStream), forEach, count, sum,
+  average, min, max, reduce, anyMatch / allMatch / noneMatch, findFirst /
+  findAny; Optional / OptionalInt / OptionalDouble: get / getAsInt /
+  getAsDouble / orElse / orElseThrow / isPresent / isEmpty / ifPresent;
+  printed as Optional[3] / Optional.empty. Runs exactly like Java: nothing
+  happens until the last call, then each item goes through every step before
+  the next one (filter(5), filter(2), map(2), ...); sorted waits for all items
+  (TimSort's comparison order); limit, anyMatch and findFirst stop early;
+  count() does not run the steps when none of them can change how many items
+  there are (Java 9+, so peek is skipped); DoubleStream sums use Java's
+  compensated sum. No new screen design: every lambda call is the usual
+  "lambda(...)" frame. Empty Optional: "There is no value to get here: the
+  stream had no items to give an answer from." Method references of Java's
+  own classes now work too: Integer::sum / max / min / compare / parseInt /
+  intValue / valueOf, Double::sum / max / min / compare, String::length /
+  toUpperCase / toLowerCase / trim / isEmpty / valueOf. Rules: "sum() works on
+  a stream of numbers: use mapToInt(x -> x) first."; "An IntStream can't
+  collect(...) directly: use boxed() first."; "An OptionalInt gives its value
+  with getAsInt()."; "Collectors.joining joins text only: use
+  map(String::valueOf) first." Unsupported: streams or Optionals kept in a
+  variable, printing a stream, groupingBy and other Collectors, flatMap,
+  parallel streams, Stream.iterate / generate.
 - Java lambdas (L2): lambdas as values for methods and in Comparator<T>
   variables; method references System.out::println and Student::getScore (the
   program's classes). Uses: list.sort(cmp / null), Collections.sort(list, cmp),
@@ -523,7 +551,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`; 220 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`; 226 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

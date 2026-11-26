@@ -788,7 +788,7 @@ export function explainTrace(trace: Trace): TraceStep['explain'][] {
         const what = type ? `${/^[aeiou]/i.test(type) ? 'an' : 'a'} ${type}${d.errorMessage ? ` with the message "${d.errorMessage}"` : ''}` : `the value ${d.errorMessage ?? ''}`;
         return { what: `The program ${words.throws} ${what}, and no ${words.catchPart} takes it, so the program stops.`, life: '' };
       }
-      return { what: errorSentence(step.error?.type ?? '', lang), life: '' };
+      return { what: errorSentence(step.error?.type ?? '', lang, step.error?.message ?? ''), life: '' };
     }
     const f: Facts = { step, prev: trace.steps[i - 1], top: step.frames[step.frames.length - 1], words };
     const kind: StepKind = step.kind ?? 'other';
@@ -825,10 +825,10 @@ export function explainTrace(trace: Trace): TraceStep['explain'][] {
             ];
       } else if (d.finallyOnly) {
         sub = 'catch';
-        variants = [`${errorSentence(type ?? '', lang)} Nothing catches it here, so the finally part runs first.`];
+        variants = [`${errorSentence(type ?? '', lang, d.errorMessage ?? '')} Nothing catches it here, so the finally part runs first.`];
       } else {
         sub = 'catch';
-        const problem = errorSentence(type ?? '', lang);
+        const problem = errorSentence(type ?? '', lang, d.errorMessage ?? '');
         const part = words.catchPart;
         variants = [`${problem} Instead of stopping, the program jumps to the ${part}.`, `${problem} The ${part} takes over, so the program does not stop.`];
       }
