@@ -21,9 +21,16 @@ import {
 import { DAILY_GOAL, usePracticeProgress, type Progress } from '../../practice/progress';
 import { go, listHref, practiceHomeHref, questionHref, toggleDifficulty, type PracticeRoute } from '../../practice/route';
 import type { CodeLanguage } from '../../examples';
+import { contentFor } from '../../practice/content';
+import { pythonRunner } from '../../runner/pythonRunner';
+import type { CheckResult, CheckTestResult } from '../../runner/protocol';
+import { CodeEditor } from '../Home/CodeEditor';
 import './Practice.css';
 
-export function Practice({ route }: { route: PracticeRoute }) {
+/** Show a Python answer in the visualiser; gives back a message when it can't. */
+export type Visualize = (source: string) => Promise<string | null>;
+
+export function Practice({ route, onVisualize }: { route: PracticeRoute; onVisualize: Visualize }) {
   const progress = usePracticeProgress();
   // A new screen: start at the top, and move focus to its heading for keyboard and screen-reader users.
   const key = route.screen === 'question' ? `q${route.id}` : route.screen === 'list' ? `l${route.scope}` : 'home';
@@ -38,7 +45,7 @@ export function Practice({ route }: { route: PracticeRoute }) {
       <main className="practice-main">
         {route.screen === 'home' && <PracticeHome progress={progress} />}
         {route.screen === 'list' && <QuestionList scope={route.scope} filters={route.filters} progress={progress} />}
-        {route.screen === 'question' && <QuestionPage id={route.id} scope={route.scope} filters={route.filters} progress={progress} />}
+        {route.screen === 'question' && <QuestionPage id={route.id} scope={route.scope} filters={route.filters} progress={progress} onVisualize={onVisualize} />}
       </main>
     </div>
   );
@@ -315,9 +322,32 @@ function QuestionList({ scope, filters, progress }: { scope: string; filters: Li
 
 // ---- screen 3: one question ----------------------------------------------------------------------
 
-function QuestionPage({ id, scope, filters, progress }: { id: number; scope: string; filters: ListFilters; progress: Progress }) {
+// The student's answers, in memory only (never stored): kept while the app is open, so a trip
+// to the visualiser and back does not lose them; gone when the page is closed or reloaded.
+const answers = new Map<string, string>();
+
+type Busy = null | 'tests' | 'visualize';
+
+function QuestionPage({ id, scope, filters, progress, onVisualize }: { id: number; scope: string; filters: ListFilters; progress: Progress; onVisualize: Visualize }) {
   const [language, setLanguage] = useState<CodeLanguage>('python');
+  const [showHint, setShowHint] = useState(false);
+  const [busy, setBusy] = useState<Busy>(null);
+  const [result, setResult] = useState<CheckResult | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [promptOpen, setPromptOpen] = useState(false);
   const q = questionById(id);
+  const content = q ? contentFor(q.id, language) : undefined;
+  const key = `${id}:${language}`;
+  const [code, setCode] = useState(() => answers.get(key) ?? content?.starter ?? '');
+  // Another question or language: its own answer, and a clean page.
+  useEffect(() => {
+    setCode(answers.get(key) ?? content?.starter ?? '');
+    setResult(null);
+    setNotice(null);
+    setShowHint(false);
+    setPromptOpen(false);
+  }, [key, content]);
+
   if (!q) {
     return (
       <section className="practice-card">
@@ -337,8 +367,37 @@ function QuestionPage({ id, scope, filters, progress }: { id: number; scope: str
   const next = list.find((x) => x.id > q.id);
   const at = list.findIndex((x) => x.id === q.id);
   const listName = scope === 'all' ? 'All questions' : topicById(scope)!.name;
-  const lang = PRACTICE_LANGUAGES.find((l) => l.value === language)!;
+  const langName = PRACTICE_LANGUAGES.find((l) => l.value === language)!.label;
   const solved = progress.isSolved(q.id);
+
+  const changeCode = (next: string) => {
+    setCode(next);
+    answers.set(key, next);
+    setNotice(null);
+  };
+  const runTests = async () => {
+    if (!content) return;
+    setBusy('tests');
+    setNotice(null);
+    setPromptOpen(false);
+    try {
+      const r = await pythonRunner.check(code, JSON.stringify({ tests: content.tests, forbid: content.forbid }));
+      setResult(r);
+      const all = r.status === 'ok' && r.results.length > 0 && r.results.every((t) => t.passed);
+      if (all && !progress.isSolved(q.id)) setPromptOpen(true);
+    } catch {
+      setNotice('Python could not start. Please reload the page and try again.');
+    } finally {
+      setBusy(null);
+    }
+  };
+  const visualize = async () => {
+    setBusy('visualize');
+    setNotice(null);
+    const problem = await onVisualize(code);
+    setBusy(null);
+    if (problem) setNotice(problem);
+  };
 
   return (
     <>
@@ -355,6 +414,7 @@ function QuestionPage({ id, scope, filters, progress }: { id: number; scope: str
         <h1 id="practice-q-title" className="practice-title practice-question__title" tabIndex={-1}>
           {q.title}
         </h1>
+        {content && <p className="practice-example">{content.example}</p>}
 
         <div className="practice-question__lang">
           <label className="practice-select">
@@ -363,17 +423,72 @@ function QuestionPage({ id, scope, filters, progress }: { id: number; scope: str
               <select value={language} onChange={(e) => setLanguage(e.target.value as CodeLanguage)}>
                 {PRACTICE_LANGUAGES.map((l) => (
                   <option key={l.value} value={l.value}>
-                    {l.ready ? l.label : `${l.label} (coming soon)`}
+                    {contentFor(q.id, l.value) ? l.label : `${l.label} (coming soon)`}
                   </option>
                 ))}
               </select>
               <Icon name="chevron-down" size={14} className="select-wrap__chevron" />
             </span>
           </label>
-          <p className="practice-soon" aria-live="polite">
-            {lang.ready ? '' : `Starter code and tests in ${lang.label} are coming soon. You can already tick this question when you can solve it.`}
-          </p>
+          {!content && (
+            <p className="practice-soon">
+              {language === 'python'
+                ? `Python starter code and tests for ${topic.name} are coming soon (they arrive topic by topic). You can already tick this question when you can solve it.`
+                : `Starter code and tests in ${langName} are coming soon. You can already tick this question when you can solve it.`}
+            </p>
+          )}
         </div>
+
+        {content && (
+          <div className="practice-work">
+            <CodeEditor value={code} onChange={changeCode} language={language} ariaLabel={`Your answer to Q${q.id}`} />
+            <div className="practice-actions">
+              <button type="button" className="practice-btn practice-btn--primary" onClick={() => void runTests()} disabled={busy !== null}>
+                {busy === 'tests' ? (pythonRunner.isReady ? 'Running tests…' : 'Loading Python…') : 'Run tests'}
+              </button>
+              <button type="button" className="practice-btn" onClick={() => void visualize()} disabled={busy !== null}>
+                {busy === 'visualize' ? (pythonRunner.isReady ? 'Running…' : 'Loading Python…') : 'Visualize my code'}
+              </button>
+              <button type="button" className="practice-btn" aria-expanded={showHint} onClick={() => setShowHint(!showHint)}>
+                {showHint ? 'Hide hint' : 'Hint'}
+              </button>
+              <button
+                type="button"
+                className="practice-more practice-actions__reset"
+                onClick={() => {
+                  changeCode(content.starter);
+                  setResult(null);
+                }}
+              >
+                Start over
+              </button>
+            </div>
+            {showHint && (
+              <p className="practice-hint">
+                <strong>Hint:</strong> {content.hint}
+              </p>
+            )}
+            <div aria-live="polite">
+              {notice && <p className="practice-problem">{notice}</p>}
+              {result && <TestResults result={result} />}
+              {promptOpen && !solved && (
+                <div className="practice-prompt">
+                  <p>
+                    <strong>All tests passed.</strong> Mark as solved?
+                  </p>
+                  <div className="practice-prompt__actions">
+                    <button type="button" className="practice-btn practice-btn--primary" onClick={() => progress.setSolved(q.id, true)}>
+                      Mark as solved
+                    </button>
+                    <button type="button" className="practice-btn" onClick={() => setPromptOpen(false)}>
+                      Not yet
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         <label className="practice-solved">
           <input type="checkbox" checked={solved} onChange={(e) => progress.setSolved(q.id, e.target.checked)} />
@@ -407,4 +522,60 @@ function QuestionPage({ id, scope, filters, progress }: { id: number; scope: str
       </nav>
     </>
   );
+}
+
+/** What the tests said: a summary pill, then each test with a word (Passed / Failed), never colour alone. */
+function TestResults({ result }: { result: CheckResult }) {
+  if (result.status === 'syntax-error') return <p className="practice-problem">{result.error?.message ?? 'Python could not understand this code.'}</p>;
+  if (result.status === 'forbidden') {
+    return (
+      <p className="practice-problem">
+        Line {result.line}: {result.why} Your code uses <code>{result.word}</code>.
+      </p>
+    );
+  }
+  if (result.status === 'timeout') return <p className="practice-problem">Your program ran for a very long time before the tests could finish, so we stopped it. Check that every loop can end.</p>;
+  if (result.status === 'error') {
+    return (
+      <p className="practice-problem">
+        Your program stopped before the tests could run{result.line ? ` (line ${result.line})` : ''}: {result.errorType}
+        {result.message ? `: ${result.message}` : ''}.
+      </p>
+    );
+  }
+  const passed = result.results.filter((t) => t.passed).length;
+  const all = passed === result.results.length;
+  return (
+    <div className="practice-results">
+      <p className={`practice-pill practice-results__summary practice-results__summary--${all ? 'all' : 'some'}`}>
+        {passed} of {result.results.length} tests passed
+      </p>
+      <ul className="practice-results__list">
+        {result.results.map((t, i) => (
+          <li key={i} className={`practice-test practice-test--${t.passed ? 'pass' : 'fail'}`}>
+            <span className="practice-test__verdict">{t.passed ? 'Passed' : 'Failed'}</span>
+            <span className="practice-test__body">
+              <code>{t.call}</code> should give <code>{t.expected}</code>
+              {!t.passed && <span className="practice-test__why">{testProblem(t)}</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function testProblem(t: CheckTestResult): string {
+  switch (t.problem) {
+    case 'missing':
+      return `There is no function called ${t.call.split('(')[0]} in your code.`;
+    case 'timeout':
+      return 'It took longer than 2 seconds, so it was stopped. Check that every loop can end, or look for a quicker way.';
+    case 'skipped':
+      return 'Not run: the time for all the tests ran out.';
+    case 'error':
+      return `It stopped with ${t.errorType}${t.message ? `: ${t.message}` : ''}${t.line ? ` (line ${t.line})` : ''}.`;
+    default:
+      return `It gave ${t.got}.`;
+  }
 }

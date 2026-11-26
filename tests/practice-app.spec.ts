@@ -129,7 +129,11 @@ test('previous / next follow the list the question was opened from', async ({ pa
 });
 
 test('language picker: languages without starter code say "coming soon"; unknown questions say so', async ({ page }) => {
+  // Basics & math has Python; Strings (Q30) not yet.
   await page.goto('./#/practice/q/7');
+  await expect(page.locator('.practice-question select option').first()).toHaveText('Python');
+  await page.goto('./#/practice/q/30');
+  await expect(page.getByText('Python starter code and tests for Strings are coming soon', { exact: false })).toBeVisible();
   await expect(page.locator('.practice-question select option')).toHaveText([
     'Python (coming soon)',
     'JavaScript (coming soon)',
@@ -141,4 +145,62 @@ test('language picker: languages without starter code say "coming soon"; unknown
   await expect(page.getByText('Starter code and tests in Java are coming soon.', { exact: false })).toBeVisible();
   await page.goto('./#/practice/q/999');
   await expect(page.locator('h1')).toHaveText('There is no question 999');
+});
+
+// ---- P2: Python starter code, tests and hints ------------------------------------
+
+const answer = (page: Page) => page.locator('.practice-work .cm-content');
+async function typeAnswer(page: Page, code: string) {
+  await answer(page).click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.insertText(code);
+}
+
+test('P2: the starter fails its tests; a right answer passes them all and asks "Mark as solved?"', async ({ page }) => {
+  await page.goto('./#/practice/q/3?from=basics-math');
+  await expect(page.getByText('Example: digit_sum(1234) returns 10.')).toBeVisible();
+  await expect(answer(page)).toContainText('def digit_sum(n):');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.getByText('0 of 5 tests passed')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('.practice-test').first()).toContainText('Failed');
+  await expect(page.locator('.practice-test').first()).toContainText('It gave None.');
+  await typeAnswer(page, 'def digit_sum(n):\n    return sum(int(c) for c in str(n))\n');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.getByText('5 of 5 tests passed')).toBeVisible();
+  await expect(page.getByText('All tests passed.')).toBeVisible();
+  await page.getByRole('button', { name: 'Mark as solved', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: /Solved/ })).toBeChecked();
+  expect(Object.keys((await saved(page)).solved)).toEqual(['3']);
+});
+
+test('P2: the question\'s own rule (no % in Q2), the hint, and a crash in a test', async ({ page }) => {
+  await page.goto('./#/practice/q/2');
+  await typeAnswer(page, 'def is_even(n):\n    return n % 2 == 0\n');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.locator('.practice-problem')).toHaveText('Line 2: This question asks you to find the answer without %. Your code uses %.', { timeout: 60_000 });
+  await page.getByRole('button', { name: 'Hint' }).click();
+  await expect(page.locator('.practice-hint')).toContainText('Like sharing sweets between two people');
+  await typeAnswer(page, 'def is_even(n):\n    return 1 // (n - 4) == 0\n');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.locator('.practice-test').first()).toContainText('It stopped with ZeroDivisionError: division by zero (line 2).');
+});
+
+test('P2: "Visualize my code" shows the answer step by step; "New code" comes back with it; a reload forgets it', async ({ page }) => {
+  await page.goto('./#/practice/q/7?from=basics-math');
+  await typeAnswer(page, 'def factorial_iter(n):\n    r = 1\n    for i in range(2, n + 1):\n        r *= i\n    return r\n\nprint(factorial_iter(3))\n');
+  await page.getByRole('button', { name: 'Visualize my code' }).click();
+  const next = page.getByRole('button', { name: 'Next step' });
+  await expect(next).toBeVisible({ timeout: 60_000 });
+  while (await next.isEnabled()) await next.click();
+  await expect(page.locator('.output, [class*=output]').first()).toContainText('6');
+  await page.getByRole('button', { name: /New code/ }).click();
+  await expect(page.locator('h1')).toHaveText('Compute the factorial of n, both iteratively and recursively.');
+  await expect(answer(page)).toContainText('print(factorial_iter(3))');
+  // Never stored: only the ticks are in localStorage, and a reload starts from the starter code.
+  expect(await page.evaluate(() => Object.keys(localStorage))).not.toContain('stepviz.practice.answers');
+  expect(JSON.stringify(await page.evaluate(() => ({ ...localStorage })))).not.toContain('factorial_iter(3)');
+  await page.reload();
+  await expect(answer(page)).toContainText('def factorial_rec(n):');
+  await expect(answer(page)).not.toContainText('print(factorial_iter(3))');
 });

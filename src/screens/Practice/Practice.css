@@ -501,6 +501,162 @@
   min-width: 96px;
 }
 
+/* Question page, P2: example, editor, buttons, hint, test results, the solved prompt ---- */
+
+.practice-example {
+  margin-top: 8px;
+  color: var(--color-text-muted);
+  font-size: 15px;
+}
+
+.practice-work {
+  margin-top: var(--gap-md);
+}
+
+/* Starter code is 6-12 lines: a taller editor than Home's 250 px, so none of it is cut off. */
+.practice-work .cm-editor {
+  height: 360px;
+}
+
+.practice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: var(--gap-sm);
+}
+
+.practice-actions__reset {
+  margin: 0 0 0 auto;
+}
+
+.practice-btn--primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.practice-btn--primary:hover {
+  border-color: var(--color-accent-dark);
+  background: var(--color-accent-dark);
+}
+
+.practice-btn:disabled {
+  opacity: 0.6;
+}
+
+.practice-hint {
+  margin-top: var(--gap-sm);
+  padding: 12px 14px;
+  border-radius: var(--radius-button);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-dark);
+  font-size: 15px;
+}
+
+.practice-problem {
+  margin-top: var(--gap-sm);
+  padding: 12px 14px;
+  border: 1px solid var(--color-error-border);
+  border-radius: var(--radius-button);
+  background: var(--color-error-bg);
+  color: var(--color-error-text);
+  font-size: 15px;
+}
+
+.practice-results {
+  margin-top: var(--gap-sm);
+}
+
+.practice-results__summary {
+  padding: 5px 14px;
+  font-size: 14px;
+}
+
+.practice-results__summary--all {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.practice-results__summary--some {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+}
+
+.practice-results__list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button-lg);
+  overflow: hidden;
+}
+
+.practice-test {
+  display: flex;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--color-border);
+  font-size: 15px;
+}
+
+.practice-test:first-child {
+  border-top: 0;
+}
+
+.practice-test__verdict {
+  flex: none;
+  width: 56px;
+  font-weight: 600;
+}
+
+.practice-test--pass .practice-test__verdict {
+  color: var(--color-success-text);
+}
+
+.practice-test--fail {
+  background: var(--color-error-bg);
+}
+
+.practice-test--fail .practice-test__verdict {
+  color: var(--color-error-text);
+}
+
+.practice-test__body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.practice-test__why {
+  display: block;
+  color: var(--color-error-text);
+}
+
+.practice-test code,
+.practice-problem code {
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.practice-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: var(--gap-sm);
+  padding: 12px 14px;
+  border: 1px solid var(--color-success-border);
+  border-radius: var(--radius-button-lg);
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.practice-prompt__actions {
+  display: flex;
+  gap: 10px;
+}
+
 /* Phone ------------------------------------------------------------------------ */
 
 @media (max-width: 899px) {

@@ -396,6 +396,26 @@ Playwright tests. Static build for GitHub Pages.
   carries from / q / d / hide), back to that list. Filters and typing update
   the URL in place (Back leaves the list). Daily count resets at local
   midnight (also while the page stays open); DAILY_GOAL in progress.ts.
+  P2 (Python, topic by topic; Basics & math done): content in
+  src/practice/content/python/<topic>.ts (example, starter, tests, hint ending
+  "Like ...", optional forbid rule from the question's "without X"), reference
+  solutions only in tests/practice/<topic>.solutions.ts; tests/practice-python
+  .spec.ts runs every reference solution and starter through the app's own
+  harness (src/practice/harness.py, loaded in the same locked-down Python
+  worker as tracer.py): all tests must pass for the solution, the starter must
+  run and fail, no integer past 2^53 (JavaScript would round it; use text).
+  Harness: strict compare (True is not 1, 2.0 is not 2, a tuple counts as a
+  list and is shown as a tuple), forbid rules via Python's tokenizer (quotes
+  and comments don't count), 2 s per test and 5 s in all, untraced. Question
+  page: example line, a 360 px editor (Home keeps 250 px), Run tests / Visualize
+  my code (the visualiser; "New code" comes back to the question) / Hint /
+  Start over, a summary pill and each test as Passed / Failed with "should
+  give X" and "It gave Y." (or the crash, timeout, missing function), the
+  rule message ("Line 2: This question asks you to find the answer without %.
+  Your code uses %."), and "All tests passed. Mark as solved?" [Mark as solved]
+  [Not yet] when not yet ticked. Answers live in memory only (a Map, never
+  storage): kept while the app is open, gone on reload. Python shows "(coming
+  soon)" for questions without content.
 - Checked against real compilers (D1, 2026-11-26): tests/golden holds everyday
   Java / C++ / C programs whose expected output comes from real javac/java 21
   and clang (scripts/golden-refresh.sh rebuilds it; avoid library-specific
@@ -716,7 +736,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`); C6 C++ libstdc++ sort, lambdas, algorithms, stack/queue/priority_queue (`tests/algorithms-cpp.spec.ts`); C7 C++ pair, unordered_map, unordered_set (`tests/containers-cpp.spec.ts`); D1 checked against real javac / clang (`tests/golden/`, `tests/golden-java-cpp.spec.ts`, `scripts/golden-refresh.sh`); D3 JavaScript against node, console.log like node (`tests/golden/js`, `tests/inspect-jstracer.spec.ts`); Practice P1a: questions.json from the PDF (`scripts/build-questions.mjs`, `tests/practice-questions.spec.ts`); Practice P1b screens (`tests/practice-app.spec.ts`; 326 tests pass). Next: Practice P2 (Python starter code + tests, topic by topic), only after the owner replies to the P1b report. Not pushed: P1a + P1b (wait for the owner).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`); C6 C++ libstdc++ sort, lambdas, algorithms, stack/queue/priority_queue (`tests/algorithms-cpp.spec.ts`); C7 C++ pair, unordered_map, unordered_set (`tests/containers-cpp.spec.ts`); D1 checked against real javac / clang (`tests/golden/`, `tests/golden-java-cpp.spec.ts`, `scripts/golden-refresh.sh`); D3 JavaScript against node, console.log like node (`tests/golden/js`, `tests/inspect-jstracer.spec.ts`); Practice P1a: questions.json from the PDF (`scripts/build-questions.mjs`, `tests/practice-questions.spec.ts`); Practice P1b screens (`tests/practice-app.spec.ts`, pushed); Practice P2 Basics & math in Python (`tests/practice-python.spec.ts`; 359 tests pass; not pushed). Next: the owner's spot-check of Basics & math, then the next topic (Strings).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

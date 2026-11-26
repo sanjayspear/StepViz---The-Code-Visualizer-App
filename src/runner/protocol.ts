@@ -34,13 +34,41 @@ export interface RawRunResult {
 export type ToWorker =
   | { type: 'init'; indexURL: string }
   | { type: 'analyze'; id: number; source: string }
-  | { type: 'run'; id: number; source: string; inputs: string[]; maxSteps: number; maxSeconds: number };
+  | { type: 'run'; id: number; source: string; inputs: string[]; maxSteps: number; maxSeconds: number }
+  /** Practice: run a Python answer against its tests (src/practice/harness.py), untraced. */
+  | { type: 'check'; id: number; source: string; spec: string; maxSeconds: number };
 
 export type FromWorker =
   | { type: 'ready' }
   | { type: 'init-error'; message: string }
   | { type: 'analyze-result'; id: number; result: AnalyzeResult }
-  | { type: 'run-result'; id: number; result: RawRunResult };
+  | { type: 'run-result'; id: number; result: RawRunResult }
+  | { type: 'check-result'; id: number; result: CheckResult };
+
+/** Practice test results from src/practice/harness.py. */
+export interface CheckTestResult {
+  call: string;
+  passed: boolean;
+  expected: string;
+  got: string;
+  /** missing: no such function; error: it crashed; timeout: too slow; skipped: no time left */
+  problem?: 'missing' | 'error' | 'timeout' | 'skipped';
+  errorType?: string;
+  message?: string;
+  line?: number | null;
+}
+export interface CheckResult {
+  /** ok: the tests ran; the others stopped before them */
+  status: 'ok' | 'syntax-error' | 'forbidden' | 'error' | 'timeout';
+  results: CheckTestResult[];
+  error?: SyntaxErrorInfo;
+  /** forbidden: the word used, its line, and why */
+  word?: string;
+  why?: string;
+  line?: number | null;
+  errorType?: string;
+  message?: string;
+}
 
 // JavaScript worker (one fresh worker per message).
 export type JsToWorker =

@@ -1,7 +1,7 @@
 // Main-thread side of the Python runner. Owns the worker, and a watchdog that
 // terminates it if a run goes past the time limit (for example a long-running
 // built-in call that the tracer cannot interrupt), so the page stays responsive.
-import type { AnalyzeResult, FromWorker, RawRunResult, ToWorker } from './protocol';
+import type { AnalyzeResult, CheckResult, FromWorker, RawRunResult, ToWorker } from './protocol';
 
 export const MAX_STEPS = 2000;
 export const MAX_SECONDS = 5;
@@ -76,6 +76,29 @@ export class PythonRunner {
       maxSeconds: MAX_SECONDS,
     }));
     result.catch(() => {}); // rejected only when the watchdog has already answered
+    try {
+      return await Promise.race([result, watchdog]);
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Practice: run a Python answer against its tests (spec: {tests, forbid} as JSON), untraced.
+   * The harness keeps within MAX_SECONDS itself; the watchdog is the last resort.
+   */
+  async check(source: string, spec: string): Promise<CheckResult> {
+    await this.load();
+    let timer: number | undefined;
+    const watchdog = new Promise<CheckResult>((resolve) => {
+      timer = window.setTimeout(() => {
+        resolve({ status: 'timeout', results: [] });
+        this.reset();
+        void this.load().catch(() => {});
+      }, MAX_SECONDS * 1000 + WATCHDOG_GRACE_MS);
+    });
+    const result = this.request<CheckResult>((id) => ({ type: 'check', id, source, spec, maxSeconds: MAX_SECONDS }));
+    result.catch(() => {});
     try {
       return await Promise.race([result, watchdog]);
     } finally {

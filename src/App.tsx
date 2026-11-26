@@ -10,7 +10,8 @@ import type { Trace } from './trace/types';
 
 export default function App() {
   // #/practice...: the Practice section. Anything else: the visualiser (its state is kept meanwhile).
-  const practiceRoute = parsePracticeHash(useHash());
+  const hash = useHash();
+  const practiceRoute = parsePracticeHash(hash);
   const [code, setCode] = useState(DEFAULT_EXAMPLE.source);
   const [language, setLanguage] = useState<Language>('python');
   const [busy, setBusy] = useState(false);
@@ -27,6 +28,24 @@ export default function App() {
     const t = window.setTimeout(() => void pythonRunner.load().catch(() => {}), 1500);
     return () => window.clearTimeout(t);
   }, []);
+
+  // Leaving the step screen with Back (the address changes) closes it.
+  useEffect(() => setTrace(null), [hash]);
+
+  /** Practice: visualise a Python answer (it is not stored anywhere). Gives back a message when it can't. */
+  const visualizeAnswer = async (source: string): Promise<string | null> => {
+    try {
+      const check = await checkSource(source, 'python');
+      if (!check.ok) return check.message;
+      if (check.inputCalls > 0) return 'This answer asks for input(), so it can\'t be visualised here. Call your function with values instead.';
+      const outcome = await getTrace(source, [], 'python');
+      if (outcome.kind === 'error') return outcome.message;
+      setTrace(outcome.trace);
+      return null;
+    } catch {
+      return 'Python could not start. Please reload the page and try again.';
+    }
+  };
 
   const changeCode = (next: string) => {
     setCode(next);
@@ -79,11 +98,11 @@ export default function App() {
     }
   };
 
-  if (practiceRoute) return <Practice route={practiceRoute} />;
-
   if (trace) {
     return <StepScreen trace={trace} title={titleForSource(trace.source)} onNewCode={() => setTrace(null)} />;
   }
+
+  if (practiceRoute) return <Practice route={practiceRoute} onVisualize={visualizeAnswer} />;
 
   return (
     <Home

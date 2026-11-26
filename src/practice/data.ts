@@ -29,16 +29,13 @@ export const questionById = (id: number): Question | undefined => (Number.isInte
 export const DIFFICULTIES: Difficulty[] = ['E', 'M', 'H'];
 export const DIFFICULTY_LABEL: Record<Difficulty, string> = { E: 'Easy', M: 'Medium', H: 'Hard' };
 
-/**
- * Languages on the question page. `ready` turns on when that language's starter code and
- * tests exist (P2: Python first); the others show "coming soon" until then.
- */
-export const PRACTICE_LANGUAGES: { value: CodeLanguage; label: string; ready: boolean }[] = [
-  { value: 'python', label: 'Python', ready: false },
-  { value: 'javascript', label: 'JavaScript', ready: false },
-  { value: 'java', label: 'Java', ready: false },
-  { value: 'cpp', label: 'C++', ready: false },
-  { value: 'c', label: 'C', ready: false },
+/** Languages on the question page; a language is ready for a question when it has content (content/index.ts). */
+export const PRACTICE_LANGUAGES: { value: CodeLanguage; label: string }[] = [
+  { value: 'python', label: 'Python' },
+  { value: 'javascript', label: 'JavaScript' },
+  { value: 'java', label: 'Java' },
+  { value: 'cpp', label: 'C++' },
+  { value: 'c', label: 'C' },
 ];
 
 /** Lower case, accents removed: "Café" finds "cafe". */

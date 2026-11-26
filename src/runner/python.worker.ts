@@ -2,6 +2,7 @@
 // The only place pasted code runs. Loads Pyodide from our own site, then
 // removes every network API from this worker before any student code runs.
 import tracerSource from './tracer.py?raw';
+import harnessSource from '../practice/harness.py?raw';
 import type { FromWorker, ToWorker } from './protocol';
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -16,6 +17,7 @@ interface Pyodide {
 
 let analyzeFn: PyCallable | null = null;
 let runFn: PyCallable | null = null;
+let checkFn: PyCallable | null = null;
 
 const post = (msg: FromWorker) => self.postMessage(msg);
 
@@ -57,9 +59,11 @@ async function init(indexURL: string) {
     };
     const py = await mod.loadPyodide({ indexURL, stdout: () => {}, stderr: () => {} });
     py.runPython(tracerSource);
+    py.runPython(harnessSource);
     py.runPython('lock_down()');
     analyzeFn = py.globals.get('analyze');
     runFn = py.globals.get('run');
+    checkFn = py.globals.get('check');
     lockDownNetwork();
     post({ type: 'ready' });
   } catch (e) {
@@ -76,5 +80,8 @@ self.onmessage = (event: MessageEvent<ToWorker>) => {
   } else if (msg.type === 'run' && runFn) {
     const json = String(runFn(msg.source, JSON.stringify(msg.inputs), msg.maxSteps, msg.maxSeconds));
     post({ type: 'run-result', id: msg.id, result: JSON.parse(json) });
+  } else if (msg.type === 'check' && checkFn) {
+    const json = String(checkFn(msg.source, msg.spec, msg.maxSeconds));
+    post({ type: 'check-result', id: msg.id, result: JSON.parse(json) });
   }
 };
