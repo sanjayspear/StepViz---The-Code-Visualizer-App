@@ -55,8 +55,9 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      initializers), vectors/arrays of structs, range-for with &.
    - P1 (done): basic pointers (C and C++) and std::map.
    - Then, on the owner's "act like the senior developer and architect", my order:
-     G1 tables (2-D arrays) in Java/C++/C and vector<vector<int>> (done), Java
-     HashMap, C/C++ pointer arithmetic + new/delete, inheritance (Java and C++).
+     G1 tables (2-D arrays) in Java/C++/C and vector<vector<int>> (done), H1 Java
+     HashMap/TreeMap/LinkedHashMap (done), C/C++ pointer arithmetic + new/delete,
+     inheritance (Java and C++).
 
 Phase 1 covers:
 
@@ -305,6 +306,19 @@ Playwright tests. Static build for GitHub Pages.
   v(n) / v(n, value), vector<int>(4, 0) as a value, push_back of rows (copied),
   resize. Texts: "g[1][2] changes from 0 to 9." / "Row 1 of g: position 2 was 0
   and is now 9." Unsupported: tables of structs (C/C++), sorting a list of lists.
+- Java maps (H1): HashMap, TreeMap, LinkedHashMap (Map<K, V> as the box type,
+  Map.Entry<K, V>). Printing follows Java exactly: HashMap in hash-bucket order
+  (String.hashCode, (h ^ h>>>16) & (size-1), table 16 doubling past 3/4 full),
+  TreeMap by key, LinkedHashMap as put in: {banana=2, apple=1, cherry=3}. Frames:
+  m = {"banana": 2, "apple": 1} (same order), so the map sentences apply. put,
+  get (null when missing: int n = m.get("x") is a NullPointerException, like
+  Java), getOrDefault, containsKey, containsValue, remove, size, isEmpty, clear,
+  putIfAbsent, keySet/values/entrySet (for-each; changing the map inside is a
+  ConcurrentModificationException), getKey/getValue/setValue, firstKey/lastKey
+  (TreeMap). Rules: "A Map holds objects, not int values: write Integer instead
+  of int."; "A map can't be walked directly: use m.keySet(), .values() or
+  .entrySet()." Unsupported: maps of lists, keys of the program's own classes,
+  merge/compute (lambdas), HashSet.
 - List changes read item by item in every language: "nums[0] changes from 5 to 2.",
   "3 is added to the end of squares.", "4 is taken off the end of squares.",
   "7 is put in at position 1 of xs.", "1 is taken out of xs at position 0.",
@@ -345,7 +359,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`; 183 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`; 186 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

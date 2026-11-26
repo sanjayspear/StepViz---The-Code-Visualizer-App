@@ -55,7 +55,62 @@ import {
 // Values
 
 type Prim = 'int' | 'long' | 'double' | 'boolean' | 'char' | 'String';
-export type JType = Prim | 'null' | 'void' | 'array' | 'list' | 'Scanner' | 'exception' | 'object';
+export type JType = Prim | 'null' | 'void' | 'array' | 'list' | 'Scanner' | 'exception' | 'object' | 'map' | 'entry';
+
+/** A HashMap / TreeMap / LinkedHashMap: entries by key id, in the order they were put in, and the table size. */
+export interface MapData {
+  entries: Map<string, [JVal, JVal]>;
+  cap: number;
+}
+const MAP_KINDS: Record<string, 'hash' | 'tree' | 'linked'> = { HashMap: 'hash', TreeMap: 'tree', LinkedHashMap: 'linked' };
+const MAP_TYPES = new Set(['Map', 'HashMap', 'TreeMap', 'LinkedHashMap']);
+/** Which key: "String:Sam", "int:3" (an Integer 3 and a Long 3 are different keys, as in Java). */
+const keyId = (k: JVal) => (k.v === null ? 'null' : `${k.t}:${String(k.v)}`);
+
+/** Java's hashCode for keys (String, Integer, Long, Double, Character, Boolean). */
+function javaHash(k: JVal): number {
+  if (k.v === null) return 0;
+  switch (k.t) {
+    case 'String': {
+      let h = 0;
+      for (const ch of k.v as string) h = (Math.imul(31, h) + ch.charCodeAt(0)) | 0;
+      return h;
+    }
+    case 'char':
+      return (k.v as string).charCodeAt(0);
+    case 'boolean':
+      return k.v ? 1231 : 1237;
+    case 'long': {
+      const b = BigInt(Math.trunc(k.v as number));
+      return Number(BigInt.asIntN(32, b ^ (BigInt.asUintN(64, b) >> 32n)));
+    }
+    case 'double': {
+      const view = new DataView(new ArrayBuffer(8));
+      view.setFloat64(0, k.v as number);
+      return (view.getInt32(0) ^ view.getInt32(4)) | 0;
+    }
+    default:
+      return (k.v as number) | 0;
+  }
+}
+/** The map's entries in Java's order: by key (TreeMap), as put in (LinkedHashMap), or by hash bucket (HashMap). */
+function mapOrder(m: JVal, compare: (a: JVal, b: JVal) => number): [JVal, JVal][] {
+  const data = m.v as MapData;
+  const list = [...data.entries.values()];
+  if (m.kind === 'tree') return list.sort(([a], [b]) => compare(a, b));
+  if (m.kind === 'linked') return list;
+  const bucket = (k: JVal) => {
+    const h = javaHash(k);
+    return (h ^ (h >>> 16)) & (data.cap - 1);
+  };
+  return list.map((e, i) => [e, bucket(e[0]), i] as const).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map(([e]) => e);
+}
+/** HashMap's table size for a wanted number of places (the next power of two). */
+const tableSizeFor = (n: number) => {
+  let c = 1;
+  while (c < n) c *= 2;
+  return c;
+};
 
 /** An object of one of the program's classes: its class name and its fields. */
 export interface JObject {
@@ -110,13 +165,18 @@ const WRAPPER_OF: Record<Prim, string> = { int: 'Integer', long: 'Long', double:
  */
 export interface JVal {
   t: JType;
-  v: number | boolean | string | null | JVal[] | JObject;
+  v: number | boolean | string | null | JVal[] | JObject | MapData | [JVal, JVal];
   elem?: Prim;
   id?: string | number;
   boxed?: boolean;
   mod?: number;
   /** exception: its class (v is the message, or null); object: its class (v is the object, or null) */
   cls?: string;
+  /** map: key type (elem is the value type) and which kind of map */
+  kt?: Prim;
+  kind?: 'hash' | 'tree' | 'linked';
+  /** keySet() / values() / entrySet(): the map they show (a for-each over them watches it) */
+  src?: JVal;
 }
 
 /** Arrays and lists of the program's objects keep the class name as their item type (Dog[]: elem 'Dog'). */
@@ -189,6 +249,12 @@ export function javaString(val: JVal): string {
       return 'java.util.Scanner';
     case 'object':
       return val.v === null ? 'null' : objectToText(val);
+    case 'map':
+      return val.v === null ? 'null' : `{${mapOrder(val, compareKeys).map(([k, v]) => `${javaString(k)}=${javaString(v)}`).join(', ')}}`;
+    case 'entry': {
+      const [k, v] = val.v as [JVal, JVal];
+      return `${javaString(k)}=${javaString(v)}`;
+    }
     case 'exception':
       if (val.cls === undefined) return 'null';
       return `${JAVA_UTIL.has(val.cls!) ? 'java.util' : 'java.lang'}.${val.cls}${val.v === null ? '' : `: ${val.v}`}`;
@@ -197,6 +263,10 @@ export function javaString(val: JVal): string {
       return String(val.v);
   }
 }
+
+/** TreeMap order: numbers by size, text by character codes. */
+const compareKeys = (a: JVal, b: JVal): number =>
+  a.t === 'String' ? compareText(a.v as string, b.v as string) : a.t === 'char' ? (a.v as string).charCodeAt(0) - (b.v as string).charCodeAt(0) : Number(a.v) - Number(b.v);
 
 /** String.compareTo: the difference of the first different character codes, else of the lengths. */
 function compareText(a: string, b: string): number {
@@ -219,6 +289,11 @@ export function formatJava(x: unknown): string | undefined {
   if (x.t === 'array' || x.t === 'list') return formatJava(x.v);
   if (x.t === 'Scanner') return 'Scanner';
   if (x.t === 'object') return objectFrameText(x, 0);
+  if (x.t === 'map') return x.v === null ? 'null' : `{${mapOrder(x, compareKeys).map(([k, v]) => `${formatJava(k)}: ${formatJava(v)}`).join(', ')}}`;
+  if (x.t === 'entry') {
+    const [k, v] = x.v as [JVal, JVal];
+    return `${formatJava(k)}=${formatJava(v)}`;
+  }
   if (x.t === 'exception') return x.cls === undefined ? 'null' : x.v === null ? x.cls : `${x.cls}: ${x.v}`;
   return javaString(x);
 }
@@ -355,10 +430,11 @@ const FEATURES: Record<string, string> = {
 const IMPORTS = new Set([
   'java.util.Scanner', 'java.util.Arrays', 'java.util.ArrayList', 'java.util.List', 'java.util.Collections', 'java.util.*',
   'java.util.InputMismatchException', 'java.util.NoSuchElementException', 'java.util.ConcurrentModificationException',
+  'java.util.Map', 'java.util.HashMap', 'java.util.TreeMap', 'java.util.LinkedHashMap', 'java.util.Map.Entry',
 ]);
 const ALLOWED_TYPES = new Set([
   'int', 'long', 'double', 'float', 'boolean', 'char', 'short', 'byte', 'String', 'void', 'Scanner',
-  'Integer', 'Long', 'Double', 'Boolean', 'Character', 'ArrayList', 'List',
+  'Integer', 'Long', 'Double', 'Boolean', 'Character', 'ArrayList', 'List', 'Map', 'HashMap', 'TreeMap', 'LinkedHashMap',
   ...Object.keys(EXCEPTION_PARENT),
 ]);
 const LIST_TYPES = new Set(['ArrayList', 'List']);
@@ -367,6 +443,21 @@ const LIST_TYPES = new Set(['ArrayList', 'List']);
 function checkGeneric(n: Node) {
   const base = named(n)[0];
   const args = named(named(n)[1]);
+  // HashMap<String, Integer>, Map.Entry<String, Integer>: two box types.
+  if (base && (MAP_TYPES.has(base.text) || base.text === 'Map.Entry')) {
+    if (args.length === 0 && n.parent?.type === 'object_creation_expression') return;
+    if (args.length !== 2) throw unsupported(n, `the type ${n.text}`);
+    for (const arg of args) {
+      if (arg.type === 'generic_type' || arg.type === 'array_type') throw unsupported(n, 'maps of lists');
+      if (arg.type === 'integral_type' || arg.type === 'floating_point_type' || arg.type === 'boolean_type') {
+        const w = arg.text === 'char' ? 'Character' : arg.text === 'int' ? 'Integer' : arg.text.charAt(0).toUpperCase() + arg.text.slice(1);
+        throw new CompileError(lineOf(n), `A ${base.text} holds objects, not ${arg.text} values: write ${w} instead of ${arg.text}.`);
+      }
+      if (!(arg.text in WRAPPERS) && !classNames.has(arg.text)) throw unsupported(n, `the type ${n.text}`);
+    }
+    if (classNames.has(args[0].text)) throw unsupported(n, `maps with ${args[0].text} keys`);
+    return;
+  }
   if (!base || !LIST_TYPES.has(base.text)) throw unsupported(n, `the type ${n.text}`);
   if (args.length === 0 && n.parent?.type === 'object_creation_expression') return;
   if (args.length !== 1) throw unsupported(n, `the type ${n.text}`);
@@ -513,11 +604,11 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
         checkGeneric(n);
         return;
       }
-      if (n.type === 'type_identifier' && LIST_TYPES.has(n.text)) throw unsupported(n, `${n.text} without the type of its items (like ${n.text}<Integer>)`);
+      if (n.type === 'type_identifier' && (LIST_TYPES.has(n.text) || MAP_TYPES.has(n.text))) throw unsupported(n, MAP_TYPES.has(n.text) ? `${n.text} without the types of its keys and values (like ${n.text}<String, Integer>)` : `${n.text} without the type of its items (like ${n.text}<Integer>)`);
       if (n.type === 'array_type' && /^(Integer|Long|Double|Boolean|Character|ArrayList|List)\b/.test(n.text)) throw unsupported(n, `arrays of ${n.childForFieldName('element')!.text}`);
       if (n.type === 'object_creation_expression') {
         const type = n.childForFieldName('type');
-        const isList = type?.type === 'generic_type' && named(type)[0]?.text === 'ArrayList';
+        const isList = type?.type === 'generic_type' && ['ArrayList', 'HashMap', 'TreeMap', 'LinkedHashMap'].includes(named(type)[0]?.text ?? '');
         const isException = !!type && type.text in EXCEPTION_PARENT;
         if (n.childForFieldName('body') || named(n).some((x) => x.type === 'class_body')) throw unsupported(n, 'anonymous classes');
         if (type && classNames.has(type.text)) {
@@ -600,7 +691,7 @@ function isConstant(n: Node): boolean {
 
 const LOOP_TYPES = new Set(['for_statement', 'enhanced_for_statement', 'while_statement', 'do_statement']);
 /** ArrayList methods that change the list (list.add(5)), and Collections methods that do (Collections.sort(list)). */
-const LIST_CHANGERS = new Set(['add', 'set', 'remove', 'clear', 'addAll']);
+const LIST_CHANGERS = new Set(['add', 'set', 'remove', 'clear', 'addAll', 'put', 'putIfAbsent']);
 const LIST_CHANGERS_STATIC = new Set(['sort', 'reverse', 'swap']);
 
 /** list.get(i) -> ["list", i] */
@@ -761,6 +852,7 @@ const UNSET = Symbol('unset');
 interface Cell {
   t: JType;
   elem?: Prim;
+  kt?: Prim;
   box?: boolean;
   cls?: string;
   v: JVal | typeof UNSET;
@@ -783,6 +875,8 @@ class Scope {
 interface DeclType {
   t: JType;
   elem?: Prim;
+  /** map / entry: the key type */
+  kt?: Prim;
   /** Integer, Double...: a box that holds an object (or null), not a plain value */
   box?: boolean;
   /** exception boxes: the class they hold (ArithmeticException, Exception...) */
@@ -806,6 +900,11 @@ function declType(typeNode: Node | null, declarator?: Node | null): DeclType {
     return { t: 'array', elem: (primOf(typeNode.childForFieldName('element')!.text) + rows(depth)) as Prim };
   }
   if (extraDims) return { t: 'array', elem: (primOf(typeNode.text) + rows(depthOf(extraDims))) as Prim };
+  if (typeNode.type === 'generic_type' && (MAP_TYPES.has(named(typeNode)[0]?.text ?? '') || named(typeNode)[0]?.text === 'Map.Entry')) {
+    const [k, v] = named(named(typeNode)[1]);
+    const box = (a?: Node) => (a ? WRAPPERS[a.text] ?? (a.text as Prim) : undefined);
+    return { t: named(typeNode)[0].text === 'Map.Entry' ? 'entry' : 'map', kt: box(k), elem: box(v) };
+  }
   if (typeNode.type === 'generic_type') {
     const arg = named(named(typeNode)[1])[0];
     return { t: 'list', elem: arg ? WRAPPERS[arg.text] ?? (arg.text as Prim) : undefined };
@@ -1064,7 +1163,7 @@ class Interp {
             if (arg) return { k: 'assign', t: [arg.text] };
           }
           // nums.add(5), nums.set(0, 2), nums.remove(1), nums.clear(): the list changes.
-          if (object && LIST_CHANGERS.has(name ?? '') && this.scope.lookup(object)?.t === 'list') return { k: 'assign', t: [object] };
+          if (object && LIST_CHANGERS.has(name ?? '') && ['list', 'map'].includes(this.scope.lookup(object)?.t ?? '')) return { k: 'assign', t: [object] };
         }
         return { k: 'other' };
       }
@@ -1296,6 +1395,7 @@ class Interp {
       let list: JVal | null = null;
       if (s.type === 'enhanced_for_statement') {
         const array = this.eval(s.childForFieldName('value')!);
+        if (array.t === 'map') throw new CompileError(lineOf(s), `A map can't be walked directly: use ${s.childForFieldName('value')!.text}.keySet(), .values() or .entrySet().`);
         if (array.t !== 'array' && array.t !== 'list') throw unsupported(s, 'for-each loops over this value');
         if (array.v === null) throw new JavaException('NullPointerException', 'Cannot loop over a null value');
         if (array.t === 'list') list = array;
@@ -1306,7 +1406,9 @@ class Interp {
       }
       let first = true;
       let k = 0;
-      const startMod = list?.mod ?? 0;
+      // A for-each over keySet() / values() / entrySet() watches the map itself.
+      const watched = list?.src ?? list;
+      const startMod = watched?.mod ?? 0;
       for (;;) {
         if (items) {
           // A list's for-each walks with Java's iterator: it stops when it reaches the size,
@@ -1314,7 +1416,7 @@ class Interp {
           if (list) {
             items = list.v as JVal[];
             if (k === items.length) break; // hasNext(): the walk has not reached the size
-            if ((list.mod ?? 0) !== startMod) throw new JavaException('ConcurrentModificationException', '');
+            if ((watched!.mod ?? 0) !== startMod) throw new JavaException('ConcurrentModificationException', '');
           } else if (k >= items.length) break;
           itemCell!.v = this.coerce(items[k++], itemCell!, s, s.childForFieldName('name')!.text);
         } else if (s.type !== 'do_statement' || !first) {
@@ -1562,7 +1664,7 @@ class Interp {
   /** Assign rules: widening is fine; narrowing needs a cast. */
   private coerce(v: JVal, to: DeclType, at: Node, name: string): JVal {
     const t = to.t;
-    const what = t === 'array' ? `${to.elem} array` : t === 'list' ? `list of ${typeName(to.elem)}` : t === 'object' ? to.cls! : t;
+    const what = t === 'map' ? `map of ${typeName(to.kt)} to ${typeName(to.elem)}` : t === 'array' ? `${to.elem} array` : t === 'list' ? `list of ${typeName(to.elem)}` : t === 'object' ? to.cls! : t;
     const cantHold = () =>
       new CompileError(lineOf(at), `${name} is ${/^[aeiouAEIOU]/.test(what) ? 'an' : 'a'} ${what} box, so it can't hold ${formatJava(v)}.`);
     if (t === 'object') {
@@ -1573,6 +1675,19 @@ class Interp {
     if (t === 'array') {
       if (v.t === 'null') return { t: 'array', v: null as unknown as JVal[], elem: to.elem };
       if (v.t !== 'array' || v.elem !== to.elem) throw cantHold();
+      return v;
+    }
+    if (t === 'map' || t === 'entry') {
+      if (v.t === 'null') return { t, v: null, kt: to.kt, elem: to.elem };
+      if (v.t !== t) throw cantHold();
+      if (t === 'map' && v.kt === undefined && to.kt) {
+        // new HashMap<>(): the types come from the box it is stored in.
+        v.kt = to.kt;
+        v.elem = to.elem;
+      }
+      if (v.kt !== to.kt || v.elem !== to.elem) {
+        throw new CompileError(lineOf(at), `${name} holds ${typeName(to.kt)} keys and ${typeName(to.elem)} values, so it can't hold this ${t === 'map' ? 'map' : 'entry'}.`);
+      }
       return v;
     }
     if (t === 'list') {
@@ -1924,6 +2039,7 @@ class Interp {
           return { t: 'exception', v: msg ? (msg.v as string | null) : null, cls: type.text, id: freshId() };
         }
         if (type.type !== 'generic_type') return { t: 'Scanner', v: null, id: freshId() };
+        if (named(type)[0]?.text in MAP_KINDS) return this.newMap(n, type);
         const arg = named(named(type)[1])[0];
         const list: JVal = { t: 'list', v: [], elem: arg ? WRAPPERS[arg.text] ?? (arg.text as Prim) : undefined, id: freshId(), mod: 0 };
         const from = named(n.childForFieldName('arguments'))[0];
@@ -2036,6 +2152,24 @@ class Interp {
       if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "String.${name}()" because the value is null`);
       return this.stringMethod(n, target, name, args());
     }
+    if (target.t === 'map') {
+      if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "Map.${name}()" because the value is null`);
+      return this.mapMethod(n, target, name, argNodes, args());
+    }
+    if (target.t === 'entry') {
+      if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "Map.Entry.${name}()" because the value is null`);
+      const entry = target.v as [JVal, JVal];
+      if (name === 'getKey' && !argNodes.length) return entry[0];
+      if (name === 'getValue' && !argNodes.length) return entry[1];
+      if (name === 'setValue' && argNodes.length === 1) {
+        const old = entry[1];
+        entry[1] = this.listItem(args()[0], { t: 'list', v: [], elem: target.elem }, argNodes[0], 'this entry');
+        return old;
+      }
+      if (name === 'toString' && !argNodes.length) return str(javaString(target));
+      throw unsupported(n, `the method ${name} on a map entry`);
+    }
+    if (target.t === 'list' && target.src && LIST_CHANGERS.has(name)) throw unsupported(n, `changing ${name === 'add' ? 'a map' : 'a map'} through keySet(), values() or entrySet()`);
     if (target.t === 'list') {
       if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "List.${name}()" because the value is null`);
       return this.listMethod(n, target, name, argNodes, args());
@@ -2287,6 +2421,135 @@ class Interp {
         return str(arrayText(list));
     }
     throw unsupported(n, `the method ${name} on a list`);
+  }
+
+  /** new HashMap<>() / new TreeMap<>() / new LinkedHashMap<>(); (16) a starting size; (other) a copy. */
+  private newMap(n: Node, type: Node): JVal {
+    const [k, v] = named(named(type)[1]);
+    const box = (a?: Node) => (a ? WRAPPERS[a.text] ?? (a.text as Prim) : undefined);
+    const m: JVal = { t: 'map', kind: MAP_KINDS[named(type)[0].text], kt: box(k), elem: box(v), v: { entries: new Map(), cap: 16 }, id: freshId(), mod: 0 };
+    const arg = named(n.childForFieldName('arguments'))[0];
+    if (!arg) return m;
+    const from = this.eval(arg);
+    if (from.t === 'int') {
+      if ((from.v as number) < 0) throw new JavaException('IllegalArgumentException', `Illegal initial capacity: ${from.v}`);
+      (m.v as MapData).cap = tableSizeFor(from.v as number);
+      return m;
+    }
+    if (from.t !== 'map') throw unsupported(n, 'this kind of new map');
+    if (from.v === null) throw new JavaException('NullPointerException', 'Cannot copy a null map');
+    m.kt ??= from.kt;
+    m.elem ??= from.elem;
+    const src = from.v as MapData;
+    (m.v as MapData).cap = tableSizeFor(Math.floor(src.entries.size / 0.75 + 1));
+    for (const [key, value] of mapOrder(from, compareKeys)) this.mapPut(m, key, value);
+    return m;
+  }
+
+  /** put: a new key goes in (the table doubles when it is 3/4 full, like Java); an old key keeps its place. */
+  private mapPut(m: JVal, key: JVal, value: JVal): JVal {
+    const data = m.v as MapData;
+    const id = keyId(key);
+    const old = data.entries.get(id);
+    if (old) {
+      const before = old[1];
+      old[1] = value;
+      return before;
+    }
+    if (m.kind === 'tree' && key.v === null) throw new JavaException('NullPointerException', 'A TreeMap key cannot be null');
+    data.entries.set(id, [key, value]);
+    while (data.entries.size > data.cap * 0.75) data.cap *= 2;
+    m.mod = (m.mod ?? 0) + 1;
+    return this.missing(m);
+  }
+
+  /** The null a map gives back for a key it does not have (an Integer null, a String null...). */
+  private missing(m: JVal): JVal {
+    return isClassItem(m.elem) ? { t: 'object', cls: m.elem, v: null } : m.elem === 'String' ? { t: 'String', v: null } : { t: m.elem ?? 'int', v: null, boxed: true };
+  }
+
+  private mapMethod(n: Node, m: JVal, name: string, argNodes: Node[], a: JVal[]): JVal {
+    const data = m.v as MapData;
+    const mapName = n.childForFieldName('object')!.text;
+    const count = (k: number) => {
+      if (a.length !== k) throw new CompileError(lineOf(n), `${mapName}.${name} can't be used with ${a.length} value${a.length === 1 ? '' : 's'}.`);
+    };
+    const key = (i = 0) => this.listItem(a[i], { t: 'list', v: [], elem: m.kt }, argNodes[i], `${mapName}'s keys`);
+    const value = (i: number) => this.listItem(a[i], { t: 'list', v: [], elem: m.elem }, argNodes[i], `${mapName}'s values`);
+    const view = (items: JVal[], elem: Prim | undefined): JVal => ({ t: 'list', v: items, elem, id: freshId(), src: m });
+    switch (name) {
+      case 'put':
+        count(2);
+        return this.mapPut(m, key(0), value(1));
+      case 'putIfAbsent': {
+        count(2);
+        const old = data.entries.get(keyId(key(0)));
+        if (old && old[1].v !== null) return old[1];
+        return this.mapPut(m, key(0), value(1));
+      }
+      case 'get':
+        count(1);
+        return data.entries.get(keyId(key()))?.[1] ?? this.missing(m);
+      case 'getOrDefault':
+        count(2);
+        return data.entries.get(keyId(key()))?.[1] ?? value(1);
+      case 'containsKey':
+        count(1);
+        return bool(data.entries.has(keyId(key())));
+      case 'containsValue':
+        count(1);
+        return bool([...data.entries.values()].some(([, v]) => sameValue(v, a[0].t === 'null' ? a[0] : box(a[0]))));
+      case 'remove': {
+        count(1);
+        const id = keyId(key());
+        const old = data.entries.get(id);
+        if (!old) return this.missing(m);
+        data.entries.delete(id);
+        m.mod = (m.mod ?? 0) + 1;
+        return old[1];
+      }
+      case 'size':
+        count(0);
+        return int(data.entries.size);
+      case 'isEmpty':
+        count(0);
+        return bool(data.entries.size === 0);
+      case 'clear':
+        count(0);
+        data.entries.clear();
+        m.mod = (m.mod ?? 0) + 1;
+        return VOID;
+      case 'keySet':
+        count(0);
+        return view(mapOrder(m, compareKeys).map(([k]) => k), m.kt);
+      case 'values':
+        count(0);
+        return view(mapOrder(m, compareKeys).map(([, v]) => v), m.elem);
+      case 'entrySet':
+        count(0);
+        return view(
+          mapOrder(m, compareKeys).map((e) => ({ t: 'entry', v: e, kt: m.kt, elem: m.elem, id: freshId() })),
+          undefined,
+        );
+      case 'firstKey':
+      case 'lastKey': {
+        if (m.kind !== 'tree') throw new CompileError(lineOf(n), `${name} is a TreeMap method.`);
+        const keys = mapOrder(m, compareKeys);
+        if (!keys.length) throw new JavaException('NoSuchElementException', '');
+        return keys[name === 'firstKey' ? 0 : keys.length - 1][0];
+      }
+      case 'toString':
+        count(0);
+        return str(javaString(m));
+      case 'equals': {
+        count(1);
+        const other = a[0];
+        if (other.t !== 'map' || other.v === null) return bool(false);
+        const o = (other.v as MapData).entries;
+        return bool(o.size === data.entries.size && [...data.entries].every(([id, [, v]]) => o.has(id) && sameValue(o.get(id)![1], v)));
+      }
+    }
+    throw unsupported(n, `the method ${name} on a map`);
   }
 
   private collections(n: Node, name: string, a: JVal[]): JVal {
