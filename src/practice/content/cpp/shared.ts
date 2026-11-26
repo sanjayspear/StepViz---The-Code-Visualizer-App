@@ -52,3 +52,8 @@ export const PRINT_INTS = `void printVector(const vector<int>& v) {
     }
     cout << "]" << endl;
 }`;
+
+/** C++ values can't be "missing" like null: a test's null answer becomes `instead` (say "" or -1). */
+export function nullTo(tests: import('../types').PracticeTest[], instead: import('../types').Value): import('../types').PracticeTest[] {
+  return tests.map((t) => (t.expected === null && !t.mutated ? { ...t, expected: instead } : t));
+}

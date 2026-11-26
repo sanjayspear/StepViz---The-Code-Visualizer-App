@@ -12,6 +12,9 @@ import type { JsForbid } from '../src/practice/jsHarness';
 import { createParser } from '../src/runner/treeSitter';
 import { CPP_SOLUTIONS_BY_TOPIC } from './practice/cpp';
 
+// isalpha, isdigit and isalnum are C and C++ functions too.
+const PYTHON_ONLY = new RegExp(PYTHON_WORDS.source.replace('|isdigit|isalpha|isalnum', ''));
+
 let parser: Parser;
 test.beforeAll(async () => {
   parser = await createParser({ engine: 'node_modules/web-tree-sitter/web-tree-sitter.wasm', grammar: 'node_modules/tree-sitter-cpp/tree-sitter-cpp.wasm' });
@@ -23,7 +26,7 @@ for (const [topic, items] of Object.entries(CPP_TOPICS)) {
   test(`C++ ${topic}: content for every question of the topic, well formed`, () => {
     const ids = data.questions.filter((q) => q.topic === topic).map((q) => q.id);
     expect(items.map((c) => c.id)).toEqual(ids);
-    const pythonHints = items.filter((c) => PYTHON_WORDS.test(c.hint)).map((c) => `Q${c.id}: ${c.hint.match(PYTHON_WORDS)![0]}`);
+    const pythonHints = items.filter((c) => PYTHON_ONLY.test(c.hint)).map((c) => `Q${c.id}: ${c.hint.match(PYTHON_ONLY)![0]}`);
     expect(pythonHints, 'hints that still talk Python').toEqual([]);
     for (const c of items) {
       expect(c.example, `Q${c.id}`).toMatch(/^Example: /);
