@@ -57,7 +57,8 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
    - Then, on the owner's "act like the senior developer and architect", my order:
      G1 tables (2-D arrays) in Java/C++/C and vector<vector<int>> (done), H1 Java
      HashMap/TreeMap/LinkedHashMap (done), P2 C/C++ pointer arithmetic + new/delete
-     (done), K2 Java inheritance (done), C5 C++ inheritance.
+     (done), K2 Java inheritance (done), C5 C++ inheritance (done). That list is
+     finished; nothing else is planned.
 
 Phase 1 covers:
 
@@ -296,6 +297,27 @@ Playwright tests. Static build for GitHub Pages.
   static members, friends, destructors, protected, structs inside functions, ->
   except this->. A member value written in the struct may use members above
   it (int b = a + 1;).
+- C++ inheritance (C5): class Dog : public Animal (one public base; struct bases
+  are public by default). Members of all levels (base first): Dog {name: "Rex",
+  breed: "Lab"}. The base part is made first, in a frame "Animal::Animal("Rex")"
+  shown on the constructor's line: "Dog::Dog("Rex") first runs
+  Animal::Animal("Rex") to set up the Animal part of the object." (: Animal(n) in
+  the member list, or the base's constructor without values). virtual / override
+  / pure virtual (= 0): through a pointer or reference (and inside methods) a
+  virtual method uses the object's own class; otherwise the variable's type
+  decides (a->plain() on a Dog in an Animal* runs Animal's plain()). Animal::x()
+  calls the base version. Copying a Dog into an Animal keeps only the Animal part
+  (slicing: copy = Base {a: 1}). protected works; empty destructors (virtual
+  ~Animal() {}) are allowed. vector<Animal*> / vector<int*>, for (Animal* a :
+  pets), delete through a base pointer. Rules: "Animal has a pure virtual method
+  (sound() = 0), so you can't make an Animal itself: make one of the classes
+  built on it."; "name is protected in Animal, so only code inside Animal and the
+  classes built on it can use it."; "p is an A pointer, and A has no member y.";
+  "A has no constructor that takes no values, so B's constructor must call
+  A(...) in its member list."; "secret is private in A, so B can't use it (make it
+  protected)." Unsupported: private/protected inheritance, several bases,
+  destructors with code, a member with the same name as one in the base, {...}
+  for a struct built on another, dynamic_cast.
 - Pointers and maps (P1, my call): a pointer shows "p = points to x", "points to x
   in main()" when x is in another frame, "points to local in f() (gone)" after
   its block or function ended, "nullptr". Call labels show &x: "addOne(&x)".
@@ -393,7 +415,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`; 191 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`; 194 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

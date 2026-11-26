@@ -105,8 +105,8 @@ test('C++ rules for structs stay on Home; a member with no value yet stops the p
   expect(msg('    Point a = {1, 2};\n    Point b = {1, 2};\n    bool same = a == b;')).toBe("Line 14: C++ can't compare two Point values with ==: compare their parts, like a.x == b.x.");
   expect(msg('    Point a = {1, 2};\n    cout << a;')).toBe("Line 13: cout can't print a Point directly: print its parts, like a.x.");
   expect(msg('    Point a = {1, 2, 3};')).toBe('Line 12: Point has 2 members, not 3.');
-  expect(msg('    int x = 1;', 'struct Big : Point {\n};\n\n')).toBe("Line 11: StepViz can't run inheritance in C++ yet.");
-  expect(msg('    int x = 1;', 'struct Box {\n    ~Box() {}\n};\n\n')).toBe("Line 12: StepViz can't run destructors in C++ yet.");
+  expect(msg('    int x = 1;', 'class Big : Point {\n};\n\n')).toBe("Line 11: StepViz can't run private inheritance (write public Point) in C++ yet.");
+  expect(msg('    int x = 1;', 'struct Box {\n    ~Box() { int z = 1; }\n};\n\n')).toBe("Line 12: StepViz can't run destructors with code in them in C++ yet.");
   expect(msg('    int x = 1;', 'struct Box {\n    static int count;\n};\n\n')).toBe("Line 12: StepViz can't run static members in C++ yet.");
   const unset = run(prog('    Point p;\n    p.x = 1;\n    cout << p.y;'));
   expect(unset.error).toMatchObject({ type: 'Uninitialized', line: 14 });

@@ -442,6 +442,10 @@ function whatVariants(sub: SubKind, f: Facts): string[] {
         .map(([k, v]) => `${k} = ${sayValue(v)}`)
         .join(', ');
       const made = madeBy(callee);
+      // C++: Dog::Dog runs Animal::Animal first, for the Animal part of the same object.
+      if (made && caller && madeBy(caller) && madeBy(caller)![1] !== made[1]) {
+        return [`${caller} first runs ${callee} to set up the ${made[1]} part of the object.`];
+      }
       if (made) {
         return args
           ? [`We make a new ${made[1]} object. ${callee} starts in a new box with ${args}.`, `A new ${made[1]} object is being made: ${callee} gets its own box with ${args}.`]
@@ -456,7 +460,7 @@ function whatVariants(sub: SubKind, f: Facts): string[] {
     }
     case 'return': {
       const value = sayValue((f.top.returns ?? '').replace(/^returns /, ''));
-      const made = madeBy(f.top.name);
+      const made = value !== 'nothing' ? madeBy(f.top.name) : null;
       if (made) return [`The new ${made[1]} object is ready: ${value}. This box is removed on the next step.`, `${f.top.name} is done and hands back the new ${made[1]} object.`];
       return [`${f.top.name} is done and returns ${value}. Its box is removed on the next step.`, `${f.top.name} hands back ${value}. Its box will disappear next.`];
     }
