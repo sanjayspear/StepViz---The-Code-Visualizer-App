@@ -346,6 +346,29 @@ Playwright tests. Static build for GitHub Pages.
   Home ("static variables inside functions"); before, it was wrongly reset on
   every call. Unsupported: several statics in one line, static arrays written
   with [ ], static pointers.
+- Java collections (J3, 2026-11-26): StringBuilder / StringBuffer (shown as
+  its text, sb = "ab3"; changes in place, shared by every variable holding it;
+  append / insert / reverse / delete / deleteCharAt / setCharAt / replace /
+  setLength are change steps, also chained; equals asks "the same object?";
+  "s is a String box, and a StringBuilder is not a String: use .toString() to
+  get its text."). Stack (push / pop / peek / empty / search, and all List
+  methods), Queue / Deque boxes with LinkedList (a List too) or ArrayDeque
+  (both ends; no positions: "An ArrayDeque has no get(...): use its ends
+  ..."), PriorityQueue with Java's own heap (printing and for-each show the
+  heap order, [1, 2, 3, 5]; a Comparator or compareTo is called in Java's
+  order; reverseOrder, lambdas, new PriorityQueue<>(list) heapifies). Frames
+  show them as lists, front first. Crash sentences: "The stack is empty, so
+  there is nothing to take off its top." / "This is empty, so there is nothing
+  to take or look at." (NoSuchElementException without a message; Scanner's
+  have one). "Queue is an interface, so new Queue<>() is not allowed: write new
+  LinkedList<>()." Lists of lists (List<List<Integer>>, one level) and maps
+  with list values (Map<String, List<String>>): rows are shared, not copied;
+  "1 is added to the end of g[0]."; m.get(k).add(x) / g.get(0).set(...) are
+  change steps of m / g. Map merge / compute / computeIfAbsent /
+  computeIfPresent. Any language: a value taken out of a list on the same line
+  says so ("We make a box called top and put 2 in it. It is taken off the end
+  of st."). Fixed: println of a list variable holding null. Unsupported:
+  sets of lists, lists of arrays, deeper nesting, Iterator.
 - Exact long numbers (N1, a correctness fix found 2026-11-26): Java long and
   C/C++ long / long long are exact 64-bit whole numbers that wrap like Java
   and g++ (21! in a long prints -4249290049419214848; 9007199254740993L stays
@@ -562,7 +585,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`; 230 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`; 237 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

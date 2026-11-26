@@ -55,6 +55,9 @@ export function errorSentence(type: string, language: keyof typeof LANGUAGE_NAME
   const name = LANGUAGE_NAMES[language] ?? 'Python';
   // Java: get() on an empty Optional is a NoSuchElementException too, but not about input.
   if (type === 'NoSuchElementException' && message === 'No value present') return 'There is no value to get here: the stream had no items to give an answer from.';
+  // An empty Stack, Queue or Deque (Java gives no message; Scanner's run-out-of-input messages are not empty).
+  if (type === 'NoSuchElementException' && message === '') return 'This is empty, so there is nothing to take or look at.';
+  if (type === 'EmptyStackException') return 'The stack is empty, so there is nothing to take off its top.';
   if (type === 'UnsupportedOperationException') return "This list can only be read: a list from toList() can't be changed.";
   return (ERROR_SENTENCES[type] ?? '{lang} stopped with an error.').replace('{lang}', name);
 }

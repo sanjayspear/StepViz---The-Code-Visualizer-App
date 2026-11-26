@@ -106,7 +106,7 @@ test('problems Java would reject stay on Home', () => {
   expect(msg('        ArrayList<Double> a = new ArrayList<>();\n        a.add(5);')).toBe("Line 8: a holds Double values, so it can't hold 5.");
   expect(msg('        ArrayList<Integer> a = new ArrayList<>();\n        int n = a.length;')).toBe('Line 8: a is a list: use a.size() for how many items it has.');
   expect(msg('        List<Integer> a = Arrays.asList(1, 2);')).toBe("Line 7: StepViz can't run Arrays.asList outside new ArrayList<>(...) in Java yet.");
-  expect(msg('        ArrayList<ArrayList<Integer>> g = new ArrayList<>();')).toBe("Line 7: StepViz can't run lists of lists in Java yet.");
+  expect(msg('        ArrayList<int[]> g = new ArrayList<>();')).toBe("Line 7: StepViz can't run lists of arrays in Java yet.");
   expect(msg('        ArrayList a = new ArrayList();')).toMatch(/^Line 7: StepViz can't run ArrayList without the type of its items/);
   expect(msg('        Integer x = 2.5;')).toBe("Line 7: x is an Integer box, so it can't hold 2.5.");
 });

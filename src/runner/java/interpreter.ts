@@ -55,7 +55,7 @@ import {
 // Values
 
 type Prim = 'int' | 'long' | 'double' | 'boolean' | 'char' | 'String';
-export type JType = Prim | 'null' | 'void' | 'array' | 'list' | 'Scanner' | 'exception' | 'object' | 'map' | 'entry' | 'set' | 'func' | 'stream' | 'optional';
+export type JType = Prim | 'null' | 'void' | 'array' | 'list' | 'Scanner' | 'exception' | 'object' | 'map' | 'entry' | 'set' | 'func' | 'stream' | 'optional' | 'builder';
 
 /** A lambda, a method reference or a Comparator built from them (t = 'func'). */
 type JFunc =
@@ -97,6 +97,19 @@ interface Sink {
   end(): void;
   cancel(): boolean;
 }
+
+/** A StringBuilder (or StringBuffer): text that can be changed in place; every variable holding it sees the change. */
+interface BuilderData {
+  text: string;
+}
+const BUILDER_TYPES = new Set(['StringBuilder', 'StringBuffer']);
+/** Collections kept as lists in StepViz (shown front first, like Java prints them). */
+type Coll = 'Stack' | 'LinkedList' | 'ArrayDeque' | 'PriorityQueue';
+const COLLS = new Set<string>(['Stack', 'LinkedList', 'ArrayDeque', 'PriorityQueue']);
+/** Box types for them: Queue<Integer> q = new LinkedList<>(); Deque<Integer> d = new ArrayDeque<>(); */
+const QUEUE_TYPES = new Set(['Queue', 'Deque', ...COLLS]);
+/** StringBuilder methods that change the text (a step that changes the variable). */
+const BUILDER_CHANGERS = new Set(['append', 'insert', 'reverse', 'delete', 'deleteCharAt', 'setCharAt', 'replace', 'setLength']);
 
 /** A HashMap / TreeMap / LinkedHashMap: entries by key id, in the order they were put in, and the table size. */
 export interface MapData {
@@ -176,6 +189,7 @@ const EXCEPTION_PARENT: Record<string, string | null> = {
   NumberFormatException: 'IllegalArgumentException',
   IllegalStateException: 'RuntimeException',
   UnsupportedOperationException: 'RuntimeException',
+  EmptyStackException: 'RuntimeException',
   NegativeArraySizeException: 'RuntimeException',
   NoSuchElementException: 'RuntimeException',
   InputMismatchException: 'NoSuchElementException',
@@ -184,7 +198,7 @@ const EXCEPTION_PARENT: Record<string, string | null> = {
   IllegalFormatConversionException: 'IllegalFormatException',
   MissingFormatArgumentException: 'IllegalFormatException',
 };
-const JAVA_UTIL = new Set(['NoSuchElementException', 'InputMismatchException', 'ConcurrentModificationException', 'IllegalFormatException', 'IllegalFormatConversionException', 'MissingFormatArgumentException']);
+const JAVA_UTIL = new Set(['EmptyStackException', 'NoSuchElementException', 'InputMismatchException', 'ConcurrentModificationException', 'IllegalFormatException', 'IllegalFormatConversionException', 'MissingFormatArgumentException']);
 /** Exceptions Java makes you catch or declare (throws): Exception and Throwable themselves. */
 const CHECKED = new Set(['Exception', 'Throwable']);
 function isA(type: string, ancestor: string): boolean {
@@ -209,7 +223,7 @@ const WRAPPER_OF: Record<Prim, string> = { int: 'Integer', long: 'Long', double:
  */
 export interface JVal {
   t: JType;
-  v: number | bigint | boolean | string | null | JVal[] | JObject | MapData | [JVal, JVal] | JFunc | StreamData | JVal;
+  v: number | bigint | boolean | string | null | JVal[] | JObject | MapData | [JVal, JVal] | JFunc | StreamData | JVal | BuilderData;
   elem?: Prim;
   id?: string | number;
   boxed?: boolean;
@@ -223,12 +237,24 @@ export interface JVal {
   src?: JVal;
   /** a list from stream.toList(): it can only be read (changing it is an UnsupportedOperationException) */
   fixed?: boolean;
+  /** Stack, LinkedList, ArrayDeque or PriorityQueue: a list with that collection's own methods */
+  coll?: Coll;
+  /** PriorityQueue: the order it keeps (none: the items' natural order) */
+  cmp?: JFunc;
 }
 
 /** Arrays and lists of the program's objects keep the class name as their item type (Dog[]: elem 'Dog'). */
 const isClassItem = (elem: Prim | undefined): boolean => !!elem && classNames.has(elem);
 /** The name of an item type, for messages: Integer, Double, Dog... */
-const typeName = (elem: Prim | undefined) => (elem ? WRAPPER_OF[elem] ?? elem : 'Integer');
+const typeName = (elem: Prim | undefined): string => (!elem ? 'Integer' : elem.startsWith('list:') ? `List<${typeName(elem.slice(5) as Prim)}>` : WRAPPER_OF[elem] ?? elem);
+/** A list of lists keeps its item type as 'list:' + the inner item type (List<List<Integer>>: 'list:int'). */
+const isListItem = (elem: Prim | undefined): boolean => !!elem && elem.startsWith('list:');
+/** The item type written in <...>: Integer -> 'int', Dog -> 'Dog', List<Integer> -> 'list:int'. */
+function elemOf(a?: Node | null): Prim | undefined {
+  if (!a) return undefined;
+  if (a.type === 'generic_type' && ['List', 'ArrayList'].includes(named(a)[0]?.text ?? '')) return `list:${elemOf(named(named(a)[1])[0]) ?? ''}` as Prim;
+  return WRAPPERS[a.text] ?? (a.text as Prim);
+}
 /** println(dog): the program's own toString() if it has one (set by the interpreter for each run). */
 let objectToText: (v: JVal) => string = (v) => defaultObjectText(v);
 function defaultObjectText(v: JVal): string {
@@ -291,9 +317,11 @@ export function javaString(val: JVal): string {
       return `[${arrayCode(val.elem ?? 'int')}@${hash.toString(16)}`;
     }
     case 'list':
-      return arrayText(val);
+      return val.v === null ? 'null' : arrayText(val);
     case 'Scanner':
       return 'java.util.Scanner';
+    case 'builder':
+      return val.v === null ? 'null' : (val.v as BuilderData).text;
     case 'object':
       return val.v === null ? 'null' : objectToText(val);
     case 'set':
@@ -358,6 +386,7 @@ export function formatJava(x: unknown): string | undefined {
   if ((x.t === 'array' || x.t === 'list') && x.v === null) return 'null';
   if (x.t === 'array' || x.t === 'list') return formatJava(x.v);
   if (x.t === 'Scanner') return 'Scanner';
+  if (x.t === 'builder') return x.v === null ? 'null' : JSON.stringify((x.v as BuilderData).text);
   if (x.t === 'object') return objectFrameText(x, 0);
   if (x.t === 'func') return (x.v as JFunc).kind === 'lambda' ? 'lambda' : 'Comparator';
   if (x.t === 'set') return x.v === null ? 'null' : `{${mapOrder(x, compareKeys).map(([k]) => formatJava(k)).join(', ')}}`;
@@ -516,12 +545,19 @@ const IMPORTS = new Set([
   'java.util.stream.Collectors', 'java.util.stream.IntStream', 'java.util.stream.Stream', 'java.util.stream.*', 'java.util.Optional',
 ]);
 const ALLOWED_TYPES = new Set([
-  'int', 'long', 'double', 'float', 'boolean', 'char', 'short', 'byte', 'String', 'void', 'Scanner',
+  'int', 'long', 'double', 'float', 'boolean', 'char', 'short', 'byte', 'String', 'void', 'Scanner', 'StringBuilder', 'StringBuffer',
   'Integer', 'Long', 'Double', 'Boolean', 'Character', 'ArrayList', 'List', 'Map', 'HashMap', 'TreeMap', 'LinkedHashMap',
-  'Set', 'HashSet', 'TreeSet', 'LinkedHashSet', 'var', 'Comparator',
+  'Set', 'HashSet', 'TreeSet', 'LinkedHashSet', 'var', 'Comparator', ...QUEUE_TYPES,
   ...Object.keys(EXCEPTION_PARENT),
 ]);
-const LIST_TYPES = new Set(['ArrayList', 'List', ...SET_TYPES]);
+const LIST_TYPES = new Set(['ArrayList', 'List', ...SET_TYPES, ...QUEUE_TYPES]);
+
+/** List<Integer> / ArrayList<String>: a list of plain values (as the item of a list, or the value of a map). */
+function isPlainListType(a: Node): boolean {
+  if (a.type !== 'generic_type' || !['List', 'ArrayList'].includes(named(a)[0]?.text ?? '')) return false;
+  const inner = named(named(a)[1]);
+  return inner.length === 1 && (inner[0].text in WRAPPERS || classNames.has(inner[0].text));
+}
 
 /** ArrayList<Integer>, List<String>, ArrayList<> (after new): checks the box type inside. */
 function checkGeneric(n: Node) {
@@ -537,7 +573,9 @@ function checkGeneric(n: Node) {
     if (args.length === 0 && n.parent?.type === 'object_creation_expression') return;
     if (args.length !== 2) throw unsupported(n, `the type ${n.text}`);
     for (const arg of args) {
-      if (arg.type === 'generic_type' || arg.type === 'array_type') throw unsupported(n, 'maps of lists');
+      // Map<String, List<Integer>>: a list as the value is fine (not as the key).
+      if (arg === args[1] && isPlainListType(arg)) continue;
+      if (arg.type === 'generic_type' || arg.type === 'array_type') throw unsupported(n, arg === args[0] ? 'maps with list keys' : 'maps of these values');
       if (arg.type === 'integral_type' || arg.type === 'floating_point_type' || arg.type === 'boolean_type') {
         const w = arg.text === 'char' ? 'Character' : arg.text === 'int' ? 'Integer' : arg.text.charAt(0).toUpperCase() + arg.text.slice(1);
         throw new CompileError(lineOf(n), `A ${base.text} holds objects, not ${arg.text} values: write ${w} instead of ${arg.text}.`);
@@ -551,7 +589,11 @@ function checkGeneric(n: Node) {
   if (args.length === 0 && n.parent?.type === 'object_creation_expression') return;
   if (args.length !== 1) throw unsupported(n, `the type ${n.text}`);
   const arg = args[0];
-  if (arg.type === 'generic_type') throw unsupported(n, 'lists of lists');
+  if (arg.type === 'generic_type') {
+    // List<List<Integer>>: a list of lists (rows) is fine, one level deep; sets of lists are not.
+    if (isPlainListType(arg) && !SET_TYPES.has(base.text)) return;
+    throw unsupported(n, SET_TYPES.has(base.text) ? 'sets of lists' : 'lists of these values');
+  }
   if (arg.type === 'array_type') throw unsupported(n, 'lists of arrays');
   if (arg.type === 'integral_type' || arg.type === 'floating_point_type' || arg.type === 'boolean_type') {
     const w = arg.text === 'char' ? 'Character' : arg.text === 'int' ? 'Integer' : arg.text.charAt(0).toUpperCase() + arg.text.slice(1);
@@ -912,7 +954,10 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
       if (n.type === 'array_type' && /^(Integer|Long|Double|Boolean|Character|ArrayList|List)\b/.test(n.text)) throw unsupported(n, `arrays of ${n.childForFieldName('element')!.text}`);
       if (n.type === 'object_creation_expression') {
         const type = n.childForFieldName('type');
-        const isList = type?.type === 'generic_type' && ['ArrayList', 'HashMap', 'TreeMap', 'LinkedHashMap', 'HashSet', 'TreeSet', 'LinkedHashSet'].includes(named(type)[0]?.text ?? '');
+        const isList = type?.type === 'generic_type' && ['ArrayList', 'HashMap', 'TreeMap', 'LinkedHashMap', 'HashSet', 'TreeSet', 'LinkedHashSet', ...COLLS].includes(named(type)[0]?.text ?? '');
+        if (type?.type === 'generic_type' && ['Queue', 'Deque'].includes(named(type)[0]?.text ?? '')) {
+          throw new CompileError(lineOf(n), `${named(type)[0].text} is an interface, so new ${named(type)[0].text}<>() is not allowed: write new ${named(type)[0].text === 'Queue' ? 'LinkedList' : 'ArrayDeque'}<>().`);
+        }
         const isException = !!type && type.text in EXCEPTION_PARENT;
         if (n.childForFieldName('body') || named(n).some((x) => x.type === 'class_body')) throw unsupported(n, 'anonymous classes');
         if (type && classNames.has(type.text)) {
@@ -920,10 +965,13 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
         } else if (isException) {
           const args = named(n.childForFieldName('arguments'));
           if (args.length > 1) throw unsupported(n, 'exceptions with a cause');
+        } else if (type && BUILDER_TYPES.has(type.text)) {
+          // new StringBuilder() / ("text") / (16)
         } else if (!isList && !/^new\s+Scanner\s*\(\s*System\.in\s*\)$/.test(n.text)) {
           throw unsupported(n, type?.text === 'List' || named(type)[0]?.text === 'List' ? 'new List (write new ArrayList<>())' : 'new objects');
         }
-        if (isList && named(n.childForFieldName('arguments')).length > 1) throw unsupported(n, 'this kind of new ArrayList');
+        const isQueue = named(type)[0]?.text === 'PriorityQueue';
+        if (isList && named(n.childForFieldName('arguments')).length > (isQueue ? 2 : 1)) throw unsupported(n, 'this kind of new ArrayList');
       }
       // Arrays.asList(...) and List.of(...) make lists that cannot grow: only as the start of a new ArrayList.
       if (n.type === 'method_invocation' && /^(Arrays\.asList|List\.of)$/.test(`${n.childForFieldName('object')?.text}.${n.childForFieldName('name')?.text}`)) {
@@ -996,7 +1044,13 @@ function isConstant(n: Node): boolean {
 
 const LOOP_TYPES = new Set(['for_statement', 'enhanced_for_statement', 'while_statement', 'do_statement']);
 /** ArrayList methods that change the list (list.add(5)), and Collections methods that do (Collections.sort(list)). */
-const LIST_CHANGERS = new Set(['add', 'set', 'remove', 'clear', 'addAll', 'put', 'putIfAbsent']);
+const LIST_CHANGERS = new Set([
+  'add', 'set', 'remove', 'clear', 'addAll', 'put', 'putIfAbsent',
+  // Stack, Queue, Deque, PriorityQueue
+  'push', 'pop', 'poll', 'offer', 'addFirst', 'addLast', 'offerFirst', 'offerLast', 'pollFirst', 'pollLast', 'removeFirst', 'removeLast',
+  // Map
+  'merge', 'compute', 'computeIfAbsent', 'computeIfPresent',
+]);
 const LIST_CHANGERS_STATIC = new Set(['sort', 'reverse', 'swap']);
 
 /** list.get(i) -> ["list", i] */
@@ -1219,22 +1273,23 @@ function declType(typeNode: Node | null, declarator?: Node | null): DeclType {
   if (extraDims) return { t: 'array', elem: (primOf(typeNode.text) + rows(depthOf(extraDims))) as Prim };
   if (typeNode.type === 'generic_type' && (MAP_TYPES.has(named(typeNode)[0]?.text ?? '') || named(typeNode)[0]?.text === 'Map.Entry')) {
     const [k, v] = named(named(typeNode)[1]);
-    const box = (a?: Node) => (a ? WRAPPERS[a.text] ?? (a.text as Prim) : undefined);
+    const box = (a?: Node) => elemOf(a);
     return { t: named(typeNode)[0].text === 'Map.Entry' ? 'entry' : 'map', kt: box(k), elem: box(v) };
   }
   if (typeNode.type === 'generic_type' && named(typeNode)[0]?.text === 'Comparator') return { t: 'func' };
   if (typeNode.type === 'generic_type' && SET_TYPES.has(named(typeNode)[0]?.text ?? '')) {
     const arg = named(named(typeNode)[1])[0];
-    const elem = arg ? WRAPPERS[arg.text] ?? (arg.text as Prim) : undefined;
+    const elem = elemOf(arg);
     return { t: 'set', kt: elem, elem };
   }
   if (typeNode.type === 'generic_type') {
     const arg = named(named(typeNode)[1])[0];
-    return { t: 'list', elem: arg ? WRAPPERS[arg.text] ?? (arg.text as Prim) : undefined };
+    return { t: 'list', elem: elemOf(arg) };
   }
   if (classNames.has(typeNode.text)) return { t: 'object', cls: typeNode.text };
   if (typeNode.text in WRAPPERS && typeNode.text !== 'String') return { t: WRAPPERS[typeNode.text], box: true };
   if (typeNode.text === 'Scanner') return { t: 'Scanner' };
+  if (BUILDER_TYPES.has(typeNode.text)) return { t: 'builder' };
   if (typeNode.text in EXCEPTION_PARENT) return { t: 'exception', cls: typeNode.text };
   if (typeNode.text === 'void') return { t: 'void' };
   return { t: primOf(typeNode.text) };
@@ -1574,6 +1629,18 @@ class Interp {
           if ((object === 'Arrays' && name === 'sort') || (object === 'Collections' && LIST_CHANGERS_STATIC.has(name ?? ''))) {
             const arg = named(e.childForFieldName('arguments'))[0];
             if (arg) return { k: 'assign', t: [arg.text] };
+          }
+          // m.get("a").add(1) / g.get(0).set(1, 5) / m.computeIfAbsent(...).add(x): the map or list at the start changes.
+          if (LIST_CHANGERS.has(name ?? '') && e.childForFieldName('object')?.type === 'method_invocation') {
+            let root = e.childForFieldName('object');
+            while (root?.type === 'method_invocation') root = root.childForFieldName('object');
+            if (root?.type === 'identifier' && ['list', 'map'].includes(this.scope.lookup(root.text)?.t ?? '')) return { k: 'assign', t: [root.text] };
+          }
+          // sb.append("a").append(1): the StringBuilder sb changes.
+          if (BUILDER_CHANGERS.has(name ?? '')) {
+            let root = e.childForFieldName('object');
+            while (root?.type === 'method_invocation') root = root.childForFieldName('object');
+            if (root?.type === 'identifier' && this.scope.lookup(root.text)?.t === 'builder') return { k: 'assign', t: [root.text] };
           }
           // nums.add(5), nums.set(0, 2), nums.remove(1), nums.clear(): the list changes.
           if (object && LIST_CHANGERS.has(name ?? '') && ['list', 'map', 'set'].includes(this.scope.lookup(object)?.t ?? '')) return { k: 'assign', t: [object] };
@@ -2165,6 +2232,7 @@ class Interp {
     if (t.t === 'object') return { t: 'object', cls: t.cls, v: null };
     if (t.t === 'exception') return { t: 'exception', v: null };
     if (t.t === 'Scanner') return { t: 'Scanner', v: null };
+    if (t.t === 'builder') return { t: 'builder', v: null };
     return zeroOf(t.t as Prim);
   }
 
@@ -2294,6 +2362,8 @@ class Interp {
     }
     if (t === 'String' && v.t === 'null') return { t: 'String', v: null };
     if (t === 'Scanner' && v.t === 'Scanner') return v;
+    if (t === 'builder' && (v.t === 'builder' || v.t === 'null')) return v.t === 'null' ? { t: 'builder', v: null } : v;
+    if (t === 'String' && v.t === 'builder') throw new CompileError(lineOf(at), `${name} is a String box, and a StringBuilder is not a String: use .toString() to get its text.`);
     throw cantHold();
   }
 
@@ -2304,6 +2374,15 @@ class Interp {
 
   /** A value going into a list: boxed, and of the list's own type (Integer into ArrayList<Integer>). */
   private listItem(x: JVal, list: JVal, at: Node, name: string): JVal {
+    if (isListItem(list.elem)) {
+      // A row of a list of lists (or a list kept in a map): the same list, not a copy, like Java.
+      const inner = list.elem!.slice(5) as Prim;
+      if (x.t === 'null') return { t: 'list', v: null as unknown as JVal[], elem: inner };
+      if (x.t !== 'list' || x.coll) throw new CompileError(lineOf(at), `${name} holds ${typeName(list.elem)} values, so it can't hold ${formatJava(x)}.`);
+      if (x.elem === undefined) x.elem = inner; // new ArrayList<>() takes the type it is stored as
+      if (x.elem !== inner) throw new CompileError(lineOf(at), `${name} holds ${typeName(list.elem)} values, so it can't hold a list of ${typeName(x.elem)} values.`);
+      return x;
+    }
     const objects = isClassItem(list.elem);
     if (x.t === 'null') return objects ? { t: 'object', cls: list.elem, v: null } : { t: list.elem!, v: null, boxed: true };
     if (list.elem && (objects ? x.t !== 'object' || !isSubclass((x.v as JObject | null)?.cls ?? x.cls!, list.elem) : x.t !== list.elem)) {
@@ -2315,6 +2394,7 @@ class Interp {
   /** The type of one item of an array: int, String, or a class of the program. */
   private itemType(elem: Prim): DeclType {
     if (elem.endsWith('[]')) return { t: 'array', elem: elem.slice(0, -2) as Prim };
+    if (isListItem(elem)) return { t: 'list', elem: elem.slice(5) as Prim };
     return isClassItem(elem) ? { t: 'object', cls: elem } : { t: elem };
   }
 
@@ -2687,11 +2767,22 @@ class Interp {
           if (msg && msg.t !== 'String' && msg.t !== 'null') throw new CompileError(lineOf(n), 'The message of an exception must be text.');
           return { t: 'exception', v: msg ? (msg.v as string | null) : null, cls: type.text, id: freshId() };
         }
+        if (BUILDER_TYPES.has(type.text)) {
+          const args = named(n.childForFieldName('arguments')).map((a) => this.eval(a));
+          if (args.length > 1) throw new CompileError(lineOf(n), `new ${type.text} takes one value at most.`);
+          const a = args[0];
+          // new StringBuilder(16) only sets the starting room; the text is empty.
+          const text = !a || a.t === 'int' ? '' : a.t === 'String' || a.t === 'builder' ? javaString(a) : null;
+          if (text === null) throw new CompileError(lineOf(n), `new ${type.text}(...) needs text or nothing.`);
+          if (a?.v === null) throw new JavaException('NullPointerException', 'Cannot invoke "String.length()" because "str" is null');
+          return { t: 'builder', v: { text } as BuilderData, id: freshId() };
+        }
         if (type.type !== 'generic_type') return { t: 'Scanner', v: null, id: freshId() };
         if (named(type)[0]?.text in MAP_KINDS) return this.newMap(n, type);
         if (named(type)[0]?.text in SET_KINDS) return this.newSet(n, type);
+        if (COLLS.has(named(type)[0]?.text ?? '')) return this.newColl(n, type, named(type)[0].text as Coll);
         const arg = named(named(type)[1])[0];
-        const list: JVal = { t: 'list', v: [], elem: arg ? WRAPPERS[arg.text] ?? (arg.text as Prim) : undefined, id: freshId(), mod: 0 };
+        const list: JVal = { t: 'list', v: [], elem: elemOf(arg), id: freshId(), mod: 0 };
         const from = named(n.childForFieldName('arguments'))[0];
         if (!from) return list;
         // new ArrayList<>(Arrays.asList(1, 2, 3)) / (List.of(...)) / (other list) / (10 = room for 10)
@@ -2858,6 +2949,10 @@ class Interp {
       return this.setMethod(n, target, name, argNodes, args());
     }
     // collect(Collectors.toList()): the collector is read from the code, not run on its own.
+    if (target.t === 'builder') {
+      if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "StringBuilder.${name}()" because the value is null`);
+      return this.builderMethod(n, target, name, args());
+    }
     if (target.t === 'stream') return this.streamMethod(n, target.v as StreamData, name, argNodes, name === 'collect' ? argNodes.map(() => NULL) : args());
     if (target.t === 'optional') return this.optionalMethod(n, target, name, args());
     if (target.t === 'func') {
@@ -3410,6 +3505,327 @@ class Interp {
     return this.num(x) - this.num(y);
   }
 
+  /** new Stack<>() / new LinkedList<>() / new ArrayDeque<>() / new PriorityQueue<>(...) */
+  private newColl(n: Node, type: Node, coll: Coll): JVal {
+    const arg = named(named(type)[1])[0];
+    const list: JVal = { t: 'list', coll, v: [], elem: elemOf(arg), id: freshId(), mod: 0 };
+    const args = named(n.childForFieldName('arguments')).map((x) => this.eval(x));
+    for (const v of args) {
+      if (v.t === 'func' && coll === 'PriorityQueue') list.cmp = v.v as JFunc;
+      else if (v.t === 'int') {
+        if (coll === 'Stack' || coll === 'LinkedList') throw new CompileError(lineOf(n), `new ${coll}<>() takes no size.`);
+        if ((v.v as number) < (coll === 'PriorityQueue' ? 1 : 0)) throw new JavaException('IllegalArgumentException', '');
+      } else if ((v.t === 'list' || v.t === 'set') && v.v !== null && coll !== 'Stack') {
+        const from = v.t === 'set' ? mapOrder(v, compareKeys).map(([k]) => k) : (v.v as JVal[]);
+        list.elem ??= v.elem;
+        list.v = from.map((x) => this.listItem(x, list, n, 'the list'));
+        if (coll === 'PriorityQueue') {
+          // new PriorityQueue<>(list): Java's heapify.
+          if (v.t === 'list' && v.coll === 'PriorityQueue') list.cmp = v.cmp;
+          const items = list.v as JVal[];
+          for (let i = (items.length >>> 1) - 1; i >= 0; i--) this.siftDown(list, i, items[i], items.length, n);
+        }
+      } else throw unsupported(n, `this kind of new ${coll}`);
+    }
+    return list;
+  }
+
+  /** PriorityQueue's order: its Comparator, or the natural order (compareTo for the program's classes). */
+  private pqCompare(pq: JVal, x: JVal, y: JVal, at: Node): number {
+    if (pq.cmp) return this.compareWith(pq.cmp, x, y, at);
+    return x.t === 'object' ? this.compareObjects(x, y, at) : this.compare(x, y);
+  }
+  /** java.util.PriorityQueue.siftUp: the new item moves up past bigger parents. */
+  private siftUp(pq: JVal, k: number, x: JVal, at: Node) {
+    const q = pq.v as JVal[];
+    while (k > 0) {
+      const parent = (k - 1) >>> 1;
+      const e = q[parent];
+      if (this.pqCompare(pq, x, e, at) >= 0) break;
+      q[k] = e;
+      k = parent;
+    }
+    q[k] = x;
+  }
+  /** java.util.PriorityQueue.siftDown: the item moves down below smaller children. */
+  private siftDown(pq: JVal, k: number, x: JVal, n: number, at: Node) {
+    const q = pq.v as JVal[];
+    const half = n >>> 1;
+    while (k < half) {
+      let child = 2 * k + 1;
+      let c = q[child];
+      const right = child + 1;
+      if (right < n && this.pqCompare(pq, c, q[right], at) > 0) c = q[(child = right)];
+      if (this.pqCompare(pq, x, c, at) <= 0) break;
+      q[k] = c;
+      k = child;
+    }
+    q[k] = x;
+  }
+
+  /**
+   * Stack, LinkedList (a list and a queue), ArrayDeque and PriorityQueue methods. Gives undefined
+   * for the list methods a Stack or LinkedList shares with ArrayList.
+   */
+  private collMethod(n: Node, list: JVal, name: string, argNodes: Node[], a: JVal[]): JVal | undefined {
+    const coll = list.coll!;
+    const items = list.v as JVal[];
+    const listName = n.childForFieldName('object')?.text ?? 'the list';
+    const changed = () => (list.mod = (list.mod ?? 0) + 1);
+    const item = (i = 0) => {
+      if ((coll === 'ArrayDeque' || coll === 'PriorityQueue') && a[i]?.t === 'null') throw new JavaException('NullPointerException', '');
+      return this.listItem(a[i], list, argNodes[i], listName);
+    };
+    const none = () => this.listItem(NULL, list, n, listName); // null of the item type
+    const count = (k: number) => {
+      if (a.length !== k) throw new CompileError(lineOf(n), `${name} needs ${k} value${k === 1 ? '' : 's'} here, not ${a.length}.`);
+    };
+    const take = (at: number) => {
+      changed();
+      return items.splice(at, 1)[0];
+    };
+    if (coll === 'Stack') {
+      switch (name) {
+        case 'push':
+          count(1);
+          items.push(item());
+          changed();
+          return items[items.length - 1];
+        case 'pop':
+        case 'peek':
+          count(0);
+          if (!items.length) throw new JavaException('EmptyStackException', '');
+          return name === 'pop' ? take(items.length - 1) : items[items.length - 1];
+        case 'empty':
+          count(0);
+          return bool(!items.length);
+        case 'search': {
+          count(1);
+          const i = items.map((x) => sameValue(x, a[0]) || (x.t === 'object' && x.id === a[0].id)).lastIndexOf(true);
+          return int(i < 0 ? -1 : items.length - i);
+        }
+      }
+      return undefined; // a Stack is also a List (get, add, size, ...)
+    }
+    if (coll === 'PriorityQueue') {
+      switch (name) {
+        case 'add':
+        case 'offer':
+          count(1);
+          {
+            const x = item();
+            items.push(NULL);
+            this.siftUp(list, items.length - 1, x, n);
+          }
+          changed();
+          return bool(true);
+        case 'poll':
+        case 'remove':
+          if (name === 'remove' && a.length === 1) {
+            // remove(x): the first equal item; the last item fills its place (Java's removeAt).
+            const i = items.findIndex((x) => sameValue(x, a[0]) || (x.t === 'object' && x.id === a[0].id));
+            if (i < 0) return bool(false);
+            this.pqRemoveAt(list, i, n);
+            return bool(true);
+          }
+          count(0);
+          if (!items.length) {
+            if (name === 'poll') return none();
+            throw new JavaException('NoSuchElementException', '');
+          }
+          return this.pqRemoveAt(list, 0, n);
+        case 'peek':
+        case 'element':
+          count(0);
+          if (!items.length) {
+            if (name === 'peek') return none();
+            throw new JavaException('NoSuchElementException', '');
+          }
+          return items[0];
+        case 'addAll': {
+          count(1);
+          const from = a[0].t === 'set' ? mapOrder(a[0], compareKeys).map(([k]) => k) : (a[0].v as JVal[]);
+          for (const x of [...from]) {
+            items.push(NULL);
+            this.siftUp(list, items.length - 1, this.listItem(x, list, n, listName), n);
+          }
+          changed();
+          return bool(from.length > 0);
+        }
+        case 'size':
+        case 'isEmpty':
+        case 'clear':
+        case 'contains':
+        case 'forEach':
+        case 'toString':
+        case 'equals':
+          return undefined;
+      }
+      throw new CompileError(lineOf(n), `A PriorityQueue has no ${name}(...): it only gives its items from the front (peek, poll).`);
+    }
+    // LinkedList and ArrayDeque: a queue at both ends (the front is position 0).
+    switch (name) {
+      case 'push':
+      case 'addFirst':
+      case 'offerFirst':
+        count(1);
+        items.unshift(item());
+        changed();
+        return name === 'offerFirst' ? bool(true) : VOID;
+      case 'offer':
+      case 'offerLast':
+      case 'addLast':
+        count(1);
+        items.push(item());
+        changed();
+        return name === 'addLast' ? VOID : bool(true);
+      case 'add':
+        if (coll === 'ArrayDeque') {
+          count(1);
+          items.push(item());
+          changed();
+          return bool(true);
+        }
+        return undefined;
+      case 'poll':
+      case 'pollFirst':
+      case 'pollLast':
+        count(0);
+        if (!items.length) return none();
+        return take(name === 'pollLast' ? items.length - 1 : 0);
+      case 'pop':
+      case 'removeFirst':
+      case 'removeLast':
+      case 'remove':
+        if (name === 'remove' && a.length) {
+          if (coll === 'LinkedList') return undefined; // remove(position) / remove(value), like a List
+          // ArrayDeque.remove(x): the first equal item.
+          count(1);
+          const i = items.findIndex((x) => sameValue(x, a[0]) || (x.t === 'object' && x.id === a[0].id));
+          if (i < 0) return bool(false);
+          take(i);
+          return bool(true);
+        }
+        count(0);
+        if (!items.length) throw new JavaException('NoSuchElementException', '');
+        return take(name === 'removeLast' ? items.length - 1 : 0);
+      case 'peek':
+      case 'peekFirst':
+      case 'peekLast':
+        count(0);
+        if (!items.length) return none();
+        return items[name === 'peekLast' ? items.length - 1 : 0];
+      case 'element':
+      case 'getFirst':
+      case 'getLast':
+        count(0);
+        if (!items.length) throw new JavaException('NoSuchElementException', '');
+        return items[name === 'getLast' ? items.length - 1 : 0];
+    }
+    if (coll === 'ArrayDeque' && !['size', 'isEmpty', 'clear', 'contains', 'forEach', 'addAll', 'toString', 'equals', 'removeIf'].includes(name)) {
+      throw new CompileError(lineOf(n), `An ArrayDeque has no ${name}(...): use its ends (addFirst, addLast, pollFirst, pollLast, peekFirst, peekLast).`);
+    }
+    return undefined;
+  }
+
+  /** PriorityQueue.removeAt: the last item fills the gap and moves down (or up) to its place. */
+  private pqRemoveAt(pq: JVal, i: number, at: Node): JVal {
+    const q = pq.v as JVal[];
+    const removed = q[i];
+    const s = q.length - 1;
+    const moved = q.pop()!;
+    pq.mod = (pq.mod ?? 0) + 1;
+    if (s !== i) {
+      this.siftDown(pq, i, moved, s, at);
+      if (q[i] === moved) this.siftUp(pq, i, moved, at);
+    }
+    return removed;
+  }
+
+  /** StringBuilder: changes its text in place and gives itself back (so calls can be chained). */
+  private builderMethod(n: Node, sb: JVal, name: string, a: JVal[]): JVal {
+    const data = sb.v as BuilderData;
+    const len = () => data.text.length;
+    const intArg = (i: number) => {
+      const v = a[i];
+      if (!v || unbox(v).t !== 'int') throw new CompileError(lineOf(n), `${name} needs a whole number here.`);
+      return this.num(v);
+    };
+    const textOf = (v: JVal) => (v.t === 'array' && v.elem === 'char' && v.v ? (v.v as JVal[]).map((c) => c.v).join('') : javaString(v));
+    const outside = (msg: string) => new JavaException('StringIndexOutOfBoundsException', msg);
+    const count = (k: number) => {
+      if (a.length !== k) throw new CompileError(lineOf(n), `${name} needs ${k} value${k === 1 ? '' : 's'} here, not ${a.length}.`);
+    };
+    switch (name) {
+      case 'append':
+        count(1);
+        data.text += textOf(a[0]);
+        return sb;
+      case 'insert': {
+        count(2);
+        const at = intArg(0);
+        if (at < 0 || at > len()) throw outside(`offset ${at}, length ${len()}`);
+        data.text = data.text.slice(0, at) + textOf(a[1]) + data.text.slice(at);
+        return sb;
+      }
+      case 'reverse':
+        count(0);
+        data.text = Array.from(data.text).reverse().join('');
+        return sb;
+      case 'delete':
+      case 'replace': {
+        count(name === 'delete' ? 2 : 3);
+        const start = intArg(0);
+        const end = Math.min(intArg(1), len());
+        if (start < 0 || start > end) throw outside(`start ${start}, end ${intArg(1)}, length ${len()}`);
+        if (name === 'replace' && a[2].t !== 'String') throw new CompileError(lineOf(n), 'replace needs text as its last value.');
+        data.text = data.text.slice(0, start) + (name === 'replace' ? javaString(a[2]) : '') + data.text.slice(end);
+        return sb;
+      }
+      case 'deleteCharAt':
+      case 'setCharAt':
+      case 'charAt': {
+        count(name === 'setCharAt' ? 2 : 1);
+        const i = intArg(0);
+        if (i < 0 || i >= len()) throw outside(`index ${i},length ${len()}`);
+        if (name === 'charAt') return { t: 'char', v: data.text[i] };
+        if (name === 'deleteCharAt') data.text = data.text.slice(0, i) + data.text.slice(i + 1);
+        else {
+          if (unbox(a[1]).t !== 'char') throw new CompileError(lineOf(n), 'setCharAt needs a char as its second value.');
+          data.text = data.text.slice(0, i) + (unbox(a[1]).v as string) + data.text.slice(i + 1);
+        }
+        return name === 'deleteCharAt' ? sb : VOID;
+      }
+      case 'setLength': {
+        count(1);
+        const k = intArg(0);
+        if (k < 0) throw outside(`String index out of range: ${k}`);
+        data.text = k <= len() ? data.text.slice(0, k) : data.text + '\u0000'.repeat(k - len());
+        return VOID;
+      }
+      case 'length':
+        count(0);
+        return int(len());
+      case 'isEmpty':
+        count(0);
+        return bool(len() === 0);
+      case 'toString':
+        count(0);
+        return str(data.text);
+      case 'indexOf':
+      case 'lastIndexOf':
+        if (a[0]?.t !== 'String' || a.length !== 1) throw new CompileError(lineOf(n), `${name} on a StringBuilder needs text, like sb.${name}("a").`);
+        return int(name === 'indexOf' ? data.text.indexOf(a[0].v as string) : data.text.lastIndexOf(a[0].v as string));
+      case 'substring':
+        return this.stringMethod(n, str(data.text), 'substring', a);
+      case 'equals':
+        // StringBuilder does not compare letters: equals asks "the same object?", like Java.
+        count(1);
+        return bool(a[0].id !== undefined && a[0].id === sb.id);
+    }
+    throw unsupported(n, `StringBuilder.${name}`);
+  }
+
   private stringMethod(n: Node, target: JVal, name: string, a: JVal[]): JVal {
     const s = target.v as string;
     const need = (count: number[], ...types: JType[][]) => {
@@ -3526,6 +3942,10 @@ class Interp {
   private listMethod(n: Node, list: JVal, name: string, argNodes: Node[], a: JVal[]): JVal {
     const items = list.v as JVal[];
     if (name === 'stream' && !a.length) return this.stream([...items]);
+    if (list.coll) {
+      const done = this.collMethod(n, list, name, argNodes, a);
+      if (done) return done;
+    }
     if (list.fixed && (LIST_CHANGERS.has(name) || ['sort', 'removeIf', 'replaceAll'].includes(name))) throw new JavaException('UnsupportedOperationException', '');
     if (name === 'sort' && a.length === 1) {
       // list.sort(comparator) / list.sort(null) (natural order)
@@ -3667,7 +4087,7 @@ class Interp {
   /** new HashMap<>() / new TreeMap<>() / new LinkedHashMap<>(); (16) a starting size; (other) a copy. */
   private newMap(n: Node, type: Node): JVal {
     const [k, v] = named(named(type)[1]);
-    const box = (a?: Node) => (a ? WRAPPERS[a.text] ?? (a.text as Prim) : undefined);
+    const box = (a?: Node) => elemOf(a);
     const m: JVal = { t: 'map', kind: MAP_KINDS[named(type)[0].text], kt: box(k), elem: box(v), v: { entries: new Map(), cap: 16 }, id: freshId(), mod: 0 };
     const arg = named(n.childForFieldName('arguments'))[0];
     if (!arg) return m;
@@ -3804,6 +4224,7 @@ class Interp {
 
   /** The null a map gives back for a key it does not have (an Integer null, a String null...). */
   private missing(m: JVal): JVal {
+    if (isListItem(m.elem)) return { t: 'list', v: null as unknown as JVal[], elem: m.elem!.slice(5) as Prim };
     return isClassItem(m.elem) ? { t: 'object', cls: m.elem, v: null } : m.elem === 'String' ? { t: 'String', v: null } : { t: m.elem ?? 'int', v: null, boxed: true };
   }
 
@@ -3832,6 +4253,32 @@ class Interp {
       case 'getOrDefault':
         count(2);
         return data.entries.get(keyId(key()))?.[1] ?? value(1);
+      case 'merge':
+      case 'computeIfAbsent':
+      case 'computeIfPresent':
+      case 'compute': {
+        // m.merge(w, 1, Integer::sum) / m.computeIfAbsent(k, x -> new ArrayList<>()) / compute((k, v) -> ...)
+        count(name === 'merge' ? 3 : 2);
+        const f = this.funcArg(a[name === 'merge' ? 2 : 1], n);
+        const k = key(0);
+        const id = keyId(k);
+        const old = data.entries.get(id)?.[1];
+        const has = !!old && old.v !== null;
+        const store = (v: JVal) => {
+          if (v.t === 'null' || v.v === null) {
+            if (data.entries.delete(id)) m.mod = (m.mod ?? 0) + 1;
+            return this.missing(m);
+          }
+          const stored = this.listItem(v, { t: 'list', v: [], elem: m.elem }, n, `${mapName}'s values`);
+          this.mapPut(m, k, stored);
+          return stored;
+        };
+        if (name === 'computeIfAbsent') return has ? old! : store(this.callFunc(f, [k], n));
+        if (name === 'computeIfPresent') return has ? store(this.callFunc(f, [k, old!], n)) : this.missing(m);
+        if (name === 'compute') return store(this.callFunc(f, [k, has ? old! : this.missing(m)], n));
+        const given = value(1);
+        return store(has ? this.callFunc(f, [old!, given], n) : given);
+      }
       case 'containsKey':
         count(1);
         return bool(data.entries.has(keyId(key())));

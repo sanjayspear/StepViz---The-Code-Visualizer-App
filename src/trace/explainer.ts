@@ -635,6 +635,15 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
           // A 2-D list: one item of one row changed (g[1][2] changes from 0 to 5).
           const rowWas = listItems(was[i]);
           const rowNow = listItems(now[i]);
+          // A row that grew or shrank at its end (g.get(0).add(1) / g[0].append(1)).
+          if (rowWas && rowNow && rowNow.length === rowWas.length + 1 && same(rowNow.slice(0, -1), rowWas)) {
+            const v = sayValue(rowNow[rowNow.length - 1]);
+            return { sub: 'assign-change', variants: [`${v} is added to the end of ${t}[${i}].`, `${t}[${i}] grows by one: ${v} goes on the end.`] };
+          }
+          if (rowWas && rowNow && rowNow.length === rowWas.length - 1 && same(rowNow, rowWas.slice(0, -1))) {
+            const v = sayValue(rowWas[rowWas.length - 1]);
+            return { sub: 'assign-change', variants: [`${v} is taken off the end of ${t}[${i}].`, `${t}[${i}] gets shorter: ${v} is removed from the end.`] };
+          }
           if (rowWas && rowNow && rowWas.length === rowNow.length) {
             const cols = rowNow.map((x, j) => (x === rowWas[j] ? -1 : j)).filter((j) => j >= 0);
             if (cols.length === 1) {
@@ -758,6 +767,12 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
     const startsWithName = changes.some((c) => text.startsWith(`${c.t} `));
     return `${startsWithName ? text : text.charAt(0).toUpperCase() + text.slice(1)}.`;
   };
+  // int top = st.pop(); / x = xs.pop(0): the value came out of a list that changed on the same line.
+  const source = changes.length === 1 && changes[0].kind !== 'same' ? takenFrom(before, f.top.vars, changes[0].t) : '';
+  if (source) {
+    const sub: SubKind = changes[0].kind === 'new' ? 'assign-new' : 'assign-change';
+    return { sub, variants: [sentence(0), sentence(1), sentence(2)].filter((v, i, all) => all.indexOf(v) === i).map((v) => `${v} ${source}`) };
+  }
   let sub: SubKind;
   // "Swapping seats" fits only when existing boxes change together (a, b = b, a + b);
   // setting up new boxes at once (a, b = 0, 1) is like filling in several boxes.
@@ -765,6 +780,26 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
   if (changes.length > 1) sub = together ? 'assign-simultaneous' : 'assign-several';
   else sub = changes[0].kind === 'new' ? 'assign-new' : changes[0].kind === 'same' ? 'assign-same' : 'assign-change';
   return { sub, variants: [sentence(0), sentence(1), sentence(2)].filter((v, i, all) => all.indexOf(v) === i) };
+}
+
+/**
+ * "It is taken off the end of st." when another list in the frame lost exactly one item on this line
+ * and that item is the value now stored in `target`.
+ */
+function takenFrom(before: Record<string, string>, now: Record<string, string>, target: string): string {
+  const value = now[target];
+  for (const name of Object.keys(now)) {
+    if (name === target || before[name] === undefined) continue;
+    const was = listItems(before[name]);
+    const is = listItems(now[name]);
+    if (!was || !is || is.length !== was.length - 1) continue;
+    const i = was.findIndex((x, k) => x !== is[k]);
+    const at = i < 0 ? was.length - 1 : i;
+    if (was[at] !== value || ![...was.slice(0, at), ...was.slice(at + 1)].every((x, k) => x === is[k])) continue;
+    if (at === was.length - 1) return `It is taken off the end of ${name}.`;
+    return at === 0 ? `It is taken off the front of ${name}.` : `It is taken out of ${name} at position ${at}.`;
+  }
+  return '';
 }
 
 /** Explanations for every step of a live trace. Hand-written fixtures are not passed here. */
