@@ -15,12 +15,13 @@ for (const [topic, items] of Object.entries(JS_TOPICS)) {
   test(`JavaScript ${topic}: content for every question of the topic, well formed`, () => {
     const ids = data.questions.filter((q) => q.topic === topic).map((q) => q.id);
     expect(items.map((c) => c.id)).toEqual(ids);
+    const pythonHints = items.filter((c) => PYTHON_WORDS.test(c.hint)).map((c) => `Q${c.id}: ${c.hint.match(PYTHON_WORDS)![0]}`);
+    expect(pythonHints, 'hints that still talk Python').toEqual([]);
     for (const c of items) {
       expect(c.example, `Q${c.id}`).toMatch(/^Example: /);
       expect(`${c.example}\n${c.starter}`, `Q${c.id}: no TODO left`).not.toContain('TODO');
       expect(c.hint, `Q${c.id}: the hint ends with a real-life comparison`).toMatch(/ Like [^.]+[.!]$|Like .+\.$/);
-      expect(c.hint, `Q${c.id}: the hint talks JavaScript, not Python`).not.toMatch(PYTHON_WORDS);
-      expect(`${c.example}\n${c.starter}`, `Q${c.id}: no Python words in the example or starter`).not.toMatch(/\b(True|False|None|def|self|elif)\b|print\(/);
+      expect(`${c.example}\n${c.starter}`, `Q${c.id}: no Python words in the example or starter`).not.toMatch(/\b(True|False|None|self|elif)\b|\bdef \w+\(|print\(/);
       expect(c.starter, `Q${c.id}: the starter calls the function once, so it can be visualised`).toMatch(/\nconsole\.log\(/);
       for (const t of c.tests) {
         if (t.call === '$ops') expect(c.starter, `Q${c.id}: the starter defines class ${t.cls}`).toMatch(new RegExp(`class ${t.cls}\\b`));

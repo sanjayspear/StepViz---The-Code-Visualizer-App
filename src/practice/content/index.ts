@@ -15,6 +15,8 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { RECURSION_BACKTRACKING_JS } from './javascript/recursion-backtracking';
+import { BINARY_SEARCH_JS } from './javascript/binary-search';
 import { STACKS_QUEUES_JS } from './javascript/stacks-queues';
 import { SLIDING_WINDOW_JS } from './javascript/sliding-window';
 import { TWO_POINTERS_JS } from './javascript/two-pointers';
@@ -43,6 +45,8 @@ export const PYTHON_TOPICS: Record<string, PracticeContent[]> = {
 
 /** JavaScript content by topic id (tests from the Python content, see javascript/shared.ts). */
 export const JS_TOPICS: Record<string, PracticeContent[]> = {
+  'recursion-backtracking': RECURSION_BACKTRACKING_JS,
+  'binary-search': BINARY_SEARCH_JS,
   'stacks-queues': STACKS_QUEUES_JS,
   'sliding-window': SLIDING_WINDOW_JS,
   'two-pointers': TWO_POINTERS_JS,
