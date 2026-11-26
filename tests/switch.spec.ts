@@ -88,7 +88,7 @@ test('Java: empty cases join the next one; fall-through runs on until break; def
   expect(run(4).life).not.toBe('');
 });
 
-test('Java: arrow cases, text and continue inside a loop; switch as a value stays on Home', () => {
+test('Java: arrow cases, text and continue inside a loop; switch as a value works', () => {
   const src = `public class Main {
     public static void main(String[] args) {
         for (int i = 0; i < 3; i++) {
@@ -105,7 +105,8 @@ test('Java: arrow cases, text and continue inside a loop; switch as a value stay
 }`;
   expect(runJava(java.parse(src)!, opts).steps.at(-1)!.output).toBe('A\nB\n');
   const value = 'public class Main {\n    public static void main(String[] args) {\n        int y = switch (2) { case 2 -> 5; default -> 0; };\n    }\n}';
-  expect(runJava(java.parse(value)!, opts).error!.message).toBe("Line 3: StepViz can't run switch as a value in Java yet.");
+  // A switch that gives a value works now (switchvar-java.spec.ts has more).
+  expect(runJava(java.parse(value)!, opts).steps.at(-1)!.frames[0].vars.y).toBe('5');
 });
 
 test('C: no case matches and there is no default, so the switch is skipped', () => {

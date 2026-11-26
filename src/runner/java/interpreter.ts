@@ -375,6 +375,10 @@ class ReturnSignal {
   constructor(public value: JVal) {}
 }
 class BreakSignal {}
+/** yield 31; in a switch that gives a value */
+class YieldSignal {
+  constructor(public value: JVal) {}
+}
 class ContinueSignal {}
 
 const lineOf = (n: Node) => n.startPosition.row + 1;
@@ -425,7 +429,6 @@ const FEATURES: Record<string, string> = {
   labeled_statement: 'labels',
   synchronized_statement: 'synchronized',
   assert_statement: 'assert',
-  yield_statement: 'yield',
   local_class_declaration: 'classes inside methods',
   class_declaration: 'classes inside methods',
 };
@@ -439,7 +442,7 @@ const IMPORTS = new Set([
 const ALLOWED_TYPES = new Set([
   'int', 'long', 'double', 'float', 'boolean', 'char', 'short', 'byte', 'String', 'void', 'Scanner',
   'Integer', 'Long', 'Double', 'Boolean', 'Character', 'ArrayList', 'List', 'Map', 'HashMap', 'TreeMap', 'LinkedHashMap',
-  'Set', 'HashSet', 'TreeSet', 'LinkedHashSet',
+  'Set', 'HashSet', 'TreeSet', 'LinkedHashSet', 'var',
   ...Object.keys(EXCEPTION_PARENT),
 ]);
 const LIST_TYPES = new Set(['ArrayList', 'List', ...SET_TYPES]);
@@ -777,7 +780,22 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
       if (feature) throw unsupported(n, feature);
       // switch works as a statement; a switch that gives a value (int y = switch ...) does not yet.
       if (n.type === 'switch_expression' && !['block', 'switch_block_statement_group', 'switch_rule'].includes(n.parent?.type ?? '')) {
-        throw unsupported(n, 'switch as a value');
+        // int days = switch (m) { ... }: Java wants every value covered, which here means a default part.
+        const labels = named(n.childForFieldName('body')).flatMap((g) => named(g).filter((c) => c.type === 'switch_label'));
+        if (!labels.some((l) => named(l).length === 0)) throw new CompileError(lineOf(n), 'A switch that gives a value needs a default part (default -> ...).');
+      }
+      if (n.type === 'yield_statement') {
+        let p = n.parent;
+        while (p && p.type !== 'switch_expression' && p.type !== 'method_declaration') p = p.parent;
+        if (p?.type !== 'switch_expression') throw new CompileError(lineOf(n), 'yield gives the value of a switch, so it can only be inside one.');
+      }
+      if (n.type === 'local_variable_declaration' && n.childForFieldName('type')?.text === 'var') {
+        for (const d of n.childrenForFieldName('declarator')) {
+          const value = d?.childForFieldName('value');
+          if (!value) throw new CompileError(lineOf(n), `var needs a value here, so Java can tell its type (var ${d?.childForFieldName('name')?.text} = ...;).`);
+          if (value.type === 'null_literal') throw new CompileError(lineOf(n), "var can't start as null: write the type instead.");
+          if (value.type === 'array_initializer') throw new CompileError(lineOf(n), 'var needs new int[] {...} here, not just {...}.');
+        }
       }
       if (n.type === 'switch_label' && named(n).some((c) => !['decimal_integer_literal', 'character_literal', 'string_literal', 'unary_expression', 'identifier'].includes(c.type))) {
         throw unsupported(n, 'this kind of case');
@@ -1539,6 +1557,8 @@ class Interp {
         if (v.cls === undefined) throw new JavaException('NullPointerException', 'Cannot throw a null exception');
         throw new JavaException(v.cls!, (v.v as string | null) ?? '', v);
       }
+      case 'yield_statement':
+        throw new YieldSignal(this.eval(named(s)[0]));
       case 'break_statement':
         if (named(s).length) throw unsupported(s, 'labels');
         throw new BreakSignal();
@@ -1649,10 +1669,71 @@ class Interp {
         cell = { ...type, v: UNSET };
         this.scope.vars.set(name, cell);
       }
+      if (valueNode && s.childForFieldName('type')?.text === 'var') {
+        // var x = 5;  the box takes the value's type (int), like Java.
+        const value = this.eval(valueNode);
+        const t: DeclType = { t: value.t === 'null' ? 'void' : value.t, elem: value.elem, kt: value.kt, cls: value.cls, box: value.boxed && value.t !== 'String' };
+        Object.assign(cell, t);
+        cell.v = this.coerce(value, t, d!, name);
+        continue;
+      }
       if (valueNode) {
         const value = valueNode.type === 'array_initializer' ? this.arrayFrom(valueNode, type.elem ?? 'int') : this.eval(valueNode);
         cell.v = this.coerce(value, type, d!, name);
       }
+    }
+  }
+
+  /** int days = switch (m) { case 2 -> 28; default -> { ... yield 31; } }: the value of the part that matches. */
+  private switchValue(n: Node): JVal {
+    const value = this.eval(inner(n.childForFieldName('condition')));
+    if (!['int', 'long', 'char', 'String'].includes(value.t)) throw new CompileError(lineOf(n), 'A switch needs a whole number, a char or text.');
+    const key = (x: JVal) => (x.t === 'char' ? (x.v as string).charCodeAt(0) : x.v);
+    const groups = named(n.childForFieldName('body')).filter((g) => g.type === 'switch_block_statement_group' || g.type === 'switch_rule');
+    const matches = (g: Node) => named(g).filter((c) => c.type === 'switch_label').some((l) => named(l).some((v) => key(this.eval(v)) === key(value)));
+    let start = groups.findIndex(matches);
+    if (start < 0) start = groups.findIndex((g) => named(g).some((c) => c.type === 'switch_label' && named(c).length === 0));
+    if (start < 0) throw new JavaException('MatchException', String(value.v));
+    const saved = this.scope;
+    this.scope = new Scope(saved);
+    // The line with the switch (int days = switch ...) waits: its step comes after the value is known,
+    // while the switch's own lines (a block with yield) get their steps first.
+    const frame = this.rt.stack[this.rt.stack.length - 1] as unknown as { pending: number | null; pendingInfo: unknown; pendingReads: unknown };
+    const waiting = { pending: frame.pending, pendingInfo: frame.pendingInfo, pendingReads: frame.pendingReads };
+    frame.pending = null;
+    let ranLines = false;
+    const hooks = this.rt.hooks;
+    const resume = () => {
+      if (ranLines) hooks.f(); // the switch's last line (the yield) finishes
+      frame.pending = waiting.pending;
+      frame.pendingInfo = waiting.pendingInfo;
+      frame.pendingReads = waiting.pendingReads;
+    };
+    try {
+      const g = groups[start];
+      const body = named(g).filter((c) => c.type !== 'switch_label');
+      ranLines = g.type !== 'switch_rule' || body[0]?.type !== 'expression_statement';
+      if (g.type === 'switch_rule') {
+        // case 2 -> 28;  the value itself / case 3 -> { ... yield x; } / case 4 -> throw ...
+        const part = body[0];
+        if (part.type === 'expression_statement') return this.eval(named(part)[0]);
+        this.execNested(part);
+        throw new CompileError(lineOf(part), 'This part of the switch must give a value with yield.');
+      }
+      // case 1: ... yield "a";  (runs on into the next parts until a yield, like Java)
+      const run = groups.slice(start).flatMap((x) => named(x).filter((c) => c.type !== 'switch_label'));
+      for (const d of declaredIn(run)) this.scope.vars.set(d.name, { ...d.type, v: UNSET });
+      for (const st of run) this.exec(st);
+      throw new CompileError(lineOf(n), 'This switch must give a value with yield.');
+    } catch (e) {
+      if (e instanceof YieldSignal) {
+        resume();
+        return e.value;
+      }
+      throw e;
+    } finally {
+      this.scope = saved;
+      if (frame.pending === null && waiting.pending !== null) resume();
     }
   }
 
@@ -1704,7 +1785,9 @@ class Interp {
           if (array.v === null) throw new JavaException('NullPointerException', 'Cannot loop over a null value');
           if (array.t === 'list') list = array;
           items = array.v as JVal[];
-          const type = declType(s.childForFieldName('type'));
+          const declared = declType(s.childForFieldName('type'));
+          // for (var x : list): x takes the items' type.
+          const type: DeclType = s.childForFieldName('type')?.text === 'var' ? (array.t === 'array' || array.elem === 'String' || isClassItem(array.elem) ? this.itemType(array.elem ?? 'int') : { t: array.elem ?? 'int', box: true }) : declared;
           itemCell = { ...type, v: UNSET };
           this.scope.vars.set(s.childForFieldName('name')!.text, itemCell);
         }
@@ -2434,6 +2517,8 @@ class Interp {
         }
         throw unsupported(n, `the field ${n.text}`);
       }
+      case 'switch_expression':
+        return this.switchValue(n);
       case 'object_creation_expression': {
         const type = n.childForFieldName('type')!;
         if (classNames.has(type.text)) return this.construct(n, type.text, named(n.childForFieldName('arguments')).map((a) => this.eval(a)));

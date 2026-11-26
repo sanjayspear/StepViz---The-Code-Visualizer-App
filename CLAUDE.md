@@ -61,8 +61,8 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      finished. Then (2026-11-26, my order): try-line step removed in Python/JS
      (done), I1 Java interfaces + Comparable (done), S2 sets (done), ST1 Java
      static variables and constants (done), PY1 Python and JavaScript classes
-     (done). Next ideas: Java switch as a value + var, lambdas/Comparator, C++
-     operator overloading, C++ static members.
+     (done), SW2 Java switch values + var (done). Next ideas: lambdas/Comparator,
+     C++ operator overloading, C++ static members.
 
 Phase 1 covers:
 
@@ -317,6 +317,15 @@ Playwright tests. Static build for GitHub Pages.
   write class P implements Comparable<P> with a compareTo method." Unsupported:
   constants in interfaces, generic interfaces of the program, lambdas,
   Comparator, TreeMap/TreeSet with object keys.
+- Java switch values and var (SW2): int days = switch (m) { case 2 -> 28; case
+  4, 6 -> 30; default -> { ...; yield 31; } }; and the old form (case 1: yield
+  "a";). The line with the switch gets its step after the value is known; lines
+  inside a block part (and the yield) get their own steps first. A switch that
+  gives a value must have a default part ("A switch that gives a value needs a
+  default part (default -> ...).") ; yield only inside one. var takes the type of
+  its value (var n = 5 is an int box); "var needs a value here, so Java can tell
+  its type (var x = ...;)."; "var can't start as null: write the type instead.";
+  for (var x : list) works.
 - Python and JavaScript classes (PY1): objects show their fields like Java/C++:
   rex = Dog {name: 'Rex', age: 0} (Python objects of the program's classes
   without their own __repr__; an object inside an object: Node {…}; values with
@@ -471,7 +480,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`; 206 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`; 209 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.
