@@ -361,7 +361,7 @@ export function checkCppAnswer(parser: Parser, source: string, spec: { tests: Pr
             declareHere(type, `stepvizArg${i}`, a);
             names.push(`stepvizArg${i}`);
             p++;
-            if (extra > 0 && bare(type).endsWith('[]') && bare(type) !== 'char[]' && Array.isArray(a) && /^(int|long|long long|size_t)$/.test(bare(fn!.params[p]?.type ?? ''))) {
+            if (extra > 0 && bare(type).endsWith('[]') && Array.isArray(a) && /^(int|long|long long|size_t)$/.test(bare(fn!.params[p]?.type ?? ''))) {
               names.push(String(a.length));
               p++;
               extra--;

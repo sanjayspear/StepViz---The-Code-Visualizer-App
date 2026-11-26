@@ -15,6 +15,10 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { SORTING_GREEDY_INTERVALS_C } from './c/sorting-greedy-intervals';
+import { RECURSION_BACKTRACKING_C } from './c/recursion-backtracking';
+import { BINARY_SEARCH_C } from './c/binary-search';
+import { STACKS_QUEUES_C } from './c/stacks-queues';
 import { SLIDING_WINDOW_C } from './c/sliding-window';
 import { TWO_POINTERS_C } from './c/two-pointers';
 import { HASH_MAPS_SETS_C } from './c/hash-maps-sets';
@@ -139,6 +143,10 @@ export const CPP_TOPICS: Record<string, PracticeContent[]> = {
 
 /** C content by topic id: only the questions that fit C (the others show C as coming soon). */
 export const C_TOPICS: Record<string, PracticeContent[]> = {
+  'sorting-greedy-intervals': SORTING_GREEDY_INTERVALS_C,
+  'recursion-backtracking': RECURSION_BACKTRACKING_C,
+  'binary-search': BINARY_SEARCH_C,
+  'stacks-queues': STACKS_QUEUES_C,
   'sliding-window': SLIDING_WINDOW_C,
   'two-pointers': TWO_POINTERS_C,
   'hash-maps-sets': HASH_MAPS_SETS_C,
