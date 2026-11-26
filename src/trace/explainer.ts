@@ -252,7 +252,7 @@ function setItems(v: string): Set<string> | null {
 
 /** The class a constructor frame makes: "new Dog(...)" (Java) or "Dog::Dog(...)" (C++). */
 function madeBy(frameName: string): RegExpExecArray | null {
-  return /^new (\w+)\(/.exec(frameName) ?? /^(\w+)::\1\(/.exec(frameName);
+  return /^new (\w+)\(/.exec(frameName) ?? /^(\w+)::\1\(/.exec(frameName) ?? /^(\w+)\.__init__\(/.exec(frameName);
 }
 
 /** Fields of an object text like 'Dog {name: "Rex", age: 3}' or '{a: 1}', or null if it is not one (or cut short). */
@@ -448,7 +448,7 @@ function whatVariants(sub: SubKind, f: Facts): string[] {
       const caller = f.step.frames[f.step.frames.length - 2]?.name;
       // Java: the object a method works on (this) is named in the label already (rex.bark()).
       const args = Object.entries(f.top.vars)
-        .filter(([k]) => k !== 'this')
+        .filter(([k]) => k !== 'this' && k !== 'self')
         .map(([k, v]) => `${k} = ${sayValue(v)}`)
         .join(', ');
       const made = madeBy(callee);
@@ -474,8 +474,13 @@ function whatVariants(sub: SubKind, f: Facts): string[] {
       if (made) return [`The new ${made[1]} object is ready: ${value}. This box is removed on the next step.`, `${f.top.name} is done and hands back the new ${made[1]} object.`];
       return [`${f.top.name} is done and returns ${value}. Its box is removed on the next step.`, `${f.top.name} hands back ${value}. Its box will disappear next.`];
     }
-    case 'return-nothing':
+    case 'return-nothing': {
+      // Python: __init__ gives back nothing, but the new object (self) is ready.
+      const made = madeBy(f.top.name);
+      const self = f.top.vars.self ?? f.top.vars.this;
+      if (made && self) return [`The new ${made[1]} object is ready: ${sayValue(self)}. This box is removed on the next step.`];
       return [`${f.top.name} is done and gives nothing back. Its box is removed on the next step.`, `${f.top.name} has finished its work. Its box will disappear next.`];
+    }
     case 'switch-case':
     case 'switch-default':
     case 'switch-none': {
@@ -559,12 +564,19 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
   const before = prevFrameOf(f)?.vars ?? {};
   const prevTop = f.prev?.frames[f.prev.frames.length - 1];
 
+  // Python's __init__ gives back nothing; the new object is what the variable now holds.
+  if (targets.length === 1 && f.prev?.kind === 'return' && prevTop && f.prev.frames.length > f.step.frames.length) {
+    const made = madeBy(prevTop.name);
+    if (made && f.top.vars[targets[0]]?.startsWith(`${made[1]} {`) && !prevTop.returns?.startsWith(`returns ${made[1]} {`)) {
+      return { sub: 'assign-from-call', variants: [`The new ${made[1]} object is stored in ${targets[0]}.`, `${targets[0]} now holds the new ${made[1]} object.`] };
+    }
+  }
   // A value that just came back from a call: "result gets the answer 6 from factorial(3)".
   if (targets.length === 1 && f.prev?.kind === 'return' && prevTop?.returns && f.prev.frames.length > f.step.frames.length) {
     const value = prevTop.returns.replace(/^returns /, '');
+    const made = madeBy(prevTop.name);
     if (f.top.vars[targets[0]] === value) {
       const v = sayValue(value);
-      const made = madeBy(prevTop.name);
       if (made) {
         return { sub: 'assign-from-call', variants: [`The new ${made[1]} object is stored in ${targets[0]}.`, `${targets[0]} now holds the new ${made[1]} object.`] };
       }
@@ -720,6 +732,11 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
       if (diff.length > 1) {
         return { sub: 'assign-several', variants: [`${t} changes: ${diff.map((k) => `${k} becomes ${at(now, k)}`).join(', ')}.`] };
       }
+    }
+    // Python: a new field (self.name = 'Rex' in __init__).
+    if (was && now && was.cls === now.cls && now.keys.length === was.keys.length + 1 && was.keys.every((k, i) => now.keys[i] === k && now.values[i] === was.values[i])) {
+      const k = now.keys[now.keys.length - 1];
+      return { sub: 'assign-change', variants: [`${t}.${k} is set to ${sayValue(now.values[now.values.length - 1])}.`, `${t} gets a new field ${k} = ${sayValue(now.values[now.values.length - 1])}.`] };
     }
   }
   const clause = (c: (typeof changes)[number], variant: number) => {

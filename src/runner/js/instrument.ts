@@ -408,7 +408,12 @@ export function instrument(source: string): Instrumented | { error: JsSyntaxErro
         if (!out.includes(sub[0])) out.push(sub[0]);
         return false;
       }
-      if (n.type === 'MemberExpression') return false;
+      if (n.type === 'MemberExpression') {
+        // this.name = ... / rex.age = ...: the object changes.
+        if (!n.computed && n.object.type === 'ThisExpression' && !out.includes('this')) out.push('this');
+        else if (!n.computed && n.object.type === 'Identifier' && !out.includes(n.object.name)) out.push(n.object.name);
+        return false;
+      }
       if (n.type === 'Identifier' && !out.includes(n.name)) out.push(n.name);
       return undefined;
     });
@@ -580,15 +585,16 @@ export function instrument(source: string): Instrumented | { error: JsSyntaxErro
   const transformClass = (cls: N, scope: Scope) => {
     for (const member of cls.body.body) {
       if (member.type === 'MethodDefinition') {
-        const label = member.kind === 'constructor' ? cls.id?.name ?? 'constructor' : member.key.name ?? 'method';
-        transformFunction(member.value, scope, label);
+        // new Dog("Rex") for the constructor; rex.birthday() for methods (this is the first variable).
+        const label = member.kind === 'constructor' ? `new ${cls.id?.name ?? 'object'}` : member.key.name ?? 'method';
+        transformFunction(member.value, scope, label, !member.static);
       } else if (member.value) {
         transformExpressions(member.value, scope);
       }
     }
   };
 
-  const transformFunction = (fn: N, _outer: Scope, label?: string) => {
+  const transformFunction = (fn: N, _outer: Scope, label?: string, withThis = false) => {
     const name = label ?? fn.id?.name ?? 'anonymous';
     if (fn.async || fn.generator) return; // not traced: their steps would interleave
     if (fn.expression || fn.body.type !== 'BlockStatement') {
@@ -596,10 +602,14 @@ export function instrument(source: string): Instrumented | { error: JsSyntaxErro
       fn.expression = false;
     }
     const params = fn.params.flatMap((p: N) => patternNames(p));
-    const fnScope: Scope = { names: [...params, ...hoisted(fn.body.body)], parent: null, isFunction: true };
+    const shown = withThis ? ['this', ...params] : params;
+    const fnScope: Scope = { names: [...shown, ...hoisted(fn.body.body)], parent: null, isFunction: true };
     const bodyScope: Scope = { names: lexical(fn.body.body), parent: fnScope, isFunction: false };
     const inner = transformStatements(fn.body.body, bodyScope);
-    const enter = exprStmt(call('enter', [lit(name), lit(nameSetId(params)), arr(params.map((p: string) => arrow(id(p))))]));
+    const getter = (p: string) => (p === 'this' ? arrow({ type: 'ThisExpression' }) : arrow(id(p)));
+    const enter = exprStmt(
+      call('enter', [lit(name), lit(nameSetId(shown)), arr(shown.map(getter)), lit(withThis ? 1 : 0), lit(null), lit(withThis && !name.startsWith('new ') ? 1 : 0)]),
+    );
     fn.body.body = [
       enter,
       {

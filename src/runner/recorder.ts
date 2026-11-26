@@ -364,7 +364,7 @@ export class Recorder {
       this.record(line, { kind, detail });
     },
     /** `hidden`: how many of the first values are left out of the label (Java's this); `label`: the whole label, made by the caller. */
-    enter: (name: string, namesId: number, getters: Getter[], hidden = 0, label?: string) => {
+    enter: (name: string, namesId: number, getters: Getter[], hidden = 0, label?: string | null, findReceiver: boolean | number = false) => {
       this.checkTime();
       if (this.stack.length >= MAX_DEPTH) throw new StopRun('depth');
       const caller = this.stack[this.stack.length - 1];
@@ -376,7 +376,25 @@ export class Recorder {
           return '?';
         }
       });
-      this.stack.push(this.newFrame(label ?? `${name}(${values.join(', ')})`, namesId, getters));
+      // JavaScript methods: the variable in the caller that holds the object names the call (rex.birthday()).
+      let shownName = name;
+      if (findReceiver && hidden) {
+        try {
+          const self = getters[0]();
+          const k = caller.getters.findIndex((g) => {
+            try {
+              return g() === self;
+            } catch {
+              return false;
+            }
+          });
+          if (k >= 0 && caller.names[k] !== 'this') shownName = `${caller.names[k]}.${name}`;
+          else if (k >= 0) shownName = `this.${name}`;
+        } catch {
+          /* this is not readable yet */
+        }
+      }
+      this.stack.push(this.newFrame(label ?? `${shownName}(${values.join(', ')})`, namesId, getters));
       this.record(caller.pending ?? 1, { kind: 'call' });
     },
     ret: <T,>(line: number, value: T): T => {

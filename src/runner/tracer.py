@@ -177,13 +177,53 @@ def analyze(source):
 # Value formatting
 
 
+def _plain_object(value):
+    """An object of a class written in the program, without its own __repr__."""
+    t = type(value)
+    return t.__module__ == "__main__" and t.__repr__ is object.__repr__ and hasattr(value, "__dict__") and not isinstance(value, type)
+
+
+def _has_object(value, depth=0):
+    if _plain_object(value):
+        return True
+    if depth > 3:
+        return False
+    if isinstance(value, (list, tuple)):
+        return any(_has_object(x, depth + 1) for x in value[:50])
+    if isinstance(value, dict):
+        return any(_has_object(x, depth + 1) for x in list(value.values())[:50])
+    return False
+
+
+def _fmt(value, in_object=False, depth=0):
+    """Like repr, but an object shows its fields: Dog {name: 'Rex', age: 0} (one inside another: Node {…})."""
+    if depth > 4:
+        return "…"
+    if _plain_object(value):
+        name = type(value).__name__
+        if in_object:
+            return name + " {…}"
+        fields = [(k, v) for k, v in vars(value).items() if not k.startswith("_")]
+        return name + " {" + ", ".join("%s: %s" % (k, _fmt(v, True, depth + 1)) for k, v in fields) + "}"
+    if isinstance(value, list):
+        return "[" + ", ".join(_fmt(x, in_object, depth + 1) for x in value) + "]"
+    if isinstance(value, tuple):
+        inner = ", ".join(_fmt(x, in_object, depth + 1) for x in value)
+        return "(" + inner + ("," if len(value) == 1 else "") + ")"
+    if isinstance(value, dict):
+        return "{" + ", ".join("%r: %s" % (k, _fmt(v, in_object, depth + 1)) for k, v in value.items()) + "}"
+    if isinstance(value, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)):
+        return "function"
+    return repr(value)
+
+
 def _short(value):
     if isinstance(value, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)):
         return "function"
     if isinstance(value, type):
         return "class"
     try:
-        text = repr(value)
+        text = _fmt(value) if _has_object(value) else repr(value)
     except Exception:
         text = "?"
     if len(text) > MAX_REPR:
@@ -203,10 +243,27 @@ def _frame_label(frame):
         names.append(code.co_varnames[nargs])
     loc = frame.f_locals
     parts = []
+    # A method: self is shown as the object it works on (rex.birthday()), not as a value.
+    self_obj = loc.get("self") if names and names[0] == "self" else None
+    if self_obj is not None:
+        names = names[1:]
     for n in names:
         if n in loc:
             parts.append(_short(loc[n]))
-    return "%s(%s)" % (code.co_name, ", ".join(parts))
+    args = ", ".join(parts)
+    if self_obj is None:
+        return "%s(%s)" % (code.co_name, args)
+    cls = type(self_obj).__name__
+    if code.co_name == "__init__":
+        return "%s.__init__(%s)" % (cls, args)  # making a new object
+    # The name of the variable that holds the object, in the caller (rex.birthday()).
+    caller = frame.f_back
+    if caller is not None:
+        for scope in (caller.f_locals, caller.f_globals):
+            for var, val in scope.items():
+                if val is self_obj and not var.startswith("_"):
+                    return "%s.%s(%s)" % (var, code.co_name, args)
+    return "%s.%s(%s)" % (cls, code.co_name, args)
 
 
 # --------------------------------------------------------------------------
@@ -341,6 +398,8 @@ def _target_names(targets):
                 names.append(n.id)
             elif isinstance(n, ast.Subscript) and isinstance(n.value, ast.Name) and n.value.id not in names:
                 names.append(n.value.id)
+            elif isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Store) and isinstance(n.value, ast.Name) and n.value.id not in names:
+                names.append(n.value.id)  # self.name = ...: the object self changes
     return names
 
 
@@ -723,6 +782,8 @@ def run(source, inputs_json="[]", max_steps=2000, max_seconds=5.0):
             return local_trace
         name = frame.f_code.co_name
         if name.startswith("<"):  # lambdas, generator expressions
+            return None
+        if not frame.f_code.co_flags & 0x02:  # a class body (no CO_NEWLOCALS): no frame, like Java and C++
             return None
         stack.append([frame, _frame_label(frame), None, False, set(), False])
         caller = frame.f_back
