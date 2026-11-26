@@ -346,6 +346,29 @@ Playwright tests. Static build for GitHub Pages.
   Home ("static variables inside functions"); before, it was wrongly reset on
   every call. Unsupported: several statics in one line, static arrays written
   with [ ], static pointers.
+- C++ algorithms and containers (C6, 2026-11-26): every sort is libstdc++'s
+  std::sort step for step (introsort with median-of-three, heap sort when too
+  deep, final insertion sort), so a lambda or the program's operator< is
+  called in g++'s order and equal items end up where g++ puts them. Fixed:
+  text was sorted with the browser's alphabet ("a" before "B"); it is now by
+  character codes like C++ ("B" before "a"). Ranges: v.begin(), v.end() /
+  v.begin() + k / a, a + n (arrays). sort with a lambda ([](int a, int b) {
+  ... }, also kept in an auto variable), greater<int>() or less<int>();
+  reverse (lists and text), accumulate (the start value decides the type),
+  count, find, max_element / min_element (*it is the item, it - v.begin() the
+  position; the first largest / smallest, like libstdc++), v.begin() /
+  v.end(). A lambda call is a small frame "lambda(1, 3)" like Java's. stack,
+  queue, priority_queue (and with vector<T>, greater<T>) are shown as lists:
+  a stack's top is its end, a queue's front is position 0, a priority_queue
+  shows libstdc++'s heap ([4, 1, 3, 1], top first) using push_heap /
+  pop_heap step for step. Empty pop / top / front: "The stack is empty, so
+  there is nothing to take off its top." / "This is empty, so there is
+  nothing to take or look at." Rules: "A queue has no top(): use front() for
+  the next item and back() for the last one."; "A stack can't be read by
+  position: use top()."; "A stack has no push_back(): it only has push, pop,
+  top, size and empty."; "sort needs a lambda here, like [](int a, int b) {
+  return a > b; }." Unsupported: pair, unordered_map (next), comparator
+  structs, lambdas elsewhere, other algorithms, deque.
 - Java collections (J3, 2026-11-26): StringBuilder / StringBuffer (shown as
   its text, sb = "ab3"; changes in place, shared by every variable holding it;
   append / insert / reverse / delete / deleteCharAt / setCharAt / replace /
@@ -585,7 +608,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`; 237 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`); C6 C++ libstdc++ sort, lambdas, algorithms, stack/queue/priority_queue (`tests/algorithms-cpp.spec.ts`; 242 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

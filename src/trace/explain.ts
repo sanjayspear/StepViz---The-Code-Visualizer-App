@@ -45,6 +45,8 @@ const ERROR_SENTENCES: Record<string, string> = {
   DoubleDelete: 'This box was already deleted, so it can\'t be deleted again.',
   BadDelete: 'delete only works on a pointer that new gave back.',
   NoMoreInput: 'Your program asked for more input than you typed.',
+  EmptyStack: 'The stack is empty, so there is nothing to take off its top.',
+  EmptyContainer: 'This is empty, so there is nothing to take or look at.',
   BadInput: 'The input was not the kind of value the program expected.',
 };
 

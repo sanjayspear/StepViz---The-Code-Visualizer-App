@@ -61,7 +61,14 @@ import {
 // Values
 
 type Prim = 'int' | 'long' | 'double' | 'bool' | 'char' | 'string';
-type CType = Prim | 'vector' | 'array' | 'void' | 'auto' | 'exception' | 'struct' | 'pointer' | 'map' | 'iter' | 'set' | 'stream';
+type CType = Prim | 'vector' | 'array' | 'void' | 'auto' | 'exception' | 'struct' | 'pointer' | 'map' | 'iter' | 'set' | 'stream' | 'func';
+/** stack, queue and priority_queue are kept as lists (a vector) with their own methods; pqmin: greater<T> */
+type Coll = 'stack' | 'queue' | 'pq' | 'pqmin';
+/** A lambda: its code and the variables around it (t = 'func'). */
+interface CFunc {
+  node: Node;
+  scope: unknown;
+}
 
 /** A map's entries by key ("s:Sam", "n:3"): [key, value]. Shown and walked in key order, like std::map. */
 type MapEntries = Map<string, [CVal, CVal]>;
@@ -125,10 +132,12 @@ function itemPointer(items: CVal[], index: number, base: string, frame: string, 
 let nextAddress = 1;
 
 /** A C++ value. char values hold the character; lists hold their items; an exception holds its what() text. */
-interface CVal {
+export interface CVal {
   t: CType;
-  v: number | bigint | boolean | string | CVal[] | null | Map<string, CVal> | PtrTarget | MapEntries;
+  v: number | bigint | boolean | string | CVal[] | null | Map<string, CVal> | PtrTarget | MapEntries | CFunc;
   elem?: Prim;
+  /** stack / queue / priority_queue: a vector with that container's own methods */
+  coll?: Coll;
   /** exception: its class (runtime_error, out_of_range...); struct: its struct or class name */
   cls?: string;
   /** pointer: the type it points to (v is a PtrTarget, or null for nullptr) */
@@ -307,6 +316,7 @@ export function formatCpp(x: unknown): string | undefined {
     return `${formatCpp(r.value)} (same box as ${r.refOf})`;
   }
   if (!isCVal(x)) return undefined;
+  if (x.t === 'func') return 'lambda';
   switch (x.t) {
     case 'string':
       return JSON.stringify(x.v);
@@ -426,6 +436,142 @@ export class CppCrash extends Error {
 const libraryException = (cls: string, message: string, what: string) =>
   new CppCrash(cls, message, { value: { t: 'exception', cls, v: what }, tag: cls, byProgram: false });
 
+// --------------------------------------------------------------------------
+// libstdc++'s own algorithms, step for step, so the comparisons (visible when the program's
+// operator< or a lambda decides) come in g++'s order and equal items end up where g++ puts them.
+
+export type Less = (a: CVal, b: CVal) => boolean;
+const half = (n: number) => Math.trunc(n / 2);
+
+/** std::sort: introsort (median-of-three quicksort, heap sort when too deep), then insertion sort. */
+export function stdSort(a: CVal[], less: Less, depth = 2 * (31 - Math.clz32(a.length))) {
+  if (a.length < 2) return;
+  introsortLoop(a, 0, a.length, depth, less);
+  finalInsertionSort(a, 0, a.length, less);
+}
+function introsortLoop(a: CVal[], first: number, last: number, depth: number, less: Less) {
+  while (last - first > 16) {
+    if (depth === 0) {
+      heapSortRange(a, first, last, less);
+      return;
+    }
+    depth--;
+    const mid = first + half(last - first);
+    moveMedianToFirst(a, first, first + 1, mid, last - 1, less);
+    const cut = unguardedPartition(a, first + 1, last, first, less);
+    introsortLoop(a, cut, last, depth, less);
+    last = cut;
+  }
+}
+function swapAt(a: CVal[], i: number, j: number) {
+  const t = a[i];
+  a[i] = a[j];
+  a[j] = t;
+}
+function moveMedianToFirst(a: CVal[], result: number, x: number, y: number, z: number, less: Less) {
+  if (less(a[x], a[y])) {
+    if (less(a[y], a[z])) swapAt(a, result, y);
+    else if (less(a[x], a[z])) swapAt(a, result, z);
+    else swapAt(a, result, x);
+  } else if (less(a[x], a[z])) swapAt(a, result, x);
+  else if (less(a[y], a[z])) swapAt(a, result, z);
+  else swapAt(a, result, y);
+}
+function unguardedPartition(a: CVal[], first: number, last: number, pivot: number, less: Less): number {
+  for (;;) {
+    while (less(a[first], a[pivot])) first++;
+    last--;
+    while (less(a[pivot], a[last])) last--;
+    if (!(first < last)) return first;
+    swapAt(a, first, last);
+    first++;
+  }
+}
+function finalInsertionSort(a: CVal[], first: number, last: number, less: Less) {
+  if (last - first > 16) {
+    insertionSort(a, first, first + 16, less);
+    for (let i = first + 16; i < last; i++) linearInsert(a, i, less);
+  } else insertionSort(a, first, last, less);
+}
+function insertionSort(a: CVal[], first: number, last: number, less: Less) {
+  for (let i = first + 1; i < last; i++) {
+    if (less(a[i], a[first])) {
+      const v = a[i];
+      for (let k = i; k > first; k--) a[k] = a[k - 1];
+      a[first] = v;
+    } else linearInsert(a, i, less);
+  }
+}
+function linearInsert(a: CVal[], last: number, less: Less) {
+  const v = a[last];
+  let next = last - 1;
+  while (less(v, a[next])) {
+    a[last] = a[next];
+    last = next;
+    next--;
+  }
+  a[last] = v;
+}
+/** std::__push_heap: the value moves up from hole towards top. */
+function pushHeapAt(a: CVal[], first: number, hole: number, top: number, value: CVal, less: Less) {
+  let parent = half(hole - 1);
+  while (hole > top && less(a[first + parent], value)) {
+    a[first + hole] = a[first + parent];
+    hole = parent;
+    parent = half(hole - 1);
+  }
+  a[first + hole] = value;
+}
+/** std::__adjust_heap: the hole moves down to a leaf, then the value moves back up. */
+function adjustHeap(a: CVal[], first: number, hole: number, len: number, value: CVal, less: Less) {
+  const top = hole;
+  let second = hole;
+  while (second < half(len - 1)) {
+    second = 2 * (second + 1);
+    if (less(a[first + second], a[first + second - 1])) second--;
+    a[first + hole] = a[first + second];
+    hole = second;
+  }
+  if ((len & 1) === 0 && second === half(len - 2)) {
+    second = 2 * (second + 1);
+    a[first + hole] = a[first + second - 1];
+    hole = second - 1;
+  }
+  pushHeapAt(a, first, hole, top, value, less);
+}
+function makeHeap(a: CVal[], first: number, last: number, less: Less) {
+  const len = last - first;
+  if (len < 2) return;
+  for (let parent = half(len - 2); ; parent--) {
+    adjustHeap(a, first, parent, len, a[first + parent], less);
+    if (parent === 0) return;
+  }
+}
+/** std::__partial_sort(first, last, last): make a heap, then take the largest off one by one. */
+function heapSortRange(a: CVal[], first: number, last: number, less: Less) {
+  makeHeap(a, first, last, less);
+  while (last - first > 1) {
+    last--;
+    const v = a[last];
+    a[last] = a[first];
+    adjustHeap(a, first, 0, last - first, v, less);
+  }
+}
+/** priority_queue::push / pop: push_back + push_heap, pop_heap + pop_back. */
+function heapPush(a: CVal[], x: CVal, less: Less) {
+  a.push(x);
+  pushHeapAt(a, 0, a.length - 1, 0, x, less);
+}
+function heapPop(a: CVal[], less: Less) {
+  if (a.length > 1) {
+    const last = a.length - 1;
+    const v = a[last];
+    a[last] = a[0];
+    adjustHeap(a, 0, 0, last, v, less);
+  }
+  a.pop();
+}
+
 class ReturnSignal {
   constructor(
     public value: CVal,
@@ -487,7 +633,7 @@ const FEATURES: Record<string, string> = {
 };
 
 const INCLUDES = new Set([
-  '<iostream>', '<vector>', '<string>', '<cmath>', '<algorithm>', '<iomanip>', '<utility>', '<climits>', '<bits/stdc++.h>', '<stdexcept>', '<exception>', '<map>', '<set>',
+  '<iostream>', '<vector>', '<string>', '<cmath>', '<algorithm>', '<iomanip>', '<utility>', '<climits>', '<bits/stdc++.h>', '<stdexcept>', '<exception>', '<map>', '<set>', '<stack>', '<queue>', '<numeric>', '<functional>',
 ]);
 const C_INCLUDES = new Set(['<stdio.h>', '<stdlib.h>', '<math.h>', '<string.h>', '<stdbool.h>', '<limits.h>']);
 
@@ -747,7 +893,11 @@ function checkSubset(tree: Tree): Program {
     const feature = FEATURES[n.type];
     // vector<Animal*>: a pointer type as the item type is fine.
     const itemPointer = n.type === 'abstract_pointer_declarator' && n.parent?.type === 'type_descriptor' && n.parent.parent?.type === 'template_argument_list';
-    if (feature && !scanfAddress && !itemPointer) throw unsupported(n, feature);
+    // sort(v.begin(), v.end(), [](int a, int b) { return a > b; }) / auto cmp = [](...) {...};
+    const lambdaOk =
+      n.type === 'lambda_expression' &&
+      (n.parent?.type === 'argument_list' || (n.parent?.type === 'init_declarator' && n.parent.parent?.childForFieldName('type')?.text === 'auto'));
+    if (feature && !scanfAddress && !itemPointer && !lambdaOk) throw unsupported(n, feature);
     if (n.type === 'pointer_declarator' && n.childForFieldName('declarator')?.type === 'pointer_declarator') throw unsupported(n, 'pointers to pointers');
     if (n.type === 'pointer_declarator' && n.childForFieldName('declarator')?.type === 'function_declarator') throw unsupported(n, 'functions that give back pointers');
     if (dialect === 'c' && n.type === 'reference_declarator') throw unsupported(n, 'references (&)');
@@ -759,7 +909,14 @@ function checkSubset(tree: Tree): Program {
       const name = n.childForFieldName('name')?.text;
       if (name === 'unordered_map') throw unsupported(n, 'unordered_map (map works)');
       if (name === 'unordered_set') throw unsupported(n, 'unordered_set (set works)');
-      if (name !== 'vector' && name !== 'map' && name !== 'set') throw unsupported(n, name ?? 'templates');
+      if (!['vector', 'map', 'set', 'stack', 'queue', 'priority_queue', 'greater', 'less'].includes(name ?? '')) throw unsupported(n, name ?? 'templates');
+      if (['stack', 'queue', 'priority_queue'].includes(name ?? '')) {
+        // stack<int>, queue<string>, priority_queue<int, vector<int>, greater<int>>
+        const args = named(n.childForFieldName('arguments'));
+        const third = args[2]?.text.replace(/\s+/g, '');
+        const ok = name === 'priority_queue' ? args.length === 1 || (args.length === 3 && /^(std::)?(greater|less)</.test(third ?? '')) : args.length === 1;
+        if (!ok || /vector|map|set|</.test(args[0]?.text ?? '')) throw unsupported(n, `this kind of ${name}`);
+      }
       const args = named(n.childForFieldName('arguments'));
       if (name === 'set' && args.some((a) => /vector|map|set|</.test(a.text))) throw unsupported(n, 'sets of lists');
       if (name === 'map' && args.some((a) => /vector|map|set|</.test(a.text))) throw unsupported(n, 'maps of lists');
@@ -800,6 +957,7 @@ interface DeclType {
   pt?: DeclType;
   /** map: the key type */
   kt?: Prim;
+  coll?: Coll;
 }
 
 function primOf(n: Node | null): Prim | 'void' | 'auto' {
@@ -833,6 +991,14 @@ function typeOf(typeNode: Node | null): DeclType {
   }
   if (typeNode?.type === 'qualified_identifier' && /^std::(map|set)/.test(typeNode.text)) return typeOf(typeNode.childForFieldName('name'));
   if (typeNode?.type === 'qualified_identifier' && /map/.test(typeNode.text) && !/vector/.test(typeNode.text)) return typeOf(typeNode.childForFieldName('name'));
+  if (typeNode?.type === 'template_type' && ['stack', 'queue', 'priority_queue'].includes(typeNode.childForFieldName('name')?.text ?? '')) {
+    const name = typeNode.childForFieldName('name')!.text;
+    const args = named(typeNode.childForFieldName('arguments'));
+    const elem = primOf(named(args[0]).find((c) => c.type !== 'type_qualifier') ?? args[0]);
+    if (elem === 'void' || elem === 'auto') throw unsupported(typeNode, `this kind of ${name}`);
+    const coll: Coll = name === 'stack' ? 'stack' : name === 'queue' ? 'queue' : /greater/.test(args[2]?.text ?? '') ? 'pqmin' : 'pq';
+    return { t: 'vector', elem, coll };
+  }
   // vector<int> as a type, or as the start of a value (vector<int>(4, 0)).
   if (typeNode?.type === 'template_type' || (typeNode?.type === 'template_function' && /vector$/.test(typeNode.childForFieldName('name')?.text ?? ''))) {
     const arg = named(named(typeNode.childForFieldName('arguments'))[0]);
@@ -908,7 +1074,7 @@ const declarators = (s: Node) => s.childrenForFieldName('declarator').filter((d)
 // Loops-and-lists view
 
 const LOOP_TYPES = new Set(['for_statement', 'for_range_loop', 'while_statement', 'do_statement']);
-const MUTATORS = new Set(['push_back', 'pop_back', 'clear', 'insert', 'erase', 'emplace_back', 'resize']);
+const MUTATORS = new Set(['push_back', 'pop_back', 'clear', 'insert', 'erase', 'emplace_back', 'resize', 'push', 'pop']);
 
 const subscriptBase = (n: Node | null): string | null =>
   n?.type === 'subscript_expression' && n.childForFieldName('argument')?.type === 'identifier' ? n.childForFieldName('argument')!.text : null;
@@ -1617,8 +1783,9 @@ class Interp {
       }
       if (type.t === 'vector') {
         // vector<int> v(5, 0);  vector<vector<int>> g(3, vector<int>(4, 0));
+        if (type.coll && info.value) throw unsupported(d, `giving a ${type.coll === 'stack' ? 'stack' : type.coll === 'queue' ? 'queue' : 'priority_queue'} values here (use push)`);
         const items = !info.value ? [] : info.value.type === 'argument_list' ? this.vectorSized(named(info.value), type.elem!, d) : this.vectorFrom(info.value, type.elem!);
-        binding.cell.v = { t: 'vector', elem: type.elem, v: items };
+        binding.cell.v = { t: 'vector', elem: type.elem, v: items, coll: type.coll };
         continue;
       }
       if (type.t === 'set') {
@@ -2791,6 +2958,7 @@ class Interp {
     const i = this.num(this.eval(subscriptIndex(n)));
     const length = list.t === 'string' ? (list.v as string).length : list.t === 'vector' || list.t === 'array' ? (list.v as CVal[]).length : -1;
     if (length < 0) throw new CompileError(lineOf(n), `${n.childForFieldName('argument')!.text} is not a list.`);
+    if (list.coll) throw new CompileError(lineOf(n), `A ${list.coll === 'stack' ? 'stack' : list.coll === 'queue' ? 'queue' : 'priority_queue'} can't be read by position: use ${list.coll === 'queue' ? 'front()' : 'top()'}.`);
     if (i < 0 || i >= length) {
       const message = `position ${i} is outside a ${list.t === 'string' ? 'text' : 'list'} of length ${length}`;
       // v.at(i) throws a real out_of_range (a catch part can take it); v[i] outside the list is not an exception in C++.
@@ -2989,6 +3157,9 @@ class Interp {
         if (n.childForFieldName('operator')?.type === '&') return this.addressOf(arg);
         return this.deref(this.eval(arg), arg);
       }
+      case 'lambda_expression':
+        // A lambda remembers the variables around it (it reads them when it runs).
+        return { t: 'func', v: { node: n, scope: this.scope } as CFunc };
       case 'true':
         return bool(true);
       case 'false':
@@ -3211,37 +3382,59 @@ class Interp {
         return VOID;
       }
       case 'sort': {
-        const [begin, end] = argNodes;
-        const owner = (c: Node) => (c?.type === 'call_expression' ? c.childForFieldName('function')?.childForFieldName('argument')?.text : null);
-        if (!owner(begin) || owner(begin) !== owner(end)) throw unsupported(n, 'sort like this');
-        const list = this.eval(begin.childForFieldName('function')!.childForFieldName('argument')!);
-        if (isStructItem(list.elem)) {
-          // sort(v.begin(), v.end()) with the program's operator<: libstdc++'s insertion sort (its order of comparisons for up to 16 items).
-          const items = list.v as CVal[];
-          const less = (x: CVal, y: CVal) => {
-            const r = this.callOperator('<', x, y, null, n);
-            if (!r) throw new CompileError(lineOf(n), `sort can't put ${list.elem} values in order by itself: write bool operator<.`);
-            return this.truthy(r);
-          };
-          for (let i = 1; i < items.length; i++) {
-            const val = items[i];
-            if (less(val, items[0])) {
-              items.splice(i, 1);
-              items.unshift(val);
-            } else {
-              let j = i;
-              while (less(val, items[j - 1])) {
-                items[j] = items[j - 1];
-                j--;
-              }
-              items[j] = val;
-            }
-          }
+        // libstdc++'s std::sort, step for step: a lambda or the program's operator< is called in g++'s order.
+        const r = this.range(n, argNodes[0], argNodes[1]);
+        if (r.whole.t === 'string') throw unsupported(n, 'sorting the letters of text');
+        if (r.whole.elem?.startsWith('vector<') || r.whole.elem?.endsWith('[]')) throw unsupported(n, 'sorting a list of lists');
+        if (r.items.slice(r.from, r.to).some((x) => x === UNSET_VAL)) throw new CppCrash('Uninitialized', 'sort read an item that has no value yet');
+        const less = argNodes[2] ? this.comparator(argNodes[2], n) : (x: CVal, y: CVal) => this.lessThan(x, y, n);
+        const part = r.items.slice(r.from, r.to);
+        stdSort(part, less);
+        r.items.splice(r.from, part.length, ...part);
+        return VOID;
+      }
+      case 'reverse': {
+        const r = this.range(n, argNodes[0], argNodes[1]);
+        const part = r.items.slice(r.from, r.to).reverse();
+        if (r.whole.t === 'string') {
+          this.assignTo(r.owner, strv([...part, ...r.items.slice(r.to)].map((c) => c.v).join('')));
           return VOID;
         }
-        if (list.elem?.startsWith('vector<') || list.elem?.endsWith('[]')) throw unsupported(n, 'sorting a list of lists');
-        (list.v as CVal[]).sort((x, y) => (x.t === 'string' ? String(x.v).localeCompare(String(y.v)) : this.num(x) - this.num(y)));
+        r.items.splice(r.from, part.length, ...part);
         return VOID;
+      }
+      case 'accumulate': {
+        // accumulate(v.begin(), v.end(), 0): the start value decides the type (0 int, 0LL long long, 0.0 double).
+        const r = this.range(n, argNodes[0], argNodes[1]);
+        if (!argNodes[2]) throw new CompileError(lineOf(n), 'accumulate needs a start value, like accumulate(v.begin(), v.end(), 0).');
+        let total = this.eval(argNodes[2]);
+        for (const x of r.items.slice(r.from, r.to)) total = this.arith('+', total, x, n);
+        return total;
+      }
+      case 'count': {
+        const r = this.range(n, argNodes[0], argNodes[1]);
+        const want = this.eval(argNodes[2]);
+        return lng(r.items.slice(r.from, r.to).filter((x) => !this.lessThan(x, want, n) && !this.lessThan(want, x, n)).length);
+      }
+      case 'max_element':
+      case 'min_element':
+      case 'find': {
+        // A place in the list: *max_element(...) is the item, max_element(...) - v.begin() its position.
+        const r = this.range(n, argNodes[0], argNodes[1]);
+        if (r.whole.t === 'string') throw unsupported(n, `${name} on text (use s.find)`);
+        const items = r.items;
+        let at = r.from;
+        if (name === 'find') {
+          const want = this.eval(argNodes[2]);
+          while (at < r.to && (this.lessThan(items[at], want, n) || this.lessThan(want, items[at], n))) at++;
+        } else if (r.to > r.from) {
+          // libstdc++: the first largest (max) / first smallest (min).
+          for (let i = r.from + 1; i < r.to; i++) {
+            if (name === 'max_element' ? this.lessThan(items[at], items[i], n) : this.lessThan(items[i], items[at], n)) at = i;
+          }
+        } else at = r.to;
+        const b = r.owner.type === 'identifier' ? this.scope.lookup(r.owner.text) : undefined;
+        return { t: 'pointer', pt: this.itemType(r.whole.elem), v: itemPointer(items, at, r.owner.text, this.rt.stack[this.rt.stack.length - 1].label, b?.cell ?? null) };
       }
       case 'to_string': {
         const v = args()[0];
@@ -3435,10 +3628,157 @@ class Interp {
     throw unsupported(n, `string.${method}()`);
   }
 
+  /** stack (top is the end), queue (front is position 0) and priority_queue (libstdc++'s heap, top first). */
+  private containerMethod(n: Node, objNode: Node, c: CVal, method: string, a: CVal[]): CVal {
+    const items = c.v as CVal[];
+    const kind = c.coll === 'stack' ? 'stack' : c.coll === 'queue' ? 'queue' : 'priority_queue';
+    const less = c.coll === 'pqmin' ? (x: CVal, y: CVal) => this.lessThan(y, x, n) : (x: CVal, y: CVal) => this.lessThan(x, y, n);
+    const empty = () => new CppCrash(c.coll === 'stack' ? 'EmptyStack' : 'EmptyContainer', `${method}() on an empty ${kind}`);
+    const count = (k: number) => {
+      if (a.length !== k) throw new CompileError(lineOf(n), `${objNode.text}.${method}() needs ${k} value${k === 1 ? '' : 's'} here.`);
+    };
+    switch (method) {
+      case 'push': {
+        count(1);
+        const x = this.copy(this.convert(a[0], this.itemType(c.elem), n, objNode.text));
+        if (c.coll === 'pq' || c.coll === 'pqmin') heapPush(items, x, less);
+        else items.push(x);
+        return VOID;
+      }
+      case 'pop':
+        count(0);
+        if (!items.length) throw empty();
+        if (c.coll === 'stack') items.pop();
+        else if (c.coll === 'queue') items.shift();
+        else heapPop(items, less);
+        return VOID;
+      case 'top':
+        count(0);
+        if (c.coll === 'queue') throw new CompileError(lineOf(n), 'A queue has no top(): use front() for the next item and back() for the last one.');
+        if (!items.length) throw empty();
+        return c.coll === 'stack' ? items[items.length - 1] : items[0];
+      case 'front':
+      case 'back':
+        count(0);
+        if (c.coll !== 'queue') throw new CompileError(lineOf(n), `A ${kind} has no ${method}(): use top().`);
+        if (!items.length) throw empty();
+        return items[method === 'front' ? 0 : items.length - 1];
+      case 'size':
+        return lng(items.length);
+      case 'empty':
+        return bool(items.length === 0);
+    }
+    throw new CompileError(lineOf(n), `A ${kind} has no ${method}(): it only has push, pop, ${c.coll === 'queue' ? 'front, back' : 'top'}, size and empty.`);
+  }
+
+  /** a < b like C++: numbers, text by character codes, structs with the program's operator<. */
+  private lessThan(a: CVal, b: CVal, at: Node): boolean {
+    if (a.t === 'struct' || b.t === 'struct') {
+      const r = this.callOperator('<', a, b, null, at);
+      if (!r) throw new CompileError(lineOf(at), `C++ can't put ${a.cls} values in order by itself: write bool operator<.`);
+      return this.truthy(r);
+    }
+    if (a.t === 'string' || b.t === 'string') return String(a.v) < String(b.v);
+    if (a.t === 'long' || b.t === 'long') return this.big(a) < this.big(b);
+    return this.num(a) < this.num(b);
+  }
+
+  /** A comparing rule given to sort: a lambda (or a variable holding one), greater<T>() or less<T>(). */
+  private comparator(node: Node, at: Node): Less {
+    const text = node.text.replace(/\s+/g, '');
+    if (/^(std::)?greater<[^>]*>\(\)$/.test(text)) return (x, y) => this.lessThan(y, x, at);
+    if (/^(std::)?less<[^>]*>\(\)$/.test(text)) return (x, y) => this.lessThan(x, y, at);
+    const f = this.eval(node);
+    if (f.t !== 'func') throw new CompileError(lineOf(node), 'sort needs a lambda here, like [](int a, int b) { return a > b; }.');
+    return (x, y) => {
+      const r = this.callLambda(f.v as CFunc, [x, y], at);
+      if (!NUMERIC.has(r.t)) throw new CompileError(lineOf(node), 'A comparing lambda must give back true or false.');
+      return this.truthy(r);
+    };
+  }
+
+  /** Run a lambda in its own small frame "lambda(...)" (it can still read the variables around it). */
+  private callLambda(f: CFunc, values: CVal[], at: Node): CVal {
+    const node = f.node;
+    const params = named(node.childForFieldName('declarator')?.childForFieldName('parameters') ?? null).filter((p) => p.type === 'parameter_declaration');
+    if (params.length !== values.length) throw new CompileError(lineOf(node), `This lambda takes ${params.length} value${params.length === 1 ? '' : 's'}, but here it gets ${values.length}.`);
+    const scope = new Scope(f.scope as Scope, true);
+    const names: string[] = [];
+    params.forEach((p, i) => {
+      const decl = p.childForFieldName('declarator');
+      const name = decl ? declaratorInfo(decl).name : `arg${i}`;
+      const type = typeOf(p.childForFieldName('type'));
+      scope.vars.set(name, { cell: { ...type, v: type.t === 'auto' ? this.copy(values[i]) : this.copy(this.convert(values[i], type, at, name)) } });
+      names.push(name);
+    });
+    const saved = this.scope;
+    this.scope = scope;
+    const shown = names.map((nm) => formatCpp(scope.vars.get(nm)!.cell.v) ?? '?');
+    this.rt.hooks.enter('lambda', this.namesId(names), this.getters(names), 0, `lambda(${shown.join(', ')})`);
+    try {
+      this.execBody(node.childForFieldName('body')!, []);
+      return VOID;
+    } catch (e) {
+      if (e instanceof ReturnSignal) {
+        this.rt.hooks.ret(e.line, e.value);
+        return e.value;
+      }
+      this.rt.hooks.thrown(e);
+      throw e;
+    } finally {
+      const top = this.rt.stack[this.rt.stack.length - 1];
+      if (top.pending === null) top.pending = lineOf(node);
+      this.rt.hooks.leave();
+      this.scope = saved;
+    }
+  }
+
+  /**
+   * The items an algorithm works on: (v.begin(), v.end()), (v.begin(), v.begin() + k),
+   * (a, a + n) for an array, or (s.begin(), s.end()) for text.
+   */
+  private range(n: Node, first: Node | undefined, last: Node | undefined): { items: CVal[]; from: number; to: number; whole: CVal; owner: Node } {
+    const ownerOf = (x: Node | undefined, end: 'begin' | 'end'): Node | null => {
+      if (x?.type === 'call_expression' && x.childForFieldName('function')?.type === 'field_expression' && x.childForFieldName('function')?.childForFieldName('field')?.text === end) {
+        return x.childForFieldName('function')!.childForFieldName('argument');
+      }
+      return null;
+    };
+    const plus = (x: Node | undefined): { base: Node; k: Node } | null =>
+      x?.type === 'binary_expression' && x.childForFieldName('operator')?.type === '+' ? { base: x.childForFieldName('left')!, k: x.childForFieldName('right')! } : null;
+    let owner = ownerOf(first, 'begin');
+    let to: number | null = null;
+    if (owner && ownerOf(last, 'end')?.text === owner.text) to = -1;
+    else if (owner && plus(last) && ownerOf(plus(last)!.base, 'begin')?.text === owner.text) to = this.num(this.eval(plus(last)!.k));
+    else if (first?.type === 'identifier' && plus(last)?.base.text === first.text) {
+      owner = first;
+      to = this.num(this.eval(plus(last)!.k));
+    }
+    if (!owner || to === null) throw unsupported(n, 'this range (use v.begin(), v.end())');
+    const whole = this.eval(owner);
+    if (whole.t === 'string') {
+      const items = [...(whole.v as string)].map(chr);
+      return { items, from: 0, to: to < 0 ? items.length : to, whole, owner };
+    }
+    if (whole.t !== 'vector' && whole.t !== 'array') throw new CompileError(lineOf(owner), `${owner.text} is not a list.`);
+    const items = whole.v as CVal[];
+    const end = to < 0 ? items.length : to;
+    if (end < 0 || end > items.length) throw new CppCrash('IndexOutOfRange', `the range ends outside ${owner.text}`);
+    return { items, from: 0, to: end, whole, owner };
+  }
+
   private vectorMethod(n: Node, objNode: Node, vec: CVal, method: string, argNodes: Node[]): CVal {
     const items = vec.v as CVal[];
     const args = () => argNodes.map((a) => this.eval(a));
+    if (vec.coll) return this.containerMethod(n, objNode, vec, method, args());
     switch (method) {
+      case 'begin':
+      case 'end': {
+        // v.begin() / v.end(): a place in the list (max_element(...) - v.begin() is a position).
+        const b = objNode.type === 'identifier' ? this.scope.lookup(objNode.text) : undefined;
+        const frame = this.rt.stack[this.rt.stack.length - 1].label;
+        return { t: 'pointer', pt: this.itemType(vec.elem), v: itemPointer(items, method === 'begin' ? 0 : items.length, objNode.text, frame, b?.cell ?? null) };
+      }
       case 'push_back':
         if (isStructItem(vec.elem)) items.push(this.structFrom(argNodes[0], structs.get(vec.elem!)!, objNode.text));
         else if (vec.elem?.startsWith('vector<') && argNodes[0]?.type === 'initializer_list') {
