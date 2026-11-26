@@ -129,7 +129,7 @@ test('previous / next follow the list the question was opened from', async ({ pa
 });
 
 test('language picker: languages without starter code say "coming soon"; unknown questions say so', async ({ page }) => {
-  // Every question has Python, JavaScript and Java (first and last checked); C++ and C come later.
+  // Every question has Python, JavaScript, Java and C++ (first and last checked); C comes later.
   await page.goto('./#/practice/q/7');
   await expect(page.locator('.practice-question select option').first()).toHaveText('Python');
   await page.goto('./#/practice/q/320');
@@ -138,11 +138,11 @@ test('language picker: languages without starter code say "coming soon"; unknown
     'Python',
     'JavaScript',
     'Java',
-    'C++ (coming soon)',
+    'C++',
     'C (coming soon)',
   ]);
-  await page.locator('.practice-question select').selectOption('cpp');
-  await expect(page.getByText('Starter code and tests in C++ are coming soon.', { exact: false })).toBeVisible();
+  await page.locator('.practice-question select').selectOption('c');
+  await expect(page.getByText('Starter code and tests in C are coming soon.', { exact: false })).toBeVisible();
   await page.goto('./#/practice/q/999');
   await expect(page.locator('h1')).toHaveText('There is no question 999');
 });
@@ -250,4 +250,32 @@ test('Java: the starter, Run tests in the Java worker, a rule, and Visualize my 
   await typeAnswer(page, 'public class Main {\n    static boolean isEven(int n) {\n        return n % 2 == 0;\n    }\n\n    public static void main(String[] args) {\n    }\n}\n');
   await page.getByRole('button', { name: 'Run tests' }).click();
   await expect(page.getByText('Line 3: This question asks you to find the answer without %. Your code uses %.')).toBeVisible({ timeout: 30_000 });
+});
+
+test('C++: the starter, Run tests in the C++ worker, a rule, and Visualize my code', async ({ page }) => {
+  await page.goto('./#/practice/q/3?from=basics-math');
+  await page.locator('.practice-question select').selectOption('cpp');
+  await expect(page.getByText('Example: digitSum(1234) returns 10.')).toBeVisible();
+  await expect(answer(page)).toContainText('int digitSum(int n) {');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  // The starter's placeholder return 0 passes digitSum(0) only.
+  await expect(page.getByText('1 of 5 tests passed')).toBeVisible({ timeout: 30_000 });
+  await typeAnswer(page, '#include <iostream>\nusing namespace std;\n\nint digitSum(int n) {\n    int t = 0;\n    while (n > 0) {\n        t += n % 10;\n        n /= 10;\n    }\n    return t;\n}\n\nint main() {\n    cout << digitSum(42) << endl;\n    return 0;\n}\n');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.getByText('5 of 5 tests passed')).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('button', { name: 'Visualize my code' }).click();
+  await expect(page.getByRole('button', { name: /New code/ })).toBeVisible({ timeout: 30_000 });
+  await page.goto('./#/practice/q/2?from=basics-math');
+  await page.locator('.practice-question select').selectOption('cpp');
+  await typeAnswer(page, 'bool isEven(int n) {\n    return n % 2 == 0;\n}\n\nint main() {\n    return 0;\n}\n');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.getByText('Line 2: This question asks you to find the answer without %. Your code uses %.')).toBeVisible({ timeout: 30_000 });
+});
+
+test('C++: a linked-list question builds its list input and reads the answer back', async ({ page }) => {
+  await page.goto('./#/practice/q/217?from=linked-lists');
+  await page.locator('.practice-question select').selectOption('cpp');
+  await expect(answer(page)).toContainText('ListNode* reverseIterative(ListNode* head) {');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.getByText(/of 6 tests passed/)).toBeVisible({ timeout: 30_000 });
 });

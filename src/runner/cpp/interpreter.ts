@@ -557,8 +557,8 @@ function insideText(v: CVal, depth: number): string {
  * would go on and on, and could come back round), like Node {…} in Java: next: points to ListNode {…}.
  */
 function memberPointerText(p: CVal): string {
-  const t = p.v as PtrTarget | null | typeof UNSET;
-  if ((t as unknown) === UNSET) return '?';
+  if ((p.v as unknown) === UNSET) return '?';
+  const t = p.v as PtrTarget | null;
   if (t && t.heap && !t.arr && !t.owner?.dead) {
     const v = t.cell.v as CVal;
     if (v !== UNSET_VAL && v.t === 'struct') return `points to ${v.cls} {…}`;
@@ -1664,6 +1664,17 @@ class Interp {
 
   // ---- statements ---------------------------------------------------------------
 
+  /** {a, b} as a value of a known type: return {i, j}; in a function giving back vector<int>, pair or a struct. */
+  private braced(list: Node, type: DeclType | undefined, name: string): CVal {
+    if (!type || type.t === 'auto' || type.t === 'void') throw unsupported(list, 'a {...} list here');
+    if (type.t === 'vector' && !type.coll) return { t: 'vector', elem: type.elem, v: this.vectorFrom(list, type.elem!) };
+    if (type.t === 'struct' && type.cls === 'pair') return this.pairFrom(list, type as CVal, list, name);
+    if (type.t === 'struct') return this.structFrom(list, structs.get(type.cls!)!, name);
+    const items = named(list);
+    if (items.length === 1 && NUMERIC.has(type.t as Prim)) return this.convert(this.eval(items[0]), type, list, name);
+    throw unsupported(list, 'a {...} list here');
+  }
+
   /** head->next = ... / p->val = ...: the member changed through a pointer (no calls or ++ in it, so it can be read twice). */
   private memberTarget(e: Node): Node | null {
     if (e.type !== 'assignment_expression') return null;
@@ -1702,6 +1713,9 @@ class Interp {
     if (right.type === 'identifier' && right.text !== 'nullptr' && right.text !== 'NULL') change.from = right.text;
     return change;
   }
+
+  /** The type each running function gives back (for return {i, j};), innermost last. */
+  private returnTypes: DeclType[] = [];
 
   private targetName(n: Node): string {
     // *p = 5 / (*p)++: the box p points to changes (the explainer finds it from p).
@@ -1857,7 +1871,7 @@ class Interp {
         return;
       case 'return_statement': {
         const e = named(s)[0];
-        const value = e ? this.eval(e) : VOID;
+        const value = e?.type === 'initializer_list' ? this.braced(e, this.returnTypes[this.returnTypes.length - 1], 'the answer') : e ? this.eval(e) : VOID;
         throw new ReturnSignal(value, lineOf(s));
       }
       case 'throw_statement':
@@ -2910,6 +2924,7 @@ class Interp {
       names.push(info.name);
     });
     const returnType = making ? ({ t: 'void' } as DeclType) : returnTypeOf(f);
+    this.returnTypes.push(returnType);
     const saved = this.scope;
     const savedStruct = this.currentStruct;
     const savedConst = this.constMethod;
@@ -2949,6 +2964,7 @@ class Interp {
       const top = this.rt.stack[this.rt.stack.length - 1];
       if (top.pending === null) top.pending = lineOf(f);
       this.rt.hooks.leave();
+      this.returnTypes.pop();
       this.scope = saved;
       this.currentStruct = savedStruct;
       this.constMethod = savedConst;
@@ -3541,10 +3557,11 @@ class Interp {
       case 'new_expression':
         return this.newBox(n);
       case 'compound_literal_expression': {
-        // Point{1, 2}: a new struct value
+        // Point{1, 2} / vector<int>{a, b} / pair<int, int>{1, 2}: a new value of that type
         const t = typeOf(n.childForFieldName('type'));
-        if (t.t !== 'struct') throw unsupported(n, 'this kind of value');
-        return this.structFrom(n.childForFieldName('value')!, structs.get(t.cls!)!, t.cls!);
+        const value = n.childForFieldName('value')!;
+        if (t.t === 'struct' && t.cls !== 'pair') return this.structFrom(value, structs.get(t.cls!)!, t.cls!);
+        return this.braced(value, t, 'this value');
       }
       case 'delete_expression':
         return this.deleteBox(n);
@@ -4281,6 +4298,8 @@ class Interp {
     this.scope = scope;
     const shown = names.map((nm) => formatCpp(scope.vars.get(nm)!.cell.v) ?? '?');
     this.rt.hooks.enter('lambda', this.namesId(names), this.getters(names), 0, `lambda(${shown.join(', ')})`);
+    // A lambda's type is not written, so return {...} can't be worked out inside it.
+    this.returnTypes.push({ t: 'auto' } as DeclType);
     try {
       this.execBody(node.childForFieldName('body')!, []);
       return VOID;
@@ -4295,6 +4314,7 @@ class Interp {
       const top = this.rt.stack[this.rt.stack.length - 1];
       if (top.pending === null) top.pending = lineOf(node);
       this.rt.hooks.leave();
+      this.returnTypes.pop();
       this.scope = saved;
     }
   }

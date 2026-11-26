@@ -17,7 +17,6 @@ const PRINT_LISTS = `void printLists(const vector<vector<int>>& lists) {
 }`;
 const HELPERS = `${PRINT_INTS}\n\n${PRINT_LISTS}`;
 const fn = (header: string, comment: string, main: string) => cppStarter([[header, comment]], main, ['queue'], HELPERS);
-const show = (expr: string) => `cout << ${expr} << endl;`;
 const MEETINGS = 'vector<vector<int>> meetings = {{0, 30}, {5, 10}, {15, 20}};';
 
 export const SORTING_GREEDY_INTERVALS_CPP = fromPython(SORTING_GREEDY_INTERVALS, {

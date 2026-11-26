@@ -150,3 +150,50 @@ int main() {
   expect(r.steps.at(-1)!.output).toBe('Rex3 19 232\n');
   expect(r.steps.some((s) => s.frames.some((f) => f.name === 'Dog::Dog("Rex", 3)'))).toBe(true);
 });
+
+test('return {i, j} and vector<int>{a, b}: a {...} list becomes the type the function gives back', () => {
+  const src = `#include <iostream>
+#include <vector>
+#include <string>
+using namespace std;
+
+struct Point {
+    int x;
+    int y;
+};
+
+vector<int> two(int a, int b) {
+    if (a < 0) return {};
+    return {b, a};
+}
+
+vector<vector<int>> rows() {
+    return {{1, 2}, {3}};
+}
+
+pair<int, string> tag() {
+    return {7, "x"};
+}
+
+Point origin() {
+    return {0, 5};
+}
+
+vector<int> made(int a) {
+    return vector<int>{a, a + 1};
+}
+
+int main() {
+    vector<int> r = two(1, 2);
+    vector<int> e = two(-1, 0);
+    vector<vector<int>> g = rows();
+    pair<int, string> p = tag();
+    Point o = origin();
+    vector<int> m = made(4);
+    cout << r[0] << r[1] << e.size() << g[1][0] << p.first << p.second << o.y << m[1] << endl;
+    return 0;
+}`;
+  const r = runCpp(parser.parse(src)!, { maxSteps: 5000, maxSeconds: 5 });
+  expect(r.status).toBe('ok');
+  expect(r.steps.at(-1)!.output).toBe('21037x55\n');
+});
