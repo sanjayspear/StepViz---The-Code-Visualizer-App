@@ -15,6 +15,7 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { TREES_BST_JAVA } from './java/trees-bst';
 import { LINKED_LISTS_JAVA } from './java/linked-lists';
 import { RECURSION_BACKTRACKING_JAVA } from './java/recursion-backtracking';
 import { BINARY_SEARCH_JAVA } from './java/binary-search';
@@ -79,6 +80,7 @@ export const JS_TOPICS: Record<string, PracticeContent[]> = {
 const byId = (topics: Record<string, PracticeContent[]>) => new Map(Object.values(topics).flatMap((list) => list.map((c) => [c.id, c] as const)));
 /** Java content by topic id (tests from the Python content; answers run in StepViz's Java interpreter). */
 export const JAVA_TOPICS: Record<string, PracticeContent[]> = {
+  'trees-bst': TREES_BST_JAVA,
   'linked-lists': LINKED_LISTS_JAVA,
   'recursion-backtracking': RECURSION_BACKTRACKING_JAVA,
   'binary-search': BINARY_SEARCH_JAVA,

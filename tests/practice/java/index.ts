@@ -9,8 +9,10 @@ import { SOLUTIONS as STACKS_QUEUES } from './stacks-queues.solutions';
 import { SOLUTIONS as BINARY_SEARCH } from './binary-search.solutions';
 import { SOLUTIONS as RECURSION_BACKTRACKING } from './recursion-backtracking.solutions';
 import { SOLUTIONS as LINKED_LISTS } from './linked-lists.solutions';
+import { SOLUTIONS as TREES_BST } from './trees-bst.solutions';
 
 export const JAVA_SOLUTIONS_BY_TOPIC: Record<string, Record<number, string>> = {
+  'trees-bst': TREES_BST,
   'linked-lists': LINKED_LISTS,
   'recursion-backtracking': RECURSION_BACKTRACKING,
   'binary-search': BINARY_SEARCH,
