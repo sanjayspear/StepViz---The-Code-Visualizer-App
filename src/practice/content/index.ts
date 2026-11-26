@@ -15,6 +15,7 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { ARRAYS_MATRICES_C } from './c/arrays-matrices';
 import { STRINGS_C } from './c/strings';
 import { BASICS_MATH_C } from './c/basics-math';
 import { TREES_BST_CPP } from './cpp/trees-bst';
@@ -135,6 +136,7 @@ export const CPP_TOPICS: Record<string, PracticeContent[]> = {
 
 /** C content by topic id: only the questions that fit C (the others show C as coming soon). */
 export const C_TOPICS: Record<string, PracticeContent[]> = {
+  'arrays-matrices': ARRAYS_MATRICES_C,
   strings: STRINGS_C,
   'basics-math': BASICS_MATH_C,
 };
