@@ -109,3 +109,37 @@ int main() {
   expect(r.status).toBe('ok');
   expect(r.steps.at(-1)!.output).toBe('23ac\n');
 });
+
+test('Dog d(n, a) with variables makes an object (not a function declaration); vector<int> b(a) copies a; int x(k)', () => {
+  const src = `#include <iostream>
+#include <vector>
+#include <string>
+using namespace std;
+
+struct Dog {
+    string name;
+    int age;
+    Dog(string n, int a) {
+        name = n;
+        age = a;
+    }
+};
+
+int main() {
+    string n = "Rex";
+    int a = 3;
+    Dog d(n, a);
+    vector<vector<int>> g = {{1, 2}, {3}};
+    vector<vector<int>> h(g);
+    h[0][0] = 9;
+    int size = 2;
+    vector<int> v(size);
+    int x(a);
+    cout << d.name << d.age << " " << g[0][0] << h[0][0] << " " << v.size() << x << endl;
+    return 0;
+}`;
+  const r = runCpp(parser.parse(src)!, { maxSteps: 5000, maxSeconds: 5 });
+  expect(r.status).toBe('ok');
+  expect(r.steps.at(-1)!.output).toBe('Rex3 19 23\n');
+  expect(r.steps.some((s) => s.frames.some((f) => f.name === 'Dog::Dog("Rex", 3)'))).toBe(true);
+});

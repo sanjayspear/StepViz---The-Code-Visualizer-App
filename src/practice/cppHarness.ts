@@ -137,7 +137,11 @@ function literal(type: string, value: Value): string {
 function declare(type: string, name: string, value: Value): string {
   const t = bare(type);
   if (t.endsWith('[]')) return `${t.slice(0, -2)} ${name}[] = ${literal(t, value)};`;
-  if (value && typeof value === 'object' && !Array.isArray(value)) return `${t} ${name} = ${literal(t, value)};`;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    // A Reader is made from a vector variable: StepViz's C++ can't pass {...} straight to a constructor.
+    if ('$reader' in value) return `vector<int> ${name}Data = ${literal('vector<int>', (value as Record<string, Value>).$reader)};\n    ${t} ${name}(${name}Data);`;
+    return `${t} ${name} = ${literal(t, value)};`;
+  }
   return `${t} ${name} = ${literal(t, value)};`;
 }
 

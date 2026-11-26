@@ -1232,10 +1232,23 @@ function declaratorInfo(d: Node): DeclaratorInfo {
   if (node.type === 'field_identifier' && node.parent?.type === 'field_declaration') {
     return { name: `${ownerOf(node)}::${node.text}`, value: node.parent.childForFieldName('default_value'), arraySize: undefined, reference, pointer: false, moreSizes: [] };
   }
+  // Dog d(name); inside a function: tree-sitter reads it as a function declaration (C++'s "most vexing
+  // parse"), but when every name in the brackets is a variable, not a type, C++ makes an object with them.
+  if (node.type === 'function_declarator' && d.parent?.parent?.type === 'compound_statement' && node.childForFieldName('declarator')?.type === 'identifier') {
+    const params = node.childForFieldName('parameters')!;
+    const plain = named(params).every((p) => {
+      const t = p.childForFieldName('type');
+      return p.type === 'parameter_declaration' && !p.childForFieldName('declarator') && named(p).length === 1 && t?.type === 'type_identifier' && !structs.has(t.text);
+    });
+    if (plain && named(params).length) return { name: node.childForFieldName('declarator')!.text, value: params, arraySize: undefined, reference, pointer, moreSizes: [] };
+  }
   if (node.type !== 'identifier') throw unsupported(node, 'this kind of declaration');
   const arraySize = sizes.length ? sizes[0] : undefined;
   return { name: node.text, value, arraySize, reference, pointer, moreSizes: sizes.slice(1) };
 }
+
+/** Dog d(1, 2) or Dog d(name): the brackets after a name (see declaratorInfo for the second form). */
+const isArgs = (n: Node | null | undefined) => n?.type === 'argument_list' || n?.type === 'parameter_list';
 
 const declarators = (s: Node) => s.childrenForFieldName('declarator').filter((d): d is Node => !!d);
 
@@ -1962,7 +1975,7 @@ class Interp {
       if (type.t === 'vector') {
         // vector<int> v(5, 0);  vector<vector<int>> g(3, vector<int>(4, 0));
         if (type.coll && info.value) throw unsupported(d, `giving a ${type.coll === 'stack' ? 'stack' : type.coll === 'queue' ? 'queue' : 'priority_queue'} values here (use push)`);
-        const items = !info.value ? [] : info.value.type === 'argument_list' ? this.vectorSized(named(info.value), type.elem!, d) : this.vectorFrom(info.value, type.elem!);
+        const items = !info.value ? [] : isArgs(info.value) ? this.vectorSized(named(info.value), type.elem!, d) : this.vectorFrom(info.value, type.elem!);
         binding.cell.v = { t: 'vector', elem: type.elem, v: items, coll: type.coll };
         continue;
       }
@@ -1989,12 +2002,14 @@ class Interp {
         const st = structs.get(type.cls!)!;
         // Point p;  Point p = {1, 2};  Point p{1, 2};  Dog d("Rex", 3);  Dog d = Dog("Rex", 3);  Point q = p; (a copy)
         if (!info.value) binding.cell.v = isGlobal && !st.ctors.length ? this.structFromValues(st, [], d) : this.construct(d, st, []);
-        else if (info.value.type === 'argument_list') binding.cell.v = this.construct(d, st, named(info.value));
+        else if (isArgs(info.value)) binding.cell.v = this.construct(d, st, named(info.value));
         else binding.cell.v = this.structFrom(info.value, st, info.name);
         continue;
       }
       if (info.value) {
-        const value = info.value.type === 'initializer_list' ? this.eval(named(info.value)[0]) : this.eval(info.value);
+        // int x = 5;  int x{5};  int x(5);  int x(k);
+        if (isArgs(info.value) && named(info.value).length !== 1) throw unsupported(d, 'this kind of declaration');
+        const value = info.value.type === 'initializer_list' || isArgs(info.value) ? this.eval(named(info.value)[0]) : this.eval(info.value);
         if (type.t === 'auto') binding.cell = { t: value.t, elem: value.elem, v: this.copy(value) };
         else binding.cell.v = this.convert(value, binding.cell, d, info.name);
       } else if (type.t === 'string') binding.cell.v = strv('');
@@ -2168,7 +2183,11 @@ class Interp {
   /** vector<int> v(n) / v(n, value): n items (copies of value, or empty ones). */
   private vectorSized(args: Node[], elem: Prim, at: Node): CVal[] {
     if (args.length === 0 || args.length > 2) throw unsupported(at, 'this kind of vector');
-    const n = this.num(this.eval(args[0]));
+    const first = this.eval(args[0]);
+    // vector<int> b(a): a copy of another vector.
+    if (args.length === 1 && first.t === 'vector') return (first.v as CVal[]).map((x) => this.copy(x));
+    if (!NUMERIC.has(first.t)) throw new CompileError(lineOf(at), 'A vector made with (...) needs a size, like vector<int> v(5), or another vector to copy.');
+    const n = this.num(first);
     if (n < 0) throw new CppCrash('IndexOutOfRange', `a vector can't have ${n} items`);
     const fill = args[1] ? this.convert(this.eval(args[1]), this.itemType(elem), args[1], 'the vector') : this.emptyItem(elem);
     return Array.from({ length: n }, () => this.copy(fill));
@@ -3440,6 +3459,9 @@ class Interp {
       case 'identifier':
       case 'qualified_identifier':
         return this.readVar(n);
+      case 'parameter_declaration':
+        // Dog d(name): the name in the brackets is read as a variable (see declaratorInfo).
+        return this.readVar(n.childForFieldName('type')!);
       case 'parenthesized_expression':
         return this.eval(named(n)[0]);
       case 'binary_expression':
@@ -4037,7 +4059,7 @@ class Interp {
 
   /** A pair from {1, "a"}, (1, "a"), make_pair(1, "a") or another pair. */
   private pairFrom(n: Node, type: DeclType, at: Node, name: string): CVal {
-    if (n.type === 'initializer_list' || n.type === 'argument_list') return this.pairFromValues(named(n), type, at, name);
+    if (n.type === 'initializer_list' || isArgs(n)) return this.pairFromValues(named(n), type, at, name);
     return this.convert(this.eval(n), type, at, name);
   }
   private pairFromValues(parts: Node[], type: DeclType, at: Node, name: string): CVal {

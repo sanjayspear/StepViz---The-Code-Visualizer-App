@@ -6,8 +6,10 @@ import { SOLUTIONS as HASH_MAPS_SETS } from './hash-maps-sets.solutions';
 import { SOLUTIONS as TWO_POINTERS } from './two-pointers.solutions';
 import { SOLUTIONS as SLIDING_WINDOW } from './sliding-window.solutions';
 import { SOLUTIONS as STACKS_QUEUES } from './stacks-queues.solutions';
+import { SOLUTIONS as BINARY_SEARCH } from './binary-search.solutions';
 
 export const CPP_SOLUTIONS_BY_TOPIC: Record<string, Record<number, string>> = {
+  'binary-search': BINARY_SEARCH,
   'stacks-queues': STACKS_QUEUES,
   'sliding-window': SLIDING_WINDOW,
   'two-pointers': TWO_POINTERS,
