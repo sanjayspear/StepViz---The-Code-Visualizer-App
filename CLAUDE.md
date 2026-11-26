@@ -431,6 +431,40 @@ Playwright tests. Static build for GitHub Pages.
   tests/practice/js/<topic>.solutions.ts. Linked list / tree starters carry a
   JavaScript ListNode / TreeNode with build / toList / buildTree helpers. Run
   tests and Visualize my code follow the language picker.
+  P2 (C++): done for all 320 questions. src/practice/cppHarness.ts runs in the
+  C++ worker (message 'check', with the dialect, so C can use it too): the
+  answer's main() is renamed and a generated main() is added at the end of
+  the file; arguments are written from the answer's own parameter types
+  (vector<int>&, vector<vector<char>>, string...), lists / trees / random
+  lists / graphs are built node by node (ListNode* n0 = new ListNode(1);
+  n0->next = n1;) and read back by following pointers (shared nodes stay
+  shared); answers are kept in globals. Content in src/practice/content/cpp/
+  (cppStarter, PRINT_INTS / printLists helpers in main), reference solutions
+  in tests/practice/cpp/, tests/practice-cpp.spec.ts (also runs every
+  starter's main()). fromPython takes a null part for a question a language
+  leaves out (CPP_LATER, empty now). C++-only differences: Q1 is swapValues;
+  Q68 is unionOf (union is a C++ word); Q216's method is remove (delete is a
+  C++ word); Q57 / Q30-31 give -1 / "" for Python's None; Q214 uses Java's
+  easier sudoku boards; Q232 copies by interleaving and Q266 keeps copies in
+  a vector<Node*> by value (no maps with pointer keys); the no-loop recursion
+  questions carry no print helpers. Interpreter fixes found on the way (each
+  with a test): vector == / < compare item by item (== was always false);
+  sorting a vector<vector<int>>; stack / queue members of a class; string
+  front() / back(); Dog d(n) / vector<int> v(n) / int x(k) / vector<bool>
+  v(n, false) with variables (tree-sitter reads them as function
+  declarations); vector<int> b(a) copies; LLONG_MAX / LLONG_MIN; return {i,
+  j} and vector<int>{a, b}; linked structures: ListNode* next members (a
+  struct may name itself; one holding a whole copy of itself stays on Home),
+  functions and methods giving back pointers; inside an object a pointer to
+  another object shows as points to ListNode {…} (like Java's Node {…}; this
+  also fixed a hang on cyclic graphs through vector<Node*> members); the
+  explainer tells member changes in objects made with new from the trace's
+  detail.member ("head->next now points to the same ListNode as prev." / "...
+  is set to nullptr: it points to nothing now." / "The new ListNode {val: 2,
+  next: nullptr} is linked in: ..." / "head->val changes from 3 to 30.").
+  Still unsupported: vector<int> v(g[1]) / v(f()) (other parse forms), {...}
+  passed straight to a function or constructor, maps with pointer keys,
+  queue<T*>, deque, templates, the comma operator.
   P2 (Python): done for all 320 questions, all 14 topics (owner on
   2026-11-26: "do for remaining all ... questions"; no per-topic stops). Content in
   src/practice/content/python/<topic>.ts (example, starter, tests, hint ending
@@ -774,7 +808,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`); C6 C++ libstdc++ sort, lambdas, algorithms, stack/queue/priority_queue (`tests/algorithms-cpp.spec.ts`); C7 C++ pair, unordered_map, unordered_set (`tests/containers-cpp.spec.ts`); D1 checked against real javac / clang (`tests/golden/`, `tests/golden-java-cpp.spec.ts`, `scripts/golden-refresh.sh`); D3 JavaScript against node, console.log like node (`tests/golden/js`, `tests/inspect-jstracer.spec.ts`); Practice P1a: questions.json from the PDF (`scripts/build-questions.mjs`, `tests/practice-questions.spec.ts`); Practice P1b screens (`tests/practice-app.spec.ts`, pushed); Practice P2 Python for all 320 questions (`tests/practice-python.spec.ts`, 338 checks; full suite 667 tests pass; not pushed). Harness features for the later topics: linked lists / trees / random lists / graphs as markers, $ops for classes, output / gray / peak / topo / inorder / balanced / negfirst shape checks, copy, then (serialize), returns index / value, intersect setup. Expected answers for "all the ways" questions, sudoku and tricky DP values came from an independent brute force. Next: the owner's review and push; then P3 walkthroughs (easy questions first) or other languages.
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`); C6 C++ libstdc++ sort, lambdas, algorithms, stack/queue/priority_queue (`tests/algorithms-cpp.spec.ts`); C7 C++ pair, unordered_map, unordered_set (`tests/containers-cpp.spec.ts`); D1 checked against real javac / clang (`tests/golden/`, `tests/golden-java-cpp.spec.ts`, `scripts/golden-refresh.sh`); D3 JavaScript against node, console.log like node (`tests/golden/js`, `tests/inspect-jstracer.spec.ts`); Practice P1a: questions.json from the PDF (`scripts/build-questions.mjs`, `tests/practice-questions.spec.ts`); Practice P1b screens (`tests/practice-app.spec.ts`, pushed); Practice P2 Python for all 320 questions (`tests/practice-python.spec.ts`, pushed in 88c313d); P2 JavaScript (`tests/practice-js.spec.ts`) and P2 Java (`tests/practice-java.spec.ts`) for all 320; P2 C++ for all 320 (`tests/practice-cpp.spec.ts`, `tests/lists-cpp.spec.ts`; full suite 1684 tests pass; JavaScript, Java and C++ not pushed). Harness features for the later topics: linked lists / trees / random lists / graphs as markers, $ops for classes, output / gray / peak / topo / inorder / balanced / negfirst shape checks, copy, then (serialize), returns index / value, intersect setup. Expected answers for "all the ways" questions, sudoku and tricky DP values came from an independent brute force. Next: P2 C (the questions that fit C: numbers, arrays, text; the rest show "C (coming soon)"), then P3 worked answers (owner, 2026-11-26: "1st complete practice content for all programs then we go with full worked answers").
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.
