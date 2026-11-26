@@ -3,6 +3,9 @@ import type { CodeLanguage } from '../../examples';
 import type { PracticeContent } from './types';
 import { BASICS_MATH } from './python/basics-math';
 import { STRINGS } from './python/strings';
+import { LINKED_LISTS } from './python/linked-lists';
+import { RECURSION_BACKTRACKING } from './python/recursion-backtracking';
+import { BINARY_SEARCH } from './python/binary-search';
 import { STACKS_QUEUES } from './python/stacks-queues';
 import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
@@ -18,6 +21,9 @@ export const PYTHON_TOPICS: Record<string, PracticeContent[]> = {
   'two-pointers': TWO_POINTERS,
   'sliding-window': SLIDING_WINDOW,
   'stacks-queues': STACKS_QUEUES,
+  'binary-search': BINARY_SEARCH,
+  'recursion-backtracking': RECURSION_BACKTRACKING,
+  'linked-lists': LINKED_LISTS,
 };
 
 const BY_LANGUAGE: Partial<Record<CodeLanguage, Map<number, PracticeContent>>> = {
