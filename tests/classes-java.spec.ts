@@ -159,7 +159,7 @@ test('class rules Java checks before running stay on Home', () => {
   const main = (cls: string, body = '        int x = 1;') => `${cls}\npublic class Main {\n    public static void main(String[] args) {\n${body}\n    }\n}`;
   expect(msg(main('public class Dog {\n}'))).toBe('Line 1: Only one class in a file can be public: remove public from class Dog.');
   expect(msg(main('class Dog extends Animal {\n}'))).toBe("Line 1: StepViz can't run extending Animal in Java yet.");
-  expect(msg(main('class Dog {\n    static int count;\n}'))).toBe("Line 2: StepViz can't run static variables in Java yet.");
+  expect(msg(main('class Dog {\n    static {\n    }\n}'))).toMatch(/^Line 2: StepViz can't run /);
   expect(msg(main('class Dog {\n    Dog(int a) {\n    }\n}', '        Dog d = new Dog();'))).toBe('Line 7: Dog has no constructor that takes no values.');
   expect(msg(main('class Dog {\n    int age;\n    static int get() {\n        return age;\n    }\n}', '        int a = Dog.get();'))).toBe(
     "Line 4: age belongs to each Dog object, so a static method can't use it on its own.",

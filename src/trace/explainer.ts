@@ -339,7 +339,7 @@ interface Facts {
 
 /** The same frame on the previous step (by position), if it is the same call. */
 function prevFrameOf(f: Facts): TraceFrame | undefined {
-  const i = f.step.frames.length - 1;
+  const i = f.step.frames.indexOf(f.top);
   const p = f.prev?.frames[i];
   return p && p.name === f.top.name ? p : undefined;
 }
@@ -461,7 +461,7 @@ function whatVariants(sub: SubKind, f: Facts): string[] {
           ? [`We make a new ${made[1]} object. ${callee} starts in a new box with ${args}.`, `A new ${made[1]} object is being made: ${callee} gets its own box with ${args}.`]
           : [`We make a new ${made[1]} object. ${callee} starts in a new box of its own.`];
       }
-      if (!caller || caller === 'Global' || caller.startsWith('main(')) {
+      if (!caller || caller === 'Global' || caller === 'static' || caller.startsWith('main(')) {
         return args
           ? [`We call ${callee}. A new box, called a frame, opens with ${args}.`, `${callee} starts in a new box with ${args}.`]
           : [`We call ${callee}. A new box, called a frame, opens on top.`, `${callee} starts in a new box of its own.`];
@@ -779,7 +779,10 @@ export function explainTrace(trace: Trace): TraceStep['explain'][] {
     let sub: SubKind = 'other';
     let variants: string[] = [];
     if (kind === 'assign') {
-      const a = assignment(f);
+      // A global (C++) or static (Java) variable changed inside a function: it lives in the bottom frame.
+      const bottom = step.frames[0];
+      const inBottom = step.frames.length > 1 && (step.detail?.targets ?? []).some((t) => !(t in f.top.vars) && t in bottom.vars);
+      const a = assignment(f) ?? (inBottom ? assignment({ ...f, top: bottom }) : null);
       if (a) ({ sub, variants } = a);
     } else if (kind === 'return') {
       const value = (f.top.returns ?? '').replace(/^returns /, '');

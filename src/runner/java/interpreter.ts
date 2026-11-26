@@ -493,6 +493,10 @@ export interface ClassInfo {
   interfaces?: string[];
   /** methods an interface (or abstract class) only promises: no body */
   promises?: Set<string>;
+  /** static int count = 0;  (shown in the "static" frame as count for Main, Dog.count for others) */
+  statics?: { name: string; type: DeclType; init: Node | null; declarator: Node; isPrivate: boolean; isFinal: boolean; shown: string }[];
+  /** a static class written inside Main (it can use Main's statics by name) */
+  insideMain?: boolean;
 }
 
 /** Comparable<T>: Java's own interface; Collections.sort calls its compareTo. */
@@ -646,7 +650,7 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
     }
     if (c === mainClass && implemented.length) throw unsupported(c, 'Main implementing an interface');
     if (c.childForFieldName('type_parameters')) throw unsupported(c, 'generic classes');
-    const info: ClassInfo = { name, node: c, fields: [], constructors: [], methods: new Map(), parent, isAbstract: /\babstract\b/.test(modifiersOf(c)), interfaces: implemented };
+    const info: ClassInfo = { name, node: c, fields: [], constructors: [], methods: new Map(), parent, isAbstract: /\babstract\b/.test(modifiersOf(c)), interfaces: implemented, statics: [], insideMain: c.parent?.parent?.id === mainClass.id };
     for (const member of named(c.childForFieldName('body'))) {
       if (member.type === 'class_declaration') {
         if (c === mainClass) continue; // handled above
@@ -669,8 +673,19 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
         info.constructors.push(member);
         continue;
       }
+      if (member.type === 'field_declaration' && isStaticMember(member)) {
+        // static int count = 0;  static final int MAX = 10;
+        const isFinal = /\bfinal\b/.test(member.namedChildren.find((x) => x?.type === 'modifiers')?.text ?? '');
+        for (const d of member.childrenForFieldName('declarator')) {
+          if (!d) continue;
+          const fname = d.childForFieldName('name')!.text;
+          if (isFinal && !d.childForFieldName('value')) throw new CompileError(lineOf(d), `${fname} is final, so it needs a value here (final ... ${fname} = ...;).`);
+          info.statics!.push({ name: fname, type: declType(member.childForFieldName('type'), d), init: d.childForFieldName('value'), declarator: d, isPrivate: isPrivateMember(member), isFinal, shown: c === mainClass ? fname : `${name}.${fname}` });
+        }
+        continue;
+      }
+      if (member.type === 'field_declaration' && c === mainClass) throw unsupported(member, 'fields in Main that are not static (write static before them)');
       if (member.type === 'field_declaration' && c !== mainClass) {
-        if (isStaticMember(member)) throw unsupported(member, 'static variables');
         for (const d of member.childrenForFieldName('declarator')) {
           if (!d) continue;
           info.fields.push({ name: d.childForFieldName('name')!.text, type: declType(member.childForFieldName('type'), d), init: d.childForFieldName('value'), declarator: d, isPrivate: isPrivateMember(member) });
@@ -1217,6 +1232,43 @@ class Interp {
   private currentClass = 'Main';
   /** The object a constructor is making (a return in a constructor gives it back). */
   private making: JVal | null = null;
+  /** Static variables by the name the static frame shows (count, Dog.total). */
+  private statics = new Map<string, Cell & { owner: string; info: NonNullable<ClassInfo['statics']>[number] }>();
+
+  /** count / total used by name: a static of this class (or the classes above), or of Main for a class inside Main. */
+  private staticCell(name: string): (Cell & { owner: string; info: NonNullable<ClassInfo['statics']>[number] }) | undefined {
+    for (let c = this.classes.get(this.currentClass); c; c = c.parent ? this.classes.get(c.parent) : undefined) {
+      const st = c.statics?.find((x) => x.name === name);
+      if (st) return this.statics.get(st.shown);
+    }
+    const here = this.classes.get(this.currentClass);
+    if (this.currentClass === 'Main' || here?.insideMain) {
+      const st = this.classes.get('Main')!.statics?.find((x) => x.name === name);
+      if (st) return this.statics.get(st.shown);
+    }
+    return undefined;
+  }
+
+  /** Dog.total: a static of the class Dog (checked like Java: it exists, and is not private to Dog). */
+  private qualifiedStatic(n: Node): (Cell & { owner: string; info: NonNullable<ClassInfo['statics']>[number] }) | undefined {
+    const object = n.childForFieldName('object');
+    if (object?.type !== 'identifier' || !this.classes.has(object.text) || this.scope.lookup(object.text)) return undefined;
+    const field = n.childForFieldName('field')!.text;
+    for (let c = this.classes.get(object.text); c; c = c.parent ? this.classes.get(c.parent) : undefined) {
+      const st = c.statics?.find((x) => x.name === field);
+      if (!st) continue;
+      if (st.isPrivate && this.currentClass !== c.name) throw new CompileError(lineOf(n), `${field} is private in ${c.name}, so only code inside ${c.name} can use it.`);
+      return this.statics.get(st.shown);
+    }
+    throw new CompileError(lineOf(n), `${object.text} has no static variable called ${field}.`);
+  }
+
+  /** count = 5 / Dog.total++: a final static can't get a new value after it is set. */
+  private setStatic(cell: Cell & { info: { isFinal: boolean; name: string } }, value: JVal, at: Node): JVal {
+    if (cell.info.isFinal) throw new CompileError(lineOf(at), `${cell.info.name} is final, so it can't be given a new value.`);
+    cell.v = this.coerce(value, cell, at, cell.info.name);
+    return cell.v;
+  }
 
   constructor(
     private classes: Map<string, ClassInfo>,
@@ -1224,7 +1276,13 @@ class Interp {
     opts: RunOptions & { input?: string },
   ) {
     this.input = new Input(opts.input ?? '', (message) => new JavaException('NoSuchElementException', message));
-    this.rt = new Recorder(this.nameSets, plan, { ...opts, rootLabel: 'main()', format: formatJava });
+    // Static variables live in a "static" frame under main() (like C++ globals in "Global").
+    const order = [classes.get('Main')!, ...[...classes.values()].filter((c) => c.name !== 'Main')];
+    for (const c of order) {
+      // A static written with a value shows ? until its line sets it; one without starts at 0 / null / false.
+      for (const st of c.statics ?? []) this.statics.set(st.shown, { ...st.type, v: st.init ? UNSET : this.defaultOf(st.type), owner: c.name, info: st });
+    }
+    this.rt = new Recorder(this.nameSets, plan, { ...opts, rootLabel: this.statics.size ? 'static' : 'main()', format: formatJava });
     objectToText = (v) => this.objectToString(v);
   }
 
@@ -1288,8 +1346,46 @@ class Interp {
   // ---- program ----------------------------------------------------------------
 
   runMain(main: Node) {
+    if (!this.statics.size) {
+      this.scope = new Scope(null);
+      this.execBody(main.childForFieldName('body')!);
+      this.rt.finish();
+      return;
+    }
+    // The static frame: each static's value is set (a step for each one written with a value), then main() starts on top.
+    const staticScope = new Scope(null);
+    for (const [shown, cell] of this.statics) staticScope.vars.set(shown, cell);
+    this.scope = staticScope;
+    const names = staticScope.names();
+    const root = this.rt.stack[0] as unknown as { names: string[]; getters: Getter[] };
+    root.names = this.nameSets[this.namesId(names)];
+    root.getters = this.getters(names);
+    for (const cell of this.statics.values()) {
+      const st = cell.info;
+      if (!st.init) continue;
+      this.currentClass = cell.owner;
+      this.hook(lineOf(st.declarator), { k: 'assign', t: [st.shown] });
+      const value = st.init.type === 'array_initializer' ? this.arrayFrom(st.init, st.type.elem ?? 'int') : this.eval(st.init);
+      cell.v = this.coerce(value, cell, st.declarator, st.name);
+    }
+    this.currentClass = 'Main';
+    this.rt.hooks.f(); // the last static's value is set
+    this.rt.stack[0].pending = lineOf(main);
     this.scope = new Scope(null);
-    this.execBody(main.childForFieldName('body')!);
+    this.rt.hooks.enter('main', this.namesId([]), [], 0);
+    try {
+      this.execBody(main.childForFieldName('body')!);
+    } catch (e) {
+      if (!(e instanceof ReturnSignal)) {
+        this.rt.hooks.thrown(e);
+        throw e;
+      }
+    }
+    // main's last line is a step of its own; main itself has no return step (as without statics).
+    this.rt.hooks.f();
+    (this.rt.stack[this.rt.stack.length - 1] as unknown as { returned: boolean }).returned = true;
+    this.rt.hooks.leave();
+    this.rt.stack[0].pending = null;
     this.rt.finish();
   }
 
@@ -1308,11 +1404,20 @@ class Interp {
   // ---- statements ---------------------------------------------------------------
 
   private targetName(n: Node): string {
+    // Dog.total = 5: the static Dog.total (shown in the static frame).
+    if (n.type === 'field_access' && n.childForFieldName('object')?.type === 'identifier' && this.classes.has(n.childForFieldName('object')!.text) && !this.scope.lookup(n.childForFieldName('object')!.text)) {
+      const st = this.qualifiedStatic(n);
+      if (st) return st.info.shown;
+    }
     // this.name = ... / rex.age = ...: the object changes. name = ... inside a method, for a field: this changes.
     if (n.type === 'field_access') {
       let o = n;
       while (o.type === 'field_access') o = o.childForFieldName('object')!;
       return o.type === 'this' ? 'this' : o.text;
+    }
+    if (n.type === 'identifier' && !this.scope.lookup(n.text) && !this.implicitFieldExists(n.text)) {
+      const st = this.staticCell(n.text);
+      if (st) return st.info.shown; // a static: shown in the static frame
     }
     if (n.type === 'identifier' && !this.scope.lookup(n.text) && this.scope.lookup('this')) return 'this';
     // g[1][2] = 9: the table g changes.
@@ -1903,6 +2008,11 @@ class Interp {
     return cell;
   }
 
+  private implicitFieldExists(name: string): boolean {
+    const self = this.scope.lookup('this')?.v;
+    return !!self && typeof self !== 'symbol' && self.v !== null && (self.v as JObject).fields.has(name);
+  }
+
   /** A name that is not a variable: a field of this object (name instead of this.name). */
   private implicitField(id: Node) {
     const self = this.scope.lookup('this')?.v;
@@ -2104,6 +2214,8 @@ class Interp {
 
   private assignTo(target: Node, value: JVal): JVal {
     if (target.type === 'field_access') {
+      const st = this.qualifiedStatic(target);
+      if (st) return this.setStatic(st, value, target);
       const obj = this.eval(target.childForFieldName('object')!);
       if (obj.t !== 'object') throw unsupported(target, 'this kind of assignment');
       const cell = this.fieldOf(target, obj);
@@ -2116,6 +2228,8 @@ class Interp {
       return array[index];
     }
     if (target.type !== 'identifier') throw unsupported(target, 'this kind of assignment');
+    const st = this.scope.lookup(target.text) ? undefined : this.staticCell(target.text);
+    if (st && !this.implicitFieldExists(target.text)) return this.setStatic(st, value, target);
     const cell = this.scope.lookup(target.text) ?? this.implicitField(target);
     if (!cell) throw new CompileError(lineOf(target), `${target.text} is used but never declared.`);
     cell.v = this.coerce(value, cell, target, target.text);
@@ -2123,7 +2237,7 @@ class Interp {
   }
 
   private read(id: Node): JVal {
-    const cell = this.scope.lookup(id.text) ?? this.implicitField(id);
+    const cell = this.scope.lookup(id.text) ?? this.implicitField(id) ?? this.staticCell(id.text);
     if (!cell) throw new CompileError(lineOf(id), `${id.text} is used but never declared.`);
     if (typeof cell.v === 'symbol') throw new CompileError(lineOf(id), `${id.text} is used before it was given a value.`);
     return cell.v;
@@ -2302,6 +2416,8 @@ class Interp {
         const object = n.childForFieldName('object')!;
         const field = n.childForFieldName('field')!.text;
         if (object.text === 'Integer' && (field === 'MAX_VALUE' || field === 'MIN_VALUE')) return int(field === 'MAX_VALUE' ? 2147483647 : -2147483648);
+        const st = this.qualifiedStatic(n);
+        if (st) return st.v as JVal;
         const value = this.eval(object);
         if (value.t === 'object') {
           const cell = this.fieldOf(n, value);

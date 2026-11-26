@@ -59,7 +59,8 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      HashMap/TreeMap/LinkedHashMap (done), P2 C/C++ pointer arithmetic + new/delete
      (done), K2 Java inheritance (done), C5 C++ inheritance (done). That list is
      finished. Then (2026-11-26, my order): try-line step removed in Python/JS
-     (done), I1 Java interfaces + Comparable (done), S2 sets (done).
+     (done), I1 Java interfaces + Comparable (done), S2 sets (done), ST1 Java
+     static variables and constants (done).
 
 Phase 1 covers:
 
@@ -314,6 +315,19 @@ Playwright tests. Static build for GitHub Pages.
   write class P implements Comparable<P> with a compareTo method." Unsupported:
   constants in interfaces, generic interfaces of the program, lambdas,
   Comparator, TreeMap/TreeSet with object keys.
+- Java statics (ST1): static variables and constants of any class (static int
+  count; static final int MAX = 3;) live in a bottom frame "static" (Main's by
+  name, others as Dog.total), under main() like C++'s "Global"; a static written
+  with a value shows ? until its line sets it (a step each, before main()
+  starts); programs without statics keep main() at the bottom. Used by name in
+  their class (and in classes inside Main for Main's), or as Dog.total. main()
+  has no return step. Changes to a bottom-frame variable from any frame now read
+  like other changes (also C++ globals changed inside functions). Rules: "MAX is
+  final, so it can't be given a new value."; "MAX is final, so it needs a value
+  here (final ... MAX = ...;)."; private statics; "fields in Main that are not
+  static (write static before them)" stays unsupported. Unsupported: static {
+  } blocks; statics of other classes are set before main() starts (Java sets them
+  on first use; only visible if their value line prints something).
 - Sets (S2): Java HashSet (printed in Java's HashMap order), TreeSet (sorted,
   first/last), LinkedHashSet (as added); Set<T> as the box type; add (true if it
   was new), remove, contains, size, isEmpty, clear, addAll / removeAll /
@@ -444,7 +458,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`; 201 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`; 203 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.
