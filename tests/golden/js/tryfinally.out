@@ -1,0 +1,8 @@
+finally runs
+try
+body 0
+fin 0
+fin 1
+fin 2
+true TypeError
+boom

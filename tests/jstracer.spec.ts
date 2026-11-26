@@ -75,7 +75,7 @@ test('bubble sort: list view, compared positions, swaps shown before they run', 
   ]);
   expect(r.steps[r.steps.indexOf(swaps[0]) + 1].list!.values).toEqual(['2', '5', '8', '1']);
   expect(r.steps.find((s) => s.line === 4)!.list!.compare).toEqual([0, 1]);
-  expect(r.steps.at(-1)!.output).toBe('[1, 2, 5, 8]\n');
+  expect(r.steps.at(-1)!.output).toBe('[ 1, 2, 5, 8 ]\n'); // like node prints it
   expect(runJs(js('factorial'), opts).listView).toBeUndefined();
 });
 
@@ -123,7 +123,7 @@ test('syntax errors and import() come back as friendly messages with a line numb
   });
 });
 
-test('values are shown as short text; console.log prints like a beginner expects', () => {
+test('values are shown as short text; console.log prints exactly like Node', () => {
   const r = runJs(
     'const s = "hi";\nconst o = { a: 1, b: [1, 2] };\nconst long = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz";\nconsole.log(s, o, 3, [1, "x"]);',
     opts,
@@ -133,7 +133,7 @@ test('values are shown as short text; console.log prints like a beginner expects
   expect(vars.o).toBe('{a: 1, b: [1, 2]}');
   expect(vars.long.length).toBe(40);
   expect(vars.long.endsWith('…')).toBe(true);
-  expect(r.steps.at(-1)!.output).toBe('hi {a: 1, b: [1, 2]} 3 [1, "x"]\n');
+  expect(r.steps.at(-1)!.output).toBe("hi { a: 1, b: [ 1, 2 ] } 3 [ 1, 'x' ]\n");
 });
 
 test('pasted code cannot reach the network, globals or the Function constructor', () => {

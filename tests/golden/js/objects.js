@@ -1,0 +1,10 @@
+const o = { a: 1, b: [1, 2], c: { d: "x" } };
+console.log(o);
+console.log([1, "two", null, undefined, true, { k: 1 }]);
+console.log(JSON.stringify(o), Object.keys(o), Object.entries({ p: 1, q: 2 }));
+const m = new Map([["x", 1]]);
+m.set("y", 2);
+const st = new Set([1, 2, 2, 3]);
+console.log(m.get("y"), m.size, st.size, [...st], st.has(2));
+for (const k in { a: 1, b: 2 }) console.log(k);
+for (const [k, v] of m) console.log(k, v);

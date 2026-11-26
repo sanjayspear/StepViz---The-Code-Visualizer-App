@@ -377,6 +377,18 @@ Playwright tests. Static build for GitHub Pages.
   right (setw for the next value only), noboolalpha, char(66) / int(x) /
   double(x), a + 2 and q < a + 5 with an array a, {new Circle(1.5), ...} into a
   vector<Shape*>.
+  D3 (JavaScript against node 24): the traced program behaves like node in
+  every case checked (closures, this, classes, getters, try/finally, labels,
+  destructuring, side effects). console.log now prints exactly like node
+  (src/runner/js/inspect.ts, a port of util.inspect / util.format, checked
+  against node's own in tests/inspect-jstracer.spec.ts): [ 1, 2, 5, 8 ], { a:
+  1, b: [ 1, 2 ] }, [ 1, 'x' ], Map(1) { 'x' => 1 }, long arrays in columns,
+  [Object] below depth 2, %s %d %i %f %j %O %%. This replaces the earlier
+  "like a beginner expects" form ([1, "x"]); frames keep their short form.
+  Known differences on purpose: console.log of an Error prints only "Error:
+  boom" (node adds the stack trace); top-level `this` is undefined (strict
+  code, like a browser module; node's CommonJS gives {}). tests/golden/js holds
+  the programs with node's output.
 - C++ pair and unordered containers (C7, 2026-11-26): pair<A, B> (= {1, "a"},
   p(1, "a"), make_pair, p.first / p.second, vector<pair<...>> with {..},
   push_back({..}), emplace_back(a, b)); shown like map entries: pair {first:
@@ -654,7 +666,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`); C6 C++ libstdc++ sort, lambdas, algorithms, stack/queue/priority_queue (`tests/algorithms-cpp.spec.ts`); C7 C++ pair, unordered_map, unordered_set (`tests/containers-cpp.spec.ts`); D1 checked against real javac / clang (`tests/golden/`, `tests/golden-java-cpp.spec.ts`, `scripts/golden-refresh.sh`; 301 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`); C6 C++ libstdc++ sort, lambdas, algorithms, stack/queue/priority_queue (`tests/algorithms-cpp.spec.ts`); C7 C++ pair, unordered_map, unordered_set (`tests/containers-cpp.spec.ts`); D1 checked against real javac / clang (`tests/golden/`, `tests/golden-java-cpp.spec.ts`, `scripts/golden-refresh.sh`); D3 JavaScript against node, console.log like node (`tests/golden/js`, `tests/inspect-jstracer.spec.ts`; 315 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

@@ -5,6 +5,7 @@
 // with the new frame "running"; a return shows the frame "returning"; a crash
 // ends with an "error" step in the frame where it happened; a swap is shown
 // before it runs. Pure TypeScript: runs in the worker and in Node tests.
+import { formatLog } from './js/inspect';
 import type { RawRunResult, RawStep } from './protocol';
 import type { ListView } from '../trace/types';
 import type { JsListPlan as ListPlan, StepInfo } from './js/instrument';
@@ -148,19 +149,13 @@ export function short(v: unknown): string {
   return text.length > MAX_REPR ? `${text.slice(0, MAX_REPR - 1)}…` : text;
 }
 
-/** console.log formatting: strings as they are, other values as short text. */
+/** console.log formatting: exactly like Node (util.format / util.inspect), see js/inspect.ts. */
 export function logText(args: unknown[]): string {
-  return args
-    .map((a) => {
-      if (typeof a === 'string') return a;
-      try {
-        const t = formatValue(a);
-        return t.length > 1000 ? `${t.slice(0, 999)}…` : t;
-      } catch {
-        return '?';
-      }
-    })
-    .join(' ');
+  try {
+    return formatLog(args);
+  } catch {
+    return args.map((a) => (typeof a === 'string' ? a : '?')).join(' ');
+  }
 }
 
 // --------------------------------------------------------------------------
