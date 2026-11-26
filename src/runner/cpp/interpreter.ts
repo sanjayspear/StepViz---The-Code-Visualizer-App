@@ -3008,6 +3008,13 @@ class Interp {
       const same = samePlace(a.v as PtrTarget | null, b.v as PtrTarget | null);
       return bool(op === '==' ? same : !same);
     }
+    if ((a.t === 'vector' || b.t === 'vector') && ['==', '!=', '<', '<=', '>', '>='].includes(op)) {
+      // Two vectors compare item by item (== needs every item equal; < works like a dictionary).
+      if (a.t !== 'vector' || b.t !== 'vector') throw new CompileError(lineOf(n), `${LANG_NAME()} can't compare a vector with ${formatCpp(a.t === 'vector' ? b : a)}.`);
+      const lt = this.lessThan(a, b, n);
+      const gt = this.lessThan(b, a, n);
+      return bool(op === '==' ? !lt && !gt : op === '!=' ? lt || gt : op === '<' ? lt : op === '<=' ? !gt : op === '>' ? gt : !lt);
+    }
     if (a.t === 'struct' && b.t === 'struct' && a.cls === 'pair' && b.cls === 'pair' && ['==', '!=', '<', '<=', '>', '>='].includes(op)) {
       // pairs compare first, then second.
       const lt = this.lessThan(a, b, n);
@@ -4079,6 +4086,15 @@ class Interp {
 
   /** a < b like C++: numbers, text by character codes, structs with the program's operator<. */
   private lessThan(a: CVal, b: CVal, at: Node): boolean {
+    if ((a.t === 'vector' || a.t === 'array') && (b.t === 'vector' || b.t === 'array')) {
+      // Vectors compare item by item, like words in a dictionary (a shorter one that matches so far comes first).
+      const [x, y] = [a.v as CVal[], b.v as CVal[]];
+      for (let i = 0; i < Math.min(x.length, y.length); i++) {
+        if (this.lessThan(x[i], y[i], at)) return true;
+        if (this.lessThan(y[i], x[i], at)) return false;
+      }
+      return x.length < y.length;
+    }
     if (a.cls === 'pair' && b.cls === 'pair' && a.t === 'struct' && b.t === 'struct') {
       // pair: first decides; when the firsts are equal, second decides (like C++).
       const [x, y] = [a.v as Map<string, CVal>, b.v as Map<string, CVal>];

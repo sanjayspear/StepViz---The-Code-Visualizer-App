@@ -71,3 +71,13 @@ test('unordered_map and unordered_set follow libstdc++ hash table: the order sho
   const e = explainTrace({ language: 'cpp', source: src, steps: r.steps.map((s) => ({ ...s, explain: { what: '', life: '' } })) });
   expect(e[r.steps.findIndex((s) => s.line === lineOf(3))].what).toMatch(/^(m gets a new key "banana" with the value 2|"banana" is added to m with the value 2)\.$/);
 });
+
+test('vectors compare item by item, like C++ (==, !=, <, and a shorter one that matches so far is smaller)', () => {
+  const r = run(`    vector<int> a = {1, 2};
+    vector<int> b = {1, 2};
+    vector<int> c = {1, 3};
+    vector<int> d = {1};
+    cout << (a == b) << (a == c) << (a != c) << (a < c) << (d < a) << (c > a) << endl;`);
+  expect(r.status).toBe('ok');
+  expect(r.steps.at(-1)!.output).toBe('101111\n');
+});
