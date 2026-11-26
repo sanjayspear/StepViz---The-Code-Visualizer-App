@@ -57,7 +57,7 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
    - Then, on the owner's "act like the senior developer and architect", my order:
      G1 tables (2-D arrays) in Java/C++/C and vector<vector<int>> (done), H1 Java
      HashMap/TreeMap/LinkedHashMap (done), P2 C/C++ pointer arithmetic + new/delete
-     (done), inheritance (Java and C++).
+     (done), K2 Java inheritance (done), C5 C++ inheritance.
 
 Phase 1 covers:
 
@@ -254,10 +254,30 @@ Playwright tests. Static build for GitHub Pages.
   public: remove public from class Dog."), private ("name is private in Dog, so
   only code inside Dog can use it."), fields in static methods ("age belongs to
   each Dog object, so a static method can't use it on its own."), constructors
-  ("Dog has no constructor that takes no values."). Unsupported: extends,
-  implements, static variables, inner (non-static) classes, generic classes,
-  anonymous classes, this(...)/super(...), Object (so equals(Object) can't be
-  written; == and the default equals compare objects, as in Java).
+  ("Dog has no constructor that takes no values."). Unsupported: implements
+  (interfaces), static variables, inner (non-static) classes, generic classes,
+  anonymous classes, this(...), Object (so equals(Object) can't be written; ==
+  and the default equals compare objects, as in Java).
+- Java inheritance (K2): extends (one class above another, any depth), fields
+  of all levels in the object text (top class first): Dog {name: "Rex", legs:
+  4, breed: "Lab"}. Constructors in Java's order: super(...) (or the hidden
+  super()) runs the class above in a frame "super("Rex")", then that class's
+  field values, then the rest. Overriding: the object's own class decides
+  (a.describe() on a Dog in an Animal box runs Dog's); calls without an object
+  inside a method do too; super.describe() runs the class above ("super.describe()"
+  frame). @Override, protected (like public: one file is one package), abstract
+  classes and methods. A variable's box type is checked like Java's compiler:
+  "a is an Animal box, and Animal has no field breed: cast it first, like ((Dog)
+  a).breed." (same for methods). instanceof Dog; casts (Dog) a: a wrong one is a
+  ClassCastException "class Dog cannot be cast to class Cat" ("This object can't
+  be treated as that class: it was made as a different one."); a Dog in an
+  Animal box prints as Dog@.... Rules: "Animal is abstract, so new Animal() is
+  not allowed: make one of the classes that extend it."; "secret is private in A,
+  so B can't use it (make it protected, or use a method of A)."; "Q must have its
+  own area() method, because S only promises it (abstract)."; "A has no
+  constructor that takes no values, so the constructor below it must start with
+  super(...)." Unsupported: interfaces, a field with the same name as one above,
+  instanceof Dog d (with a name), this(...).
 - C++/C structs (C4, my call under the owner's delegation): same object text as
   Java (p = Point {x: 1, y: 2}; a member with no value yet shows ?). C++ objects
   are values: Point b = a copies, references show "(same box as a)", for (auto& q
@@ -373,7 +393,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`; 188 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`; 191 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

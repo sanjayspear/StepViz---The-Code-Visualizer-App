@@ -29,6 +29,7 @@ const ERROR_SENTENCES: Record<string, string> = {
   NoSuchElementException: 'Your program asked for more input than you typed.',
   InputMismatchException: 'The input was not the kind of value the program expected.',
   NumberFormatException: 'This text is not a number.',
+  ClassCastException: "This object can't be treated as that class: it was made as a different one.",
   IndexOutOfBoundsException: 'This position is outside the list.',
   ConcurrentModificationException: 'The list was changed while a for-each loop was going through it.',
   IllegalArgumentException: "This value can't be used here.",

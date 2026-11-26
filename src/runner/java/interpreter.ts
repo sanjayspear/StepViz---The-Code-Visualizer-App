@@ -187,7 +187,8 @@ const typeName = (elem: Prim | undefined) => (elem ? WRAPPER_OF[elem] ?? elem : 
 let objectToText: (v: JVal) => string = (v) => defaultObjectText(v);
 function defaultObjectText(v: JVal): string {
   const hash = (0x1b6d3586 + Number(v.id ?? 0) * 0x9e37) >>> 0;
-  return `${v.cls}@${hash.toString(16)}`;
+  // The object's own class, even in an Animal box (Java prints Dog@...).
+  return `${(v.v as JObject | null)?.cls ?? v.cls}@${hash.toString(16)}`;
 }
 /** How an object shows in a frame: Dog {name: "Rex", age: 3} (an object inside it: Node {…}). */
 function objectFrameText(x: JVal, depth: number): string {
@@ -416,9 +417,6 @@ const FEATURES: Record<string, string> = {
   try_with_resources_statement: 'try with resources',
   lambda_expression: 'lambdas',
   method_reference: 'method references',
-  super: 'super',
-  explicit_constructor_invocation: 'this(...) and super(...)',
-  instanceof_expression: 'instanceof',
   labeled_statement: 'labels',
   synchronized_statement: 'synchronized',
   assert_statement: 'assert',
@@ -478,7 +476,33 @@ export interface ClassInfo {
   fields: { name: string; type: DeclType; init: Node | null; declarator: Node; isPrivate: boolean }[];
   constructors: Node[];
   methods: Map<string, Node>;
+  /** class Dog extends Animal: "Animal" */
+  parent: string | null;
+  isAbstract: boolean;
 }
+
+/** All classes of the program (set by checkSubset), for inheritance. */
+let classInfos = new Map<string, ClassInfo>();
+/** Is a Dog an Animal? (the same class, or a class further down) */
+function isSubclass(cls: string, ancestor: string): boolean {
+  for (let c: string | null = cls; c; c = classInfos.get(c)?.parent ?? null) if (c === ancestor) return true;
+  return false;
+}
+/** A method by name, in the class or the classes above it: the class that has it, and the method. */
+function findMethod(cls: string, name: string): { owner: ClassInfo; m: Node } | null {
+  for (let c = classInfos.get(cls); c; c = c.parent ? classInfos.get(c.parent) : undefined) {
+    const m = c.methods.get(name);
+    if (m) return { owner: c, m };
+  }
+  return null;
+}
+/** Fields of a class and the classes above it, the top class's first (the order Java builds them). */
+function allFields(cls: string): (ClassInfo['fields'][number] & { owner: string })[] {
+  const chain: ClassInfo[] = [];
+  for (let c = classInfos.get(cls); c; c = c.parent ? classInfos.get(c.parent) : undefined) chain.unshift(c);
+  return chain.flatMap((c) => c.fields.map((f) => ({ ...f, owner: c.name })));
+}
+const isAbstractMember = (m: Node) => /\babstract\b/.test(m.namedChildren.find((c) => c?.type === 'modifiers')?.text ?? '');
 
 const isStaticMember = (m: Node) => /\bstatic\b/.test(m.namedChildren.find((c) => c?.type === 'modifiers')?.text ?? '');
 const isPrivateMember = (m: Node) => /\bprivate\b/.test(m.namedChildren.find((c) => c?.type === 'modifiers')?.text ?? '');
@@ -525,10 +549,12 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
     const name = c.childForFieldName('name')!.text;
     if (c !== mainClass && TAKEN_NAMES.has(name)) throw unsupported(c, `a class called ${name}`);
     if (classes.has(name)) throw unsupported(c, 'two classes with the same name');
-    if (c.childForFieldName('superclass')) throw unsupported(c, 'inheritance (extends)');
+    const superclass = c.childForFieldName('superclass');
+    const parent = superclass ? named(superclass)[0]?.text ?? null : null;
+    if (parent && (c === mainClass || !classNames.has(parent))) throw unsupported(c, parent && !classNames.has(parent) ? `extending ${parent}` : 'Main extending another class');
     if (c.childForFieldName('interfaces')) throw unsupported(c, 'interfaces (implements)');
     if (c.childForFieldName('type_parameters')) throw unsupported(c, 'generic classes');
-    const info: ClassInfo = { name, node: c, fields: [], constructors: [], methods: new Map() };
+    const info: ClassInfo = { name, node: c, fields: [], constructors: [], methods: new Map(), parent, isAbstract: /\babstract\b/.test(modifiersOf(c)) };
     for (const member of named(c.childForFieldName('body'))) {
       if (member.type === 'class_declaration') {
         if (c === mainClass) continue; // handled above
@@ -537,6 +563,11 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
       if (member.type === 'method_declaration') {
         if (c === mainClass && !isStaticMember(member)) throw unsupported(member, 'methods that are not static');
         const m = member.childForFieldName('name')!.text;
+        if (!member.childForFieldName('body')) {
+          // abstract String speak();  only in an abstract class
+          if (!isAbstractMember(member)) throw new CompileError(lineOf(member), `${m} needs a body { ... }, or the word abstract.`);
+          if (!info.isAbstract) throw new CompileError(lineOf(member), `${name} has an abstract method, so it must be an abstract class (abstract class ${name}).`);
+        }
         if (info.methods.has(m)) throw unsupported(member, 'two methods with the same name');
         info.methods.set(m, member);
         continue;
@@ -558,6 +589,30 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
     }
     classes.set(name, info);
   }
+  classInfos = classes;
+  for (const info of classes.values()) {
+    // No class may be its own ancestor; a field may not reuse a name from a class above it.
+    const seen = new Set<string>();
+    for (let p = info.parent; p; p = classes.get(p)?.parent ?? null) {
+      if (seen.has(p) || p === info.name) throw new CompileError(lineOf(info.node), `${info.name} can't extend itself, even through other classes.`);
+      seen.add(p);
+      const above = classes.get(p)!;
+      const clash = info.fields.find((f) => above.fields.some((g) => g.name === f.name));
+      if (clash) throw unsupported(clash.declarator, `a field with the same name as one in ${p}`);
+    }
+    // A class that is not abstract must have every method a class above it only promises.
+    if (!info.isAbstract) {
+      for (let p = info.parent; p; p = classes.get(p)?.parent ?? null) {
+        for (const [mName, m] of classes.get(p)!.methods) {
+          if (m.childForFieldName('body')) continue;
+          const found = findMethod(info.name, mName);
+          if (!found?.m.childForFieldName('body')) {
+            throw new CompileError(lineOf(info.node), `${info.name} must have its own ${mName}() method, because ${p} only promises it (abstract).`);
+          }
+        }
+      }
+    }
+  }
   const methods = classes.get('Main')!.methods;
   const main = methods.get('main');
   const params = named(main?.childForFieldName('parameters'));
@@ -577,7 +632,8 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
     }
   }
   for (const m of bodies) {
-    visitSubset(m.childForFieldName('body')!);
+    const body = m.childForFieldName('body');
+    if (body) visitSubset(body);
     if (m !== main) for (const p of named(m.childForFieldName('parameters'))) visitSubset(p);
     const rt = m.childForFieldName('type');
     if (rt) visitSubset(rt);
@@ -600,6 +656,12 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
         throw unsupported(n, 'this kind of case');
       }
       if (n.type === 'type_identifier' && !allowed(n.text)) throw unsupported(n, `the type ${n.text}`);
+      if (n.type === 'explicit_constructor_invocation') {
+        if (n.childForFieldName('constructor')?.type !== 'super') throw unsupported(n, 'this(...) calls');
+        const body = n.parent;
+        if (body?.type !== 'constructor_body' || named(body)[0]?.id !== n.id) throw new CompileError(lineOf(n), 'super(...) must be the first line of a constructor.');
+      }
+      if (n.type === 'instanceof_expression' && named(n).length > 2) throw unsupported(n, 'instanceof with a name (instanceof Dog d)');
       if (n.type === 'generic_type') {
         checkGeneric(n);
         return;
@@ -673,7 +735,8 @@ function checkExceptions(bodies: Node[], methods: Map<string, Node>) {
       }
       for (const c of named(n)) visit(c);
     };
-    visit(m.childForFieldName('body')!);
+    const body = m.childForFieldName('body');
+    if (body) visit(body); // abstract methods have no body
   }
 }
 
@@ -780,7 +843,10 @@ function planLists(methods: Map<string, Node>): ListPlan {
     const bodyId = LOOP_TYPES.has(n.type) ? n.childForFieldName('body')?.id : undefined;
     for (const c of named(n)) visit(c, bodyId !== undefined && c.id === bodyId ? [...loops, n] : loops);
   };
-  for (const m of methods.values()) visit(m.childForFieldName('body')!, []);
+  for (const m of methods.values()) {
+    const body = m.childForFieldName('body');
+    if (body) visit(body, []);
+  }
   return { candidates, loopOf };
 }
 
@@ -1236,6 +1302,14 @@ class Interp {
         if (!this.making) this.rt.hooks.ret(lineOf(s), value.t === 'array' || value.t === 'list' ? (value.v as JVal[]) : value);
         throw new ReturnSignal(value);
       }
+      case 'explicit_constructor_invocation': {
+        // super("Rex"): the class above makes its part of this object first.
+        const args = named(s.childForFieldName('arguments')).map((a) => this.eval(a));
+        const cls = this.classes.get(this.currentClass)!;
+        this.superPart(this.making!, cls, args, s);
+        this.fieldValues(this.making!, cls);
+        return;
+      }
       case 'throw_statement': {
         const v = this.eval(named(s)[0]);
         if (v.t === 'null') throw new JavaException('NullPointerException', 'Cannot throw a null exception');
@@ -1450,51 +1524,68 @@ class Interp {
 
   // ---- methods ------------------------------------------------------------------
 
-  /** A method with no object in front: factorial(3), or describe() inside a Dog method (on this). */
+  /** A method with no object in front: factorial(3), or describe() inside a Dog method (on this, the object's own version). */
   private callUnqualified(node: Node, name: string, args: JVal[]): JVal {
-    let cls = this.classes.get(this.currentClass)!;
-    let m = cls.methods.get(name);
-    if (!m && cls.name !== 'Main' && this.classes.get('Main')!.methods.has(name)) {
-      cls = this.classes.get('Main')!;
-      m = cls.methods.get(name);
-    }
-    if (!m || name === 'main') throw unsupported(node, `the method ${name}`);
-    if (cls.name === 'Main' || isStaticMember(m)) return this.callMethod(node, cls, m, args, null, name);
+    let found = findMethod(this.currentClass, name);
+    if (!found && this.currentClass !== 'Main' && this.classes.get('Main')!.methods.has(name)) found = { owner: this.classes.get('Main')!, m: this.classes.get('Main')!.methods.get(name)! };
+    if (!found || name === 'main') throw unsupported(node, `the method ${name}`);
+    const { owner, m } = found;
+    if (owner.name === 'Main' || isStaticMember(m)) return this.callMethod(node, owner, m, args, null, name);
     const self = this.scope.lookup('this')?.v;
     if (!self || typeof self === 'symbol') {
-      throw new CompileError(lineOf(node), `${name} belongs to each ${cls.name} object, so a static method can't call it without one.`);
+      throw new CompileError(lineOf(node), `${name} belongs to each ${owner.name} object, so a static method can't call it without one.`);
     }
-    return this.callMethod(node, cls, m, args, self, name);
+    // speak() inside Animal's code, on a Dog: Dog's own speak() runs (unless it is private).
+    const actual = isPrivateMember(m) ? found : findMethod((self.v as JObject).cls, name)!;
+    return this.callMethod(node, actual.owner, actual.m, args, self, name);
   }
 
   /** Dog.create(...): a static method of a class. */
   private callStatic(node: Node, clsName: string, name: string, args: JVal[]): JVal {
-    const cls = this.classes.get(clsName)!;
-    const m = cls.methods.get(name);
-    if (!m || name === 'main') throw new CompileError(lineOf(node), `${clsName} has no method called ${name}.`);
-    if (clsName !== 'Main' && !isStaticMember(m)) {
+    const found = findMethod(clsName, name);
+    if (!found || name === 'main') throw new CompileError(lineOf(node), `${clsName} has no method called ${name}.`);
+    if (clsName !== 'Main' && !isStaticMember(found.m)) {
       throw new CompileError(lineOf(node), `${name} belongs to each ${clsName} object: call it on one, like myObject.${name}().`);
     }
-    this.checkPrivate(node, m, clsName, name);
-    return this.callMethod(node, cls, m, args, null, clsName === 'Main' ? name : `${clsName}.${name}`);
+    this.checkPrivate(node, found.m, found.owner.name, name);
+    return this.callMethod(node, found.owner, found.m, args, null, clsName === 'Main' ? name : `${clsName}.${name}`);
   }
 
-  /** rex.bark(): a method of the object in rex. */
+  /** rex.bark(): the method of the object's own class (a Dog in an Animal box runs Dog's version). */
   private callOnObject(node: Node, objNode: Node, target: JVal, name: string, argNodes: Node[]): JVal {
     if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "${target.cls}.${name}()" because "${objNode.text}" is null`);
     const o = target.v as JObject;
-    const cls = this.classes.get(o.cls)!;
-    const m = cls.methods.get(name);
+    // Java checks the box's type first: an Animal box only offers Animal's methods.
+    const boxType = target.cls ?? o.cls;
+    if (boxType !== o.cls && !findMethod(boxType, name) && name !== 'toString' && name !== 'equals') {
+      throw new CompileError(lineOf(node), `${objNode.text} is ${/^[AEIOU]/.test(boxType) ? 'an' : 'a'} ${boxType} box, and ${boxType} has no method ${name}: cast it first, like ((${o.cls}) ${objNode.text}).${name}().`);
+    }
+    const found = findMethod(o.cls, name);
     const args = argNodes.map((a) => this.eval(a));
-    if (!m) {
+    if (!found) {
       // Every Java object has these, even without writing them.
       if (name === 'toString' && !args.length) return str(this.objectToString(target));
       if (name === 'equals' && args.length === 1) return bool(args[0].t === 'object' && args[0].v === o);
       throw new CompileError(lineOf(node), `${o.cls} has no method called ${name}.`);
     }
-    this.checkPrivate(node, m, o.cls, name);
+    this.checkPrivate(node, found.m, found.owner.name, name);
     const label = objNode.type === 'identifier' ? `${objNode.text}.${name}` : objNode.type === 'this' ? name : `${o.cls}.${name}`;
-    return this.callMethod(node, cls, m, args, isStaticMember(m) ? null : target, label);
+    return this.callMethod(node, found.owner, found.m, args, isStaticMember(found.m) ? null : { ...target, cls: o.cls }, label);
+  }
+
+  /** super.speak(): the version in the class above, on this same object. */
+  private callSuper(node: Node, name: string, args: JVal[]): JVal {
+    const parent = this.classes.get(this.currentClass)?.parent;
+    const self = this.scope.lookup('this')?.v;
+    if (!parent || !self || typeof self === 'symbol') throw new CompileError(lineOf(node), 'super.method() works only inside a class that extends another one.');
+    const found = findMethod(parent, name);
+    if (!found) {
+      if (name === 'toString') return str(defaultObjectText(self));
+      throw new CompileError(lineOf(node), `${parent} has no method called ${name}.`);
+    }
+    if (!found.m.childForFieldName('body')) throw new CompileError(lineOf(node), `${parent}'s ${name}() is abstract, so super.${name}() has nothing to run.`);
+    this.checkPrivate(node, found.m, found.owner.name, name);
+    return this.callMethod(node, found.owner, found.m, args, self, `super.${name}`);
   }
 
   private checkPrivate(node: Node, member: Node, owner: string, name: string) {
@@ -1506,8 +1597,9 @@ class Interp {
   /**
    * Run a method (or a constructor, with `making` = the new object) in a new frame.
    * Methods of an object have this as their first variable; the label leaves it out.
+   * `top`: the constructor new called (its return step shows the object); super(...) parts are not.
    */
-  private callMethod(node: Node, cls: ClassInfo, m: Node, args: JVal[], self: JVal | null, label: string, making: JVal | null = null): JVal {
+  private callMethod(node: Node, cls: ClassInfo, m: Node, args: JVal[], self: JVal | null, label: string, making: JVal | null = null, top = true): JVal {
     const params = named(m.childForFieldName('parameters')).filter((p) => p.type === 'formal_parameter');
     const shown = label.replace(/^new /, '');
     if (params.length !== args.length) {
@@ -1534,13 +1626,19 @@ class Interp {
     this.making = making;
     this.rt.hooks.enter(label, this.namesId(names), this.getters(names), self ? 1 : 0);
     try {
-      this.execBody(m.childForFieldName('body')!);
-      if (making) return this.made(m, making);
+      const body = m.childForFieldName('body')!;
+      // A constructor without super(...) first: the class above is made first (super()), then this class's field values.
+      if (making && named(body)[0]?.type !== 'explicit_constructor_invocation') {
+        this.superPart(making, cls, [], node);
+        this.fieldValues(making, cls);
+      }
+      this.execBody(body);
+      if (making) return top ? this.made(m, making) : VOID;
       if (returnType.t !== 'void') throw new CompileError(lineOf(m), `${shown} must return a value.`);
       return VOID;
     } catch (e) {
       if (e instanceof ReturnSignal) {
-        if (making) return this.made(m, making);
+        if (making) return top ? this.made(m, making) : VOID;
         return returnType.t === 'void' ? VOID : this.coerce(e.value, returnType, node, shown);
       }
       this.rt.hooks.thrown(e);
@@ -1561,31 +1659,23 @@ class Interp {
     return obj;
   }
 
-  /** new Dog("Rex", 3): fields start at 0 / null / false, field values written in the class are set, then the constructor runs. */
+  /** new Dog("Rex", 3): every field (the classes above first) starts at 0 / null / false, then the constructors run, top class first. */
   private construct(node: Node, name: string, args: JVal[]): JVal {
     const cls = this.classes.get(name)!;
+    if (cls.isAbstract) throw new CompileError(lineOf(node), `${name} is abstract, so new ${name}() is not allowed: make one of the classes that extend it.`);
     const o: JObject = { cls: name, fields: new Map() };
     const obj: JVal = { t: 'object', cls: name, v: o, id: freshId() };
-    for (const f of cls.fields) o.fields.set(f.name, { ...f.type, v: this.defaultOf(f.type) });
-    if (cls.fields.some((f) => f.init)) {
-      const saved = this.scope;
-      const savedClass = this.currentClass;
-      this.scope = new Scope(null);
-      this.scope.vars.set('this', { t: 'object', cls: name, v: obj });
-      this.currentClass = name;
-      try {
-        for (const f of cls.fields) {
-          if (!f.init) continue;
-          const value = f.init.type === 'array_initializer' ? this.arrayFrom(f.init, f.type.elem ?? 'int') : this.eval(f.init);
-          o.fields.get(f.name)!.v = this.coerce(value, f.type, f.declarator, f.name);
-        }
-      } finally {
-        this.scope = saved;
-        this.currentClass = savedClass;
-      }
-    }
+    for (const f of allFields(name)) o.fields.set(f.name, { ...f.type, v: this.defaultOf(f.type) });
+    const result = this.runConstructor(obj, cls, args, node, `new ${name}`, true);
+    return result.t === 'object' ? result : obj;
+  }
+
+  /** The constructor of `cls` that fits the values (none: Java's empty one, which only makes the class above). */
+  private runConstructor(obj: JVal, cls: ClassInfo, args: JVal[], node: Node, label: string, top: boolean): JVal {
     if (!cls.constructors.length) {
-      if (args.length) throw new CompileError(lineOf(node), `${name} has no constructor that takes ${args.length} value${args.length === 1 ? '' : 's'}.`);
+      if (args.length) throw new CompileError(lineOf(node), `${cls.name} has no constructor that takes ${args.length} value${args.length === 1 ? '' : 's'}.`);
+      this.superPart(obj, cls, [], node);
+      this.fieldValues(obj, cls);
       return obj;
     }
     const paramTypes = (c: Node) =>
@@ -1605,9 +1695,44 @@ class Interp {
       const types = paramTypes(c);
       return types.length === args.length && types.every((t, i) => fits(args[i], t));
     });
-    if (!ctor) throw new CompileError(lineOf(node), `${name} has no constructor that takes ${args.length ? args.map((a) => formatJava(a)).join(', ') : 'no values'}.`);
-    this.checkPrivate(node, ctor, name, `This constructor of ${name}`);
-    return this.callMethod(node, cls, ctor, args, obj, `new ${name}`, obj);
+    if (!ctor) {
+      if (!top && !args.length) {
+        throw new CompileError(lineOf(node), `${cls.name} has no constructor that takes no values, so the constructor below it must start with super(...).`);
+      }
+      throw new CompileError(lineOf(node), `${cls.name} has no constructor that takes ${args.length ? args.map((a) => formatJava(a)).join(', ') : 'no values'}.`);
+    }
+    this.checkPrivate(node, ctor, cls.name, `This constructor of ${cls.name}`);
+    return this.callMethod(node, cls, ctor, args, obj, label, obj, top);
+  }
+
+  /** super(...) / the hidden super(): the part of the object that belongs to the class above. */
+  private superPart(obj: JVal, cls: ClassInfo, args: JVal[], node: Node) {
+    if (!cls.parent) {
+      if (args.length) throw new CompileError(lineOf(node), `${cls.name} does not extend another class, so super(...) has nothing to call.`);
+      return;
+    }
+    this.runConstructor(obj, this.classes.get(cls.parent)!, args, node, 'super', false);
+  }
+
+  /** int tricks = 0; written in a class: set after the class above is made, before the constructor's own lines. */
+  private fieldValues(obj: JVal, cls: ClassInfo) {
+    if (!cls.fields.some((f) => f.init)) return;
+    const o = obj.v as JObject;
+    const saved = this.scope;
+    const savedClass = this.currentClass;
+    this.scope = new Scope(null);
+    this.scope.vars.set('this', { t: 'object', cls: cls.name, v: obj });
+    this.currentClass = cls.name;
+    try {
+      for (const f of cls.fields) {
+        if (!f.init) continue;
+        const value = f.init.type === 'array_initializer' ? this.arrayFrom(f.init, f.type.elem ?? 'int') : this.eval(f.init);
+        o.fields.get(f.name)!.v = this.coerce(value, f.type, f.declarator, f.name);
+      }
+    } finally {
+      this.scope = saved;
+      this.currentClass = savedClass;
+    }
   }
 
   /** The starting value of a field: 0, false, '\u0000' or null. */
@@ -1623,10 +1748,10 @@ class Interp {
   /** println(rex): the class's own toString() runs (with its steps); without one, Java's Dog@1b6d3586. */
   private objectToString(v: JVal): string {
     const o = v.v as JObject;
-    const cls = this.classes.get(o.cls);
-    const m = cls?.methods.get('toString');
-    if (!cls || !m || isStaticMember(m) || named(m.childForFieldName('parameters')).length) return defaultObjectText(v);
-    const text = this.callMethod(m, cls, m, [], v, `${o.cls}.toString`);
+    const found = findMethod(o.cls, 'toString');
+    const m = found?.m;
+    if (!found || !m || isStaticMember(m) || named(m.childForFieldName('parameters')).length) return defaultObjectText(v);
+    const text = this.callMethod(m, found.owner, m, [], { ...v, cls: o.cls }, `${o.cls}.toString`);
     if (text.t !== 'String') throw new CompileError(lineOf(m), 'toString must give back text (String).');
     return text.v === null ? 'null' : (text.v as string);
   }
@@ -1639,9 +1764,14 @@ class Interp {
     const o = obj.v as JObject;
     const cell = o.fields.get(field);
     if (!cell) throw new CompileError(lineOf(n), `${o.cls} has no field called ${field}.`);
-    const info = this.classes.get(o.cls)!.fields.find((f) => f.name === field);
-    if (info?.isPrivate && this.currentClass !== o.cls) {
-      throw new CompileError(lineOf(n), `${field} is private in ${o.cls}, so only code inside ${o.cls} can use it.`);
+    // Java checks the box's type: an Animal box only offers Animal's fields.
+    const box = obj.cls ?? o.cls;
+    if (box !== o.cls && !allFields(box).some((f) => f.name === field)) {
+      throw new CompileError(lineOf(n), `${objNode.text} is ${/^[AEIOU]/.test(box) ? 'an' : 'a'} ${box} box, and ${box} has no field ${field}: cast it first, like ((${o.cls}) ${objNode.text}).${field}.`);
+    }
+    const info = allFields(o.cls).find((f) => f.name === field);
+    if (info?.isPrivate && this.currentClass !== info.owner) {
+      throw new CompileError(lineOf(n), `${field} is private in ${info.owner}, so only code inside ${info.owner} can use it.`);
     }
     return cell;
   }
@@ -1651,9 +1781,14 @@ class Interp {
     const self = this.scope.lookup('this')?.v;
     if (self && typeof self !== 'symbol' && self.v !== null) {
       const cell = (self.v as JObject).fields.get(id.text);
-      if (cell) return cell;
+      // A private field of the class above can't be used by name in a class below it.
+      const info = allFields((self.v as JObject).cls).find((f) => f.name === id.text);
+      if (cell && info?.isPrivate && info.owner !== this.currentClass && isSubclass(this.currentClass, info.owner)) {
+        throw new CompileError(lineOf(id), `${id.text} is private in ${info.owner}, so ${this.currentClass} can't use it (make it protected, or use a method of ${info.owner}).`);
+      }
+      if (cell && (!info || isSubclass(this.currentClass, info.owner) || this.currentClass === info.owner)) return cell;
     }
-    if (this.classes.get(this.currentClass)?.fields.some((f) => f.name === id.text)) {
+    if (allFields(this.currentClass).some((f) => f.name === id.text)) {
       throw new CompileError(lineOf(id), `${id.text} belongs to each ${this.currentClass} object, so a static method can't use it on its own.`);
     }
     return undefined;
@@ -1669,8 +1804,9 @@ class Interp {
       new CompileError(lineOf(at), `${name} is ${/^[aeiouAEIOU]/.test(what) ? 'an' : 'a'} ${what} box, so it can't hold ${formatJava(v)}.`);
     if (t === 'object') {
       if (v.t === 'null') return { t: 'object', cls: to.cls, v: null };
-      if (v.t !== 'object' || v.cls !== to.cls) throw cantHold();
-      return v;
+      // An Animal box can hold a Dog (a class below Animal).
+      if (v.t !== 'object' || !isSubclass((v.v as JObject | null)?.cls ?? v.cls!, to.cls!)) throw cantHold();
+      return { ...v, cls: to.cls };
     }
     if (t === 'array') {
       if (v.t === 'null') return { t: 'array', v: null as unknown as JVal[], elem: to.elem };
@@ -1737,7 +1873,7 @@ class Interp {
   private listItem(x: JVal, list: JVal, at: Node, name: string): JVal {
     const objects = isClassItem(list.elem);
     if (x.t === 'null') return objects ? { t: 'object', cls: list.elem, v: null } : { t: list.elem!, v: null, boxed: true };
-    if (list.elem && (objects ? x.t !== 'object' || x.cls !== list.elem : x.t !== list.elem)) {
+    if (list.elem && (objects ? x.t !== 'object' || !isSubclass((x.v as JObject | null)?.cls ?? x.cls!, list.elem) : x.t !== list.elem)) {
       throw new CompileError(lineOf(at), `${name} holds ${typeName(list.elem)} values, so it can't hold ${formatJava(x)}.`);
     }
     return box(x);
@@ -1985,8 +2121,33 @@ class Interp {
         if (c.t !== 'boolean') throw new CompileError(lineOf(n), 'A condition must be true or false.');
         return this.eval(n.childForFieldName(c.v ? 'consequence' : 'alternative')!);
       }
-      case 'cast_expression':
-        return this.castTo(declType(n.childForFieldName('type')).t, this.eval(n.childForFieldName('value')!), n);
+      case 'cast_expression': {
+        const to = declType(n.childForFieldName('type'));
+        const v = this.eval(n.childForFieldName('value')!);
+        if (to.t === 'object') {
+          // (Dog) a: fine if the object really is a Dog; otherwise Java stops with a ClassCastException.
+          if (v.t === 'null' || (v.t === 'object' && v.v === null)) return { t: 'object', cls: to.cls, v: null };
+          if (v.t !== 'object') throw new CompileError(lineOf(n), `${formatJava(v)} can't be turned into a ${to.cls}.`);
+          const real = (v.v as JObject).cls;
+          if (!isSubclass(real, to.cls!) && !isSubclass(to.cls!, v.cls!)) throw new CompileError(lineOf(n), `A ${v.cls} can never be a ${to.cls}, so this cast can't work.`);
+          if (!isSubclass(real, to.cls!)) throw new JavaException('ClassCastException', `class ${real} cannot be cast to class ${to.cls}`);
+          return { ...v, cls: to.cls };
+        }
+        return this.castTo(to.t, v, n);
+      }
+      case 'instanceof_expression': {
+        // a instanceof Dog: is the object a Dog (or a class below Dog)? null is never one.
+        const v = this.eval(n.childForFieldName('left')!);
+        const type = n.childForFieldName('right')!.text;
+        if (!classNames.has(type)) throw unsupported(n, `instanceof ${type}`);
+        return bool(v.t === 'object' && v.v !== null && isSubclass((v.v as JObject).cls, type));
+      }
+      case 'super': {
+        // super.name: a field of this object (fields are not repeated in the classes below).
+        const self = this.scope.lookup('this');
+        if (!self) throw new CompileError(lineOf(n), 'super can only be used inside an object\'s own methods and constructors.');
+        return self.v as JVal;
+      }
       case 'array_access': {
         const { array, index } = this.element(n);
         return array[index];
@@ -2141,6 +2302,7 @@ class Interp {
       throw unsupported(n, `Arrays.${name}`);
     }
     if (!object) return this.callUnqualified(n, name, args());
+    if (object.type === 'super') return this.callSuper(n, name, args());
     if (object.type === 'identifier' && this.classes.has(object.text) && !this.scope.lookup(object.text)) {
       return this.callStatic(n, object.text, name, args());
     }
