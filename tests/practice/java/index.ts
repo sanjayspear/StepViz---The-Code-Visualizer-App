@@ -2,8 +2,12 @@
 import { SOLUTIONS as BASICS_MATH } from './basics-math.solutions';
 import { SOLUTIONS as STRINGS } from './strings.solutions';
 import { SOLUTIONS as ARRAYS_MATRICES } from './arrays-matrices.solutions';
+import { SOLUTIONS as HASH_MAPS_SETS } from './hash-maps-sets.solutions';
+import { SOLUTIONS as TWO_POINTERS } from './two-pointers.solutions';
 
 export const JAVA_SOLUTIONS_BY_TOPIC: Record<string, Record<number, string>> = {
+  'two-pointers': TWO_POINTERS,
+  'hash-maps-sets': HASH_MAPS_SETS,
   'arrays-matrices': ARRAYS_MATRICES,
   strings: STRINGS,
   'basics-math': BASICS_MATH,
