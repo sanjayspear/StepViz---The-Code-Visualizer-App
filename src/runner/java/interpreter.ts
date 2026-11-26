@@ -55,7 +55,15 @@ import {
 // Values
 
 type Prim = 'int' | 'long' | 'double' | 'boolean' | 'char' | 'String';
-export type JType = Prim | 'null' | 'void' | 'array' | 'list' | 'Scanner' | 'exception' | 'object' | 'map' | 'entry' | 'set';
+export type JType = Prim | 'null' | 'void' | 'array' | 'list' | 'Scanner' | 'exception' | 'object' | 'map' | 'entry' | 'set' | 'func';
+
+/** A lambda, a method reference or a Comparator built from them (t = 'func'). */
+type JFunc =
+  | { kind: 'lambda'; node: Node; scope: unknown; cls: string }
+  | { kind: 'println' }
+  | { kind: 'method'; cls: string; name: string }
+  | { kind: 'comparing'; key: JFunc; reversed: boolean; then?: JFunc }
+  | { kind: 'natural'; reversed: boolean };
 
 /** A HashMap / TreeMap / LinkedHashMap: entries by key id, in the order they were put in, and the table size. */
 export interface MapData {
@@ -168,7 +176,7 @@ const WRAPPER_OF: Record<Prim, string> = { int: 'Integer', long: 'Long', double:
  */
 export interface JVal {
   t: JType;
-  v: number | boolean | string | null | JVal[] | JObject | MapData | [JVal, JVal];
+  v: number | boolean | string | null | JVal[] | JObject | MapData | [JVal, JVal] | JFunc;
   elem?: Prim;
   id?: string | number;
   boxed?: boolean;
@@ -295,6 +303,7 @@ export function formatJava(x: unknown): string | undefined {
   if (x.t === 'array' || x.t === 'list') return formatJava(x.v);
   if (x.t === 'Scanner') return 'Scanner';
   if (x.t === 'object') return objectFrameText(x, 0);
+  if (x.t === 'func') return (x.v as JFunc).kind === 'lambda' ? 'lambda' : 'Comparator';
   if (x.t === 'set') return x.v === null ? 'null' : `{${mapOrder(x, compareKeys).map(([k]) => formatJava(k)).join(', ')}}`;
   if (x.t === 'map') return x.v === null ? 'null' : `{${mapOrder(x, compareKeys).map(([k, v]) => `${formatJava(k)}: ${formatJava(v)}`).join(', ')}}`;
   if (x.t === 'entry') {
@@ -424,8 +433,6 @@ const FEATURES: Record<string, string> = {
   field_declaration: 'variables outside methods',
   constructor_declaration: 'constructors',
   try_with_resources_statement: 'try with resources',
-  lambda_expression: 'lambdas',
-  method_reference: 'method references',
   labeled_statement: 'labels',
   synchronized_statement: 'synchronized',
   assert_statement: 'assert',
@@ -442,7 +449,7 @@ const IMPORTS = new Set([
 const ALLOWED_TYPES = new Set([
   'int', 'long', 'double', 'float', 'boolean', 'char', 'short', 'byte', 'String', 'void', 'Scanner',
   'Integer', 'Long', 'Double', 'Boolean', 'Character', 'ArrayList', 'List', 'Map', 'HashMap', 'TreeMap', 'LinkedHashMap',
-  'Set', 'HashSet', 'TreeSet', 'LinkedHashSet', 'var',
+  'Set', 'HashSet', 'TreeSet', 'LinkedHashSet', 'var', 'Comparator',
   ...Object.keys(EXCEPTION_PARENT),
 ]);
 const LIST_TYPES = new Set(['ArrayList', 'List', ...SET_TYPES]);
@@ -451,6 +458,11 @@ const LIST_TYPES = new Set(['ArrayList', 'List', ...SET_TYPES]);
 function checkGeneric(n: Node) {
   const base = named(n)[0];
   const args = named(named(n)[1]);
+  if (base?.text === 'Comparator') {
+    // Comparator<Student> byScore = (a, b) -> ...;
+    if (args.length !== 1 || (!(args[0].text in WRAPPERS) && !classNames.has(args[0].text))) throw unsupported(n, `the type ${n.text}`);
+    return;
+  }
   // HashMap<String, Integer>, Map.Entry<String, Integer>: two box types.
   if (base && (MAP_TYPES.has(base.text) || base.text === 'Map.Entry')) {
     if (args.length === 0 && n.parent?.type === 'object_creation_expression') return;
@@ -806,6 +818,19 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
         const body = n.parent;
         if (body?.type !== 'constructor_body' || named(body)[0]?.id !== n.id) throw new CompileError(lineOf(n), 'super(...) must be the first line of a constructor.');
       }
+      if (n.type === 'lambda_expression' || n.type === 'method_reference') {
+        // As a value for a method (list.sort(...), forEach(...)), a Comparator variable, or Comparator.comparing(...).
+        const p = n.parent;
+        const declared = p?.type === 'variable_declarator' && p.parent?.childForFieldName('type')?.text.startsWith('Comparator');
+        if (p?.type !== 'argument_list' && !declared) {
+          throw unsupported(n, p?.type === 'variable_declarator' && p.parent?.childForFieldName('type')?.text === 'var' ? 'var with a lambda (write Comparator<...>)' : 'lambdas here');
+        }
+      }
+      if (n.type === 'method_reference') {
+        const [owner, member] = named(n);
+        const ok = (owner?.text === 'System.out' && member?.text === 'println') || (classNames.has(owner?.text ?? '') && member?.type === 'identifier');
+        if (!ok) throw unsupported(n, `the method reference ${n.text}`);
+      }
       if (n.type === 'instanceof_expression' && named(n).length > 2) throw unsupported(n, 'instanceof with a name (instanceof Dog d)');
       if (n.type === 'generic_type') {
         checkGeneric(n);
@@ -1072,12 +1097,21 @@ interface Cell {
 /** One block's variables. Names declared later in the block exist from the start (shown as "?"). */
 class Scope {
   vars = new Map<string, Cell>();
-  constructor(public parent: Scope | null) {}
+  /** `top`: a lambda's own scope: it reads the variables around it, but its frame lists only its own. */
+  constructor(
+    public parent: Scope | null,
+    public top = false,
+  ) {}
   lookup(name: string): Cell | undefined {
     return this.vars.get(name) ?? this.parent?.lookup(name);
   }
+  /** The variable's own scope is inside this one (below a lambda's top)? */
+  ownsUpTo(name: string): boolean {
+    if (this.vars.has(name)) return true;
+    return !this.top && !!this.parent?.ownsUpTo(name);
+  }
   names(): string[] {
-    const out = this.parent ? this.parent.names() : [];
+    const out = this.parent && !this.top ? this.parent.names() : [];
     for (const n of this.vars.keys()) if (!out.includes(n)) out.push(n);
     return out;
   }
@@ -1116,6 +1150,7 @@ function declType(typeNode: Node | null, declarator?: Node | null): DeclType {
     const box = (a?: Node) => (a ? WRAPPERS[a.text] ?? (a.text as Prim) : undefined);
     return { t: named(typeNode)[0].text === 'Map.Entry' ? 'entry' : 'map', kt: box(k), elem: box(v) };
   }
+  if (typeNode.type === 'generic_type' && named(typeNode)[0]?.text === 'Comparator') return { t: 'func' };
   if (typeNode.type === 'generic_type' && SET_TYPES.has(named(typeNode)[0]?.text ?? '')) {
     const arg = named(named(typeNode)[1])[0];
     const elem = arg ? WRAPPERS[arg.text] ?? (arg.text as Prim) : undefined;
@@ -2091,6 +2126,11 @@ class Interp {
     return cell;
   }
 
+  private insideLambda(): boolean {
+    for (let sc: Scope | null = this.scope; sc; sc = sc.parent) if (sc.top) return true;
+    return false;
+  }
+
   private implicitFieldExists(name: string): boolean {
     const self = this.scope.lookup('this')?.v;
     return !!self && typeof self !== 'symbol' && self.v !== null && (self.v as JObject).fields.has(name);
@@ -2311,6 +2351,9 @@ class Interp {
       return array[index];
     }
     if (target.type !== 'identifier') throw unsupported(target, 'this kind of assignment');
+    if (this.insideLambda() && this.scope.lookup(target.text) && !this.scope.ownsUpTo(target.text)) {
+      throw new CompileError(lineOf(target), `${target.text} can't be changed inside a lambda: a lambda may only read the variables around it.`);
+    }
     const st = this.scope.lookup(target.text) ? undefined : this.staticCell(target.text);
     if (st && !this.implicitFieldExists(target.text)) return this.setStatic(st, value, target);
     const cell = this.scope.lookup(target.text) ?? this.implicitField(target);
@@ -2519,6 +2562,14 @@ class Interp {
       }
       case 'switch_expression':
         return this.switchValue(n);
+      case 'lambda_expression':
+        // A lambda remembers the variables around it (it reads them when it runs).
+        return { t: 'func', v: { kind: 'lambda', node: n, scope: this.scope, cls: this.currentClass } };
+      case 'method_reference': {
+        const [owner, member] = named(n);
+        if (owner.text === 'System.out') return { t: 'func', v: { kind: 'println' } };
+        return { t: 'func', v: { kind: 'method', cls: owner.text, name: member.text } };
+      }
       case 'object_creation_expression': {
         const type = n.childForFieldName('type')!;
         if (classNames.has(type.text)) return this.construct(n, type.text, named(n.childForFieldName('arguments')).map((a) => this.eval(a)));
@@ -2613,6 +2664,16 @@ class Interp {
     }
     if (object?.text === 'Integer' && name === 'toString' && argNodes.length === 1) return str(javaString(unbox(args()[0])));
     if (object?.text === 'Character') return this.character(n, name, args());
+    if (object?.text === 'Comparator' || (object?.text === 'Collections' && name === 'reverseOrder')) {
+      // Comparator.comparing(s -> s.score) / comparingInt / naturalOrder() / reverseOrder()
+      if (['comparing', 'comparingInt', 'comparingDouble', 'comparingLong'].includes(name) && argNodes.length === 1) {
+        const key = args()[0];
+        if (key.t !== 'func') throw new CompileError(lineOf(n), `Comparator.${name} needs a lambda or a method reference.`);
+        return { t: 'func', v: { kind: 'comparing', key: key.v as JFunc, reversed: false } };
+      }
+      if ((name === 'naturalOrder' || name === 'reverseOrder') && !argNodes.length) return { t: 'func', v: { kind: 'natural', reversed: name === 'reverseOrder' } };
+      throw unsupported(n, `${object.text}.${name}`);
+    }
     if (object?.text === 'Collections') return this.collections(n, name, args());
     if (object?.text === 'Integer' && name === 'parseInt' && argNodes.length === 1) return this.parseInt(args()[0]);
     if (object?.text === 'Double' && name === 'parseDouble' && argNodes.length === 1) {
@@ -2630,7 +2691,12 @@ class Interp {
         return str(deep(a));
       }
       if (name === 'sort') {
-        this.sortItems(a.v as JVal[], n);
+        const cmp = argNodes.length === 2 ? this.funcArg(args()[1], n) : undefined;
+        // Java: a comparing rule works on arrays of objects (String[], Dog[]), not int[].
+        if (cmp && ['int', 'long', 'double', 'char', 'boolean'].includes(a.elem ?? '')) {
+          throw new CompileError(lineOf(n), `Arrays.sort with a rule needs an array of objects (like String[]), not ${a.elem}[].`);
+        }
+        this.sortItems(a.v as JVal[], n, cmp);
         return VOID;
       }
       throw unsupported(n, `Arrays.${name}`);
@@ -2652,8 +2718,30 @@ class Interp {
       if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "Set.${name}()" because the value is null`);
       return this.setMethod(n, target, name, argNodes, args());
     }
+    if (target.t === 'func') {
+      const f = target.v as JFunc;
+      if (name === 'reversed' && !argNodes.length) {
+        return { t: 'func', v: f.kind === 'comparing' ? { ...f, reversed: !f.reversed } : f.kind === 'natural' ? { ...f, reversed: !f.reversed } : { kind: 'comparing', key: { kind: 'natural', reversed: false }, reversed: true, then: undefined } };
+      }
+      if ((name === 'thenComparing' || name === 'thenComparingInt' || name === 'thenComparingDouble') && argNodes.length === 1 && f.kind === 'comparing') {
+        const next = args()[0];
+        const nf = next.v as JFunc;
+        return { t: 'func', v: { ...f, then: nf.kind === 'lambda' && named(nf.node.childForFieldName('parameters')).length === 2 ? nf : { kind: 'comparing', key: nf, reversed: false } } };
+      }
+      if (name === 'compare' && argNodes.length === 2) {
+        const [x, y] = args();
+        return int(this.compareWith(f, x, y, n));
+      }
+      throw unsupported(n, `the method ${name} on a lambda`);
+    }
     if (target.t === 'map') {
       if (target.v === null) throw new JavaException('NullPointerException', `Cannot invoke "Map.${name}()" because the value is null`);
+      if (name === 'forEach' && argNodes.length === 1) {
+        // map.forEach((k, v) -> ...): each entry in the map's order.
+        const f = this.funcArg(args()[0], n);
+        for (const [k, v] of mapOrder(target, compareKeys)) this.callFunc(f, [k, v], n);
+        return VOID;
+      }
       return this.mapMethod(n, target, name, argNodes, args());
     }
     if (target.t === 'entry') {
@@ -2701,12 +2789,12 @@ class Interp {
    * Sort like Java: numbers and text by value; objects with their compareTo (Comparable), in
    * Java's own order of comparisons for short lists (binary insertion sort, as TimSort does under 32 items).
    */
-  private sortItems(items: JVal[], at: Node) {
-    if (!items.some((x) => x.t === 'object')) {
+  private sortItems(items: JVal[], at: Node, comparator?: JFunc) {
+    if (!comparator && !items.some((x) => x.t === 'object')) {
       items.sort((x, y) => this.compare(x, y));
       return;
     }
-    const cmp = (x: JVal, y: JVal) => this.compareObjects(x, y, at);
+    const cmp = comparator ? (x: JVal, y: JVal) => this.compareWith(comparator, x, y, at) : (x: JVal, y: JVal) => this.compareObjects(x, y, at);
     const n = items.length;
     if (n < 2) return;
     if (n >= 32) {
@@ -2736,6 +2824,80 @@ class Interp {
       items.splice(start, 1);
       items.splice(left, 0, pivot);
     }
+  }
+
+  private funcArg(v: JVal, at: Node): JFunc {
+    if (v.t !== 'func') throw new CompileError(lineOf(at), 'This needs a lambda (like x -> ...) or a method reference (like Dog::getName).');
+    return v.v as JFunc;
+  }
+
+  /** Run a lambda (in its own small frame "lambda(...)") or a method reference with these values. */
+  private callFunc(f: JFunc, args: JVal[], at: Node): JVal {
+    if (f.kind === 'println') {
+      this.rt.output += javaString(args[0]) + '\n';
+      return VOID;
+    }
+    if (f.kind === 'method') {
+      const self = args[0];
+      if (self.t !== 'object' || self.v === null) throw new JavaException('NullPointerException', `Cannot invoke "${f.cls}.${f.name}()" on null`);
+      const found = findMethod((self.v as JObject).cls, f.name);
+      if (!found) throw new CompileError(lineOf(at), `${f.cls} has no method called ${f.name}.`);
+      return this.callMethod(at, found.owner, found.m, args.slice(1), self, `${f.cls}.${f.name}`);
+    }
+    if (f.kind !== 'lambda') return int(this.compareWith(f, args[0], args[1], at));
+    const node = f.node;
+    const paramsNode = node.childForFieldName('parameters')!;
+    const params = paramsNode.type === 'identifier' ? [paramsNode] : named(paramsNode).map((p) => (p.type === 'formal_parameter' ? p.childForFieldName('name')! : p));
+    if (params.length !== args.length) throw new CompileError(lineOf(node), `This lambda takes ${params.length} value${params.length === 1 ? '' : 's'}, but here it gets ${args.length}.`);
+    const saved = this.scope;
+    const savedClass = this.currentClass;
+    const scope = new Scope(f.scope as Scope, true);
+    params.forEach((p, i) => scope.vars.set(p.text, { t: args[i].t, elem: args[i].elem, kt: args[i].kt, cls: args[i].cls, box: args[i].boxed, v: args[i] }));
+    const names = params.map((p) => p.text);
+    this.scope = scope;
+    this.currentClass = f.cls;
+    this.rt.hooks.enter('lambda', this.namesId(names), this.getters(names), 0);
+    const top = this.rt.stack[this.rt.stack.length - 1] as unknown as { pending: number | null };
+    try {
+      const body = node.childForFieldName('body')!;
+      if (body.type === 'block') {
+        this.execBody(body);
+        return VOID;
+      }
+      // x -> x.score: the value of the expression is what the lambda gives back.
+      top.pending = lineOf(body);
+      const value = this.eval(body);
+      if (value.t !== 'void') this.rt.hooks.ret(lineOf(body), value.t === 'array' || value.t === 'list' ? (value.v as JVal[]) : value);
+      return value;
+    } catch (e) {
+      if (e instanceof ReturnSignal) return e.value;
+      this.rt.hooks.thrown(e);
+      throw e;
+    } finally {
+      if (top.pending === null) top.pending = lineOf(node);
+      this.rt.hooks.leave();
+      this.scope = saved;
+      this.currentClass = savedClass;
+    }
+  }
+
+  /** A Comparator's answer for two values: negative, 0 or positive. */
+  private compareWith(f: JFunc, x: JVal, y: JVal, at: Node): number {
+    if (f.kind === 'natural') {
+      const c = x.t === 'object' ? this.compareObjects(x, y, at) : this.compare(x, y);
+      return f.reversed ? -c : c;
+    }
+    if (f.kind === 'comparing') {
+      const kx = this.callFunc(f.key, [x], at);
+      const ky = this.callFunc(f.key, [y], at);
+      let c = kx.t === 'object' ? this.compareObjects(kx, ky, at) : this.compare(kx, ky);
+      if (f.reversed) c = -c;
+      if (c === 0 && f.then) c = this.compareWith(f.then, x, y, at);
+      return c;
+    }
+    const r = this.callFunc(f, [x, y], at);
+    if (r.t !== 'int') throw new CompileError(lineOf(at), 'A comparing lambda must give back an int (negative, 0 or positive).');
+    return unbox(r).v as number;
   }
 
   private mergeSort(items: JVal[], cmp: (a: JVal, b: JVal) => number): JVal[] {
@@ -2884,6 +3046,39 @@ class Interp {
 
   private listMethod(n: Node, list: JVal, name: string, argNodes: Node[], a: JVal[]): JVal {
     const items = list.v as JVal[];
+    if (name === 'sort' && a.length === 1) {
+      // list.sort(comparator) / list.sort(null) (natural order)
+      this.sortItems(items, n, a[0].t === 'null' ? undefined : this.funcArg(a[0], n));
+      list.mod = (list.mod ?? 0) + 1;
+      return VOID;
+    }
+    if (name === 'forEach' && a.length === 1) {
+      const f = this.funcArg(a[0], n);
+      const start = list.mod ?? 0;
+      for (const x of [...items]) {
+        this.callFunc(f, [x], n);
+        if ((list.mod ?? 0) !== start) throw new JavaException('ConcurrentModificationException', '');
+      }
+      return VOID;
+    }
+    if (name === 'removeIf' && a.length === 1) {
+      const f = this.funcArg(a[0], n);
+      const keep: JVal[] = [];
+      for (const x of items) {
+        const r = this.callFunc(f, [x], n);
+        if (r.t !== 'boolean') throw new CompileError(lineOf(n), 'removeIf needs a lambda that gives true or false.');
+        if (!unbox(r).v) keep.push(x);
+      }
+      const removed = keep.length !== items.length;
+      items.splice(0, items.length, ...keep);
+      if (removed) list.mod = (list.mod ?? 0) + 1;
+      return bool(removed);
+    }
+    if (name === 'replaceAll' && a.length === 1) {
+      const f = this.funcArg(a[0], n);
+      for (let i = 0; i < items.length; i++) items[i] = this.listItem(this.callFunc(f, [items[i]], n), list, n, 'the list');
+      return VOID;
+    }
     const listName = n.childForFieldName('object')!.text;
     const changed = () => {
       list.mod = (list.mod ?? 0) + 1;
@@ -3219,8 +3414,8 @@ class Interp {
     const items = list.v as JVal[];
     switch (name) {
       case 'sort':
-        if (a.length !== 1) break;
-        this.sortItems(items, n);
+        if (a.length !== 1 && a.length !== 2) break;
+        this.sortItems(items, n, a[1] ? this.funcArg(a[1], n) : undefined);
         list.mod = (list.mod ?? 0) + 1;
         return VOID;
       case 'reverse':
@@ -3239,10 +3434,11 @@ class Interp {
       }
       case 'max':
       case 'min': {
-        if (a.length !== 1) break;
+        if (a.length !== 1 && a.length !== 2) break;
         if (!items.length) throw new JavaException('NoSuchElementException', '');
+        const rule = a[1] ? this.funcArg(a[1], n) : undefined;
         return items.reduce((best, x) => {
-          const c = x.t === 'object' ? this.compareObjects(x, best, n) : this.compare(x, best);
+          const c = rule ? this.compareWith(rule, x, best, n) : x.t === 'object' ? this.compareObjects(x, best, n) : this.compare(x, best);
           return (name === 'max' ? c > 0 : c < 0) ? x : best;
         });
       }

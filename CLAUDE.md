@@ -61,8 +61,8 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      finished. Then (2026-11-26, my order): try-line step removed in Python/JS
      (done), I1 Java interfaces + Comparable (done), S2 sets (done), ST1 Java
      static variables and constants (done), PY1 Python and JavaScript classes
-     (done), SW2 Java switch values + var (done). Next ideas: lambdas/Comparator,
-     C++ operator overloading, C++ static members.
+     (done), SW2 Java switch values + var (done), L2 Java lambdas + Comparator
+     (done). Next ideas: C++ operator overloading, C++ static members, Java streams.
 
 Phase 1 covers:
 
@@ -317,6 +317,20 @@ Playwright tests. Static build for GitHub Pages.
   write class P implements Comparable<P> with a compareTo method." Unsupported:
   constants in interfaces, generic interfaces of the program, lambdas,
   Comparator, TreeMap/TreeSet with object keys.
+- Java lambdas (L2): lambdas as values for methods and in Comparator<T>
+  variables; method references System.out::println and Student::getScore (the
+  program's classes). Uses: list.sort(cmp / null), Collections.sort(list, cmp),
+  Arrays.sort(objects, cmp), Collections.max/min(list, cmp), list.forEach,
+  removeIf, replaceAll, map.forEach((k, v) -> ...); Comparator.comparing /
+  comparingInt / comparingDouble (key lambda or method reference), naturalOrder,
+  reverseOrder, .reversed(), .thenComparing(...), cmp.compare(a, b). A lambda
+  call is a small frame "lambda(...)" that lists only its own values (it still
+  reads the variables around it); an expression lambda gives its value back as
+  the return step. Sorting with a rule uses TimSort's order like Comparable.
+  Rules: "total can't be changed inside a lambda: a lambda may only read the
+  variables around it."; "Arrays.sort with a rule needs an array of objects (like
+  String[]), not int[]."; var with a lambda, lambdas elsewhere, other method
+  references, Function/Predicate/Runnable types and streams stay unsupported.
 - Java switch values and var (SW2): int days = switch (m) { case 2 -> 28; case
   4, 6 -> 30; default -> { ...; yield 31; } }; and the old form (case 1: yield
   "a";). The line with the switch gets its step after the value is known; lines
@@ -480,7 +494,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`; 209 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`; 212 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.
