@@ -3,6 +3,9 @@ import type { CodeLanguage } from '../../examples';
 import type { PracticeContent } from './types';
 import { BASICS_MATH } from './python/basics-math';
 import { STRINGS } from './python/strings';
+import { STACKS_QUEUES } from './python/stacks-queues';
+import { SLIDING_WINDOW } from './python/sliding-window';
+import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
 
@@ -12,6 +15,9 @@ export const PYTHON_TOPICS: Record<string, PracticeContent[]> = {
   strings: STRINGS,
   'arrays-matrices': ARRAYS_MATRICES,
   'hash-maps-sets': HASH_MAPS_SETS,
+  'two-pointers': TWO_POINTERS,
+  'sliding-window': SLIDING_WINDOW,
+  'stacks-queues': STACKS_QUEUES,
 };
 
 const BY_LANGUAGE: Partial<Record<CodeLanguage, Map<number, PracticeContent>>> = {

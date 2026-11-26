@@ -10,7 +10,8 @@
 #               any order), "output" (what the call printed), or a check of the answer's shape:
 #               "topo", "peak", "gray", "inorder"
 #     mutated   {"arg": 0, "value": [...], "prefix": true}: the argument after the call
-#               (prefix: only its first <returned number> items)
+#               (prefix: only its first <returned number> items; check "negfirst": the same
+#               numbers as value, every negative one first)
 #     returns   "index" / "value": a node of the input list is reported as its position / value
 #     then      a second function applied to the result (serialize, then deserialize)
 #     copy      the answer must not share nodes with the input (deep copies)
@@ -509,6 +510,8 @@ def _expected_text(t):
         m = t["mutated"]
         changed = "the first <answer> items of " if m.get("prefix") else ""
         after = "%sargument %d becomes %s" % (changed, m["arg"] + 1, _text(m["value"]))
+        if m.get("check") == "negfirst":
+            after = "argument %d keeps its numbers, with every negative number first" % (m["arg"] + 1)
         text = after if t["expected"] is None and not m.get("prefix") else "%s, and %s" % (text, after)
     return text
 
@@ -613,7 +616,14 @@ def _run_test(t, g, out, state, total_deadline, watch):
         if m.get("prefix"):
             k = got if isinstance(got, int) and not isinstance(got, bool) else -1
             after = after[:k] if isinstance(after, list) and k >= 0 else after
-        ok_after = _same(after, m["value"], how if how in ("unordered", "sets") else "exact")
+        if m.get("check") == "negfirst":
+            # The same numbers, with every negative one before all the others (any order inside).
+            before = m["value"]
+            ok_after = isinstance(after, list) and sorted(after) == sorted(before) and all(
+                not (after[i] >= 0 and after[i + 1] < 0) for i in range(len(after) - 1)
+            )
+        else:
+            ok_after = _same(after, m["value"], how if how in ("unordered", "sets") else "exact")
         ok_return = passed if t["expected"] is not None or m.get("prefix") else True
         if t["expected"] is None and not m.get("prefix"):
             got_text = "argument %d became %s" % (m["arg"] + 1, _text(after))

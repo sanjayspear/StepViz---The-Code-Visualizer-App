@@ -22,7 +22,7 @@ export interface PracticeTest {
    */
   compare?: 'exact' | 'approx' | 'unordered' | 'sets' | 'output' | 'topo' | 'peak' | 'gray' | 'inorder';
   /** the argument after the call (in-place questions); prefix: only its first <answer> items */
-  mutated?: { arg: number; value: Value; prefix?: boolean };
+  mutated?: { arg: number; value: Value; prefix?: boolean; check?: 'negfirst' };
   /** a node of the input list reported by its position or its value */
   returns?: 'index' | 'value';
   /** a second function applied to the answer (serialize, then deserialize) */
