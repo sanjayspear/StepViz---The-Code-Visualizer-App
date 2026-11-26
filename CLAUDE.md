@@ -346,6 +346,29 @@ Playwright tests. Static build for GitHub Pages.
   Home ("static variables inside functions"); before, it was wrongly reset on
   every call. Unsupported: several statics in one line, static arrays written
   with [ ], static pointers.
+- Checked against real compilers (D1, 2026-11-26): tests/golden holds everyday
+  Java / C++ / C programs whose expected output comes from real javac/java 21
+  and clang (scripts/golden-refresh.sh rebuilds it; avoid library-specific
+  orders). StepViz must print exactly the same (tests/golden-java-cpp.spec.ts).
+  Wrong results it found and fixed: C/C++ printf / cout / to_string rounding
+  is now exact on the binary value with ties to even (printf("%.1f", 0.25)
+  is 0.2, %.0f of 2.5 is 2, fixed 0.125 to 2 places is 0.12; %g picks its
+  form after rounding; src/runner/numfmt.ts); Java's String.format rounds the
+  shortest decimal form half-up (%.1f of 0.15 is 0.2, %.3f of 1.0005 is
+  1.001), and %o works; C round() takes halves away from zero (round(-2.5) is
+  -3); Java a[i++] = a[i] * 10 works out the array and the position first,
+  and a[i++] += 2 / a[i++]++ move i once. C/C++ float is now a real 32-bit
+  float (9.99f, float arithmetic rounded like C; printf / cout print its exact
+  value). Java byte, short and float stay on Home ("StepViz can't run byte
+  numbers (use int) in Java yet.", "float numbers (use double)", "float
+  numbers like 1.5f (use double: 1.5)") instead of being treated as int /
+  double. Added: Java new String(...), Double.NaN / POSITIVE_INFINITY /
+  MAX_VALUE / MIN_VALUE; C++ string find / rfind (string::npos prints
+  18446744073709551615), insert, erase, replace, append, push_back, pop_back,
+  clear, s[i] = 'x', string(...) / string(n, c); toupper / tolower and
+  isdigit / isalpha / isalnum / isspace / isupper / islower / ispunct (glibc's
+  answers: isdigit gives 2048, like g++ on Linux); vector insert / erase at
+  v.begin() + k; C strcpy / strcat / strncpy (with a "does not fit" crash).
 - C++ pair and unordered containers (C7, 2026-11-26): pair<A, B> (= {1, "a"},
   p(1, "a"), make_pair, p.first / p.second, vector<pair<...>> with {..},
   push_back({..}), emplace_back(a, b)); shown like map entries: pair {first:
@@ -623,7 +646,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`); C6 C++ libstdc++ sort, lambdas, algorithms, stack/queue/priority_queue (`tests/algorithms-cpp.spec.ts`); C7 C++ pair, unordered_map, unordered_set (`tests/containers-cpp.spec.ts`; 245 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`); C6 C++ libstdc++ sort, lambdas, algorithms, stack/queue/priority_queue (`tests/algorithms-cpp.spec.ts`); C7 C++ pair, unordered_map, unordered_set (`tests/containers-cpp.spec.ts`); D1 checked against real javac / clang (`tests/golden/`, `tests/golden-java-cpp.spec.ts`, `scripts/golden-refresh.sh`; 282 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

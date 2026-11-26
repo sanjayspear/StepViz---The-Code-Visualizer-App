@@ -41,6 +41,7 @@
 // StepViz is stricter than a real compiler where real C++ would quietly give
 // garbage: an index outside a list, a variable used before it has a value and
 // whole-number division by zero all stop the program with a plain-words crash.
+import { cFixed, cExp, cGeneral } from '../numfmt';
 import type { Node, Tree } from 'web-tree-sitter';
 import type { RawRunResult } from '../protocol';
 import { Input } from '../input';
@@ -60,7 +61,7 @@ import {
 // --------------------------------------------------------------------------
 // Values
 
-type Prim = 'int' | 'long' | 'double' | 'bool' | 'char' | 'string';
+type Prim = 'int' | 'long' | 'double' | 'float' | 'bool' | 'char' | 'string';
 type CType = Prim | 'vector' | 'array' | 'void' | 'auto' | 'exception' | 'struct' | 'pointer' | 'map' | 'iter' | 'set' | 'stream' | 'func';
 /** stack, queue and priority_queue are kept as lists (a vector) with their own methods; pqmin: greater<T> */
 type Coll = 'stack' | 'queue' | 'pq' | 'pqmin';
@@ -285,6 +286,8 @@ export interface CVal {
   coll?: Coll;
   /** unordered_map / unordered_set (v is a HashEntries) */
   hashed?: boolean;
+  /** string::npos (an unsigned size_t): -1 here, printed as 18446744073709551615 like C++ */
+  npos?: boolean;
   /** exception: its class (runtime_error, out_of_range...); struct: its struct or class name */
   cls?: string;
   /** pointer: the type it points to (v is a PtrTarget, or null for nullptr) */
@@ -405,7 +408,9 @@ function isA(type: string, ancestor: string): boolean {
 /** An item or variable that has no value yet. */
 const UNSET_VAL: CVal = { t: 'int', v: null };
 const isCVal = (x: unknown): x is CVal => typeof x === 'object' && x !== null && !Array.isArray(x) && 't' in x && 'v' in x;
-const NUMERIC = new Set<CType>(['int', 'long', 'double', 'char', 'bool']);
+const NUMERIC = new Set<CType>(['int', 'long', 'double', 'float', 'char', 'bool']);
+/** A double or a float (a float is a 32-bit number: every result is rounded to it, like C). */
+const isReal = (t: CType) => t === 'double' || t === 'float';
 
 const int = (n: number): CVal => ({ t: 'int', v: n | 0 });
 /**
@@ -425,6 +430,7 @@ const lng = (n: number | bigint): CVal => {
   return { t: 'long', v: Number.isFinite(x) && Math.abs(x) < 2 ** 63 ? long64(BigInt(x)) : long64(-(2n ** 63n)) };
 };
 const dbl = (n: number): CVal => ({ t: 'double', v: n });
+const flt = (n: number): CVal => ({ t: 'float', v: Math.fround(n) });
 /** A whole number read from input: an int when it fits, a long otherwise (the box it goes into decides the rest). */
 const wholeFrom = (word: string): CVal => {
   const b = BigInt(word);
@@ -434,22 +440,13 @@ const bool = (b: boolean): CVal => ({ t: 'bool', v: b });
 const chr = (c: string): CVal => ({ t: 'char', v: c });
 const strv = (s: string): CVal => ({ t: 'string', v: s });
 const VOID: CVal = { t: 'void', v: null };
+/** string::npos: "not found" from find (size_t's largest value). */
+const NPOS: CVal = { t: 'long', v: -1, npos: true };
 
 /** cout's default way of writing a double: 6 significant digits, like %g. */
 export function cppDouble(x: number, precision = 6): string {
-  if (Number.isNaN(x)) return 'nan';
-  if (!Number.isFinite(x)) return x > 0 ? 'inf' : '-inf';
-  if (x === 0) return Object.is(x, -0) ? '-0' : '0';
-  const p = Math.max(1, precision);
-  const exp = Math.floor(Math.log10(Math.abs(x)));
-  if (exp < -4 || exp >= p) {
-    const [m, e] = x.toExponential(p - 1).split('e');
-    const mantissa = m.includes('.') ? m.replace(/0+$/, '').replace(/\.$/, '') : m;
-    const n = Number(e);
-    return `${mantissa}e${n < 0 ? '-' : '+'}${String(Math.abs(n)).padStart(2, '0')}`;
-  }
-  const fixed = x.toFixed(Math.max(0, p - 1 - exp));
-  return fixed.includes('.') ? fixed.replace(/0+$/, '').replace(/\.$/, '') : fixed;
+  // %g on the exact binary value, ties to even (printf's and cout's rounding).
+  return cGeneral(x, precision);
 }
 
 /** How a value shows in a frame. */
@@ -473,6 +470,7 @@ export function formatCpp(x: unknown): string | undefined {
     case 'char':
       return `'${x.v}'`;
     case 'double':
+    case 'float':
       return cppDouble(x.v as number);
     case 'bool':
       return x.v ? 'true' : 'false';
@@ -783,9 +781,9 @@ const FEATURES: Record<string, string> = {
 };
 
 const INCLUDES = new Set([
-  '<iostream>', '<vector>', '<string>', '<cmath>', '<algorithm>', '<iomanip>', '<utility>', '<climits>', '<bits/stdc++.h>', '<stdexcept>', '<exception>', '<map>', '<set>', '<stack>', '<queue>', '<numeric>', '<functional>', '<unordered_map>', '<unordered_set>',
+  '<iostream>', '<vector>', '<string>', '<cmath>', '<algorithm>', '<iomanip>', '<utility>', '<climits>', '<bits/stdc++.h>', '<stdexcept>', '<exception>', '<map>', '<set>', '<stack>', '<queue>', '<numeric>', '<functional>', '<unordered_map>', '<unordered_set>', '<cctype>',
 ]);
-const C_INCLUDES = new Set(['<stdio.h>', '<stdlib.h>', '<math.h>', '<string.h>', '<stdbool.h>', '<limits.h>']);
+const C_INCLUDES = new Set(['<stdio.h>', '<stdlib.h>', '<math.h>', '<string.h>', '<stdbool.h>', '<limits.h>', '<ctype.h>']);
 
 interface Program {
   main: Node;
@@ -1121,7 +1119,8 @@ function primOf(n: Node | null): Prim | 'void' | 'auto' {
   if (n?.type === 'placeholder_type_specifier' || text === 'auto') return 'auto';
   if (['int', 'short'].includes(text)) return 'int';
   if (/^(long|long long|long int|long long int|size_t)$/.test(text)) return 'long';
-  if (text === 'double' || text === 'float' || text === 'long double') return 'double';
+  if (text === 'double' || text === 'long double') return 'double';
+  if (text === 'float') return 'float';
   if (text === 'char') return 'char';
   if (text === 'bool' || text === '_Bool') return 'bool';
   if (text === 'string' && dialect === 'cpp') return 'string';
@@ -1135,7 +1134,7 @@ function typeOf(typeNode: Node | null): DeclType {
     const name = typeNode.childForFieldName('name')!.text;
     const args = named(typeNode.childForFieldName('arguments')).map((x) => primOf(named(x).find((c) => c.type !== 'type_qualifier') ?? null));
     const [k, v] = name === 'unordered_map' ? args : [args[0], args[0]];
-    if (!k || !v || k === 'void' || k === 'auto' || v === 'void' || v === 'auto' || k === 'double') throw unsupported(typeNode, `this kind of ${name}`);
+    if (!k || !v || k === 'void' || k === 'auto' || v === 'void' || v === 'auto' || isReal(k)) throw unsupported(typeNode, `this kind of ${name}`);
     if (isStructItem(k)) throw unsupported(typeNode, `${name} with struct keys`);
     return { t: name === 'unordered_map' ? 'map' : 'set', kt: k, elem: v, hashed: true };
   }
@@ -1244,7 +1243,7 @@ const declarators = (s: Node) => s.childrenForFieldName('declarator').filter((d)
 // Loops-and-lists view
 
 const LOOP_TYPES = new Set(['for_statement', 'for_range_loop', 'while_statement', 'do_statement']);
-const MUTATORS = new Set(['push_back', 'pop_back', 'clear', 'insert', 'erase', 'emplace_back', 'resize', 'push', 'pop']);
+const MUTATORS = new Set(['push_back', 'pop_back', 'clear', 'insert', 'erase', 'emplace_back', 'resize', 'push', 'pop', 'append', 'replace']);
 
 const subscriptBase = (n: Node | null): string | null =>
   n?.type === 'subscript_expression' && n.childForFieldName('argument')?.type === 'identifier' ? n.childForFieldName('argument')!.text : null;
@@ -1657,6 +1656,7 @@ class Interp {
           const args = named(e.childForFieldName('arguments'));
           if (/^(std::)?getline$/.test(f.text) && args[1]) return { k: 'input', t: [args[1].text] };
           if (['printf', 'puts', 'putchar'].includes(f.text)) return { k: 'print' };
+          if (['strcpy', 'strcat', 'strncpy'].includes(f.text) && args[0]) return { k: 'assign', t: [this.targetName(args[0])] };
           if (f.text === 'scanf') {
             return { k: 'input', t: args.slice(1).map((a) => (a.type === 'pointer_expression' ? this.inputTarget(a.childForFieldName('argument')!) : this.inputTarget(a))) };
           }
@@ -2009,6 +2009,7 @@ class Interp {
 
   private zeroOf(t: Prim): CVal {
     if (t === 'double') return dbl(0);
+    if (t === 'float') return flt(0);
     if (t === 'bool') return bool(false);
     if (t === 'char') return chr('\u0000');
     if (t === 'string') return strv('');
@@ -2867,8 +2868,9 @@ class Interp {
     if (NUMERIC.has(t) && NUMERIC.has(v.t)) {
       const x = this.num(v);
       if (t === 'int') return v.t === 'long' ? int(Number(BigInt.asIntN(32, this.big(v)))) : int(Math.trunc(x));
-      if (t === 'long') return v.t === 'double' ? lng(x) : lng(this.big(v));
+      if (t === 'long') return isReal(v.t) ? lng(x) : lng(this.big(v));
       if (t === 'double') return dbl(x);
+      if (t === 'float') return flt(x);
       if (t === 'char') return chr(String.fromCharCode(Math.trunc(x) & 0xff));
       if (t === 'bool') return bool(x !== 0);
     }
@@ -2898,13 +2900,15 @@ class Interp {
   private arith(op: string, a: CVal, b: CVal, at: Node): CVal {
     const x = this.num(a);
     const y = this.num(b);
-    if (a.t === 'double' || b.t === 'double') {
+    if (isReal(a.t) || isReal(b.t)) {
+      // double if either side is a double; float if the real side is a float (rounded to 32 bits).
+      const make = a.t === 'double' || b.t === 'double' ? dbl : flt;
       switch (op) {
-        case '+': return dbl(x + y);
-        case '-': return dbl(x - y);
-        case '*': return dbl(x * y);
-        case '/': return dbl(x / y);
-        case '%': throw new CompileError(lineOf(at), '% only works on whole numbers in C++.');
+        case '+': return make(x + y);
+        case '-': return make(x - y);
+        case '*': return make(x * y);
+        case '/': return make(x / y);
+        case '%': throw new CompileError(lineOf(at), `% only works on whole numbers in ${LANG_NAME()}.`);
       }
     }
     // A shift keeps the type of its left side (int << long long is an int).
@@ -3027,7 +3031,7 @@ class Interp {
       throw new CompileError(lineOf(n), `${op} does not work on text.`);
     }
     if (['==', '!=', '<', '<=', '>', '>='].includes(op)) {
-      const exact = (a.t === 'long' || b.t === 'long') && a.t !== 'double' && b.t !== 'double';
+      const exact = (a.t === 'long' || b.t === 'long') && !isReal(a.t) && !isReal(b.t);
       const x = exact ? this.big(a) : this.num(a);
       const y = exact ? this.big(b) : this.num(b);
       return bool(op === '==' ? x === y : op === '!=' ? x !== y : op === '<' ? x < y : op === '<=' ? x <= y : op === '>' ? x > y : x >= y);
@@ -3111,8 +3115,12 @@ class Interp {
 
   private coutText(v: CVal, at: Node): string {
     switch (v.t) {
+      case 'long':
+        if (v.npos) return '18446744073709551615';
+        return String(v.v);
       case 'double':
-        return this.stream.fixed ? (v.v as number).toFixed(this.stream.precision) : cppDouble(v.v as number, this.stream.precision);
+      case 'float':
+        return this.stream.fixed ? cFixed(v.v as number, this.stream.precision) : cppDouble(v.v as number, this.stream.precision);
       case 'bool':
         return this.stream.boolalpha ? String(v.v) : v.v ? '1' : '0';
       case 'vector':
@@ -3145,9 +3153,9 @@ class Interp {
         value = chr(word[0]);
         this.input.word();
         if (word.length > 1) throw new CppCrash('BadInput', `expected one character but read "${word}"`);
-      } else if (current === 'double') {
+      } else if (isReal(current as CType)) {
         if (Number.isNaN(Number(word))) throw new CppCrash('BadInput', `"${word}" is not a number`);
-        value = dbl(Number(this.input.word()));
+        value = (current === 'float' ? flt : dbl)(Number(this.input.word()));
       } else if (current === 'bool') {
         if (word !== '0' && word !== '1') throw new CppCrash('BadInput', `"${word}" is not 0 or 1`);
         value = bool(this.input.word() === '1');
@@ -3207,7 +3215,14 @@ class Interp {
         return entry[1];
       }
       const { list, index } = this.element(target);
-      if (list.t === 'string') throw unsupported(target, 'changing one letter of text');
+      if (list.t === 'string') {
+        // s[0] = 'J': the text gets the new letter (C++ strings can be changed in place).
+        const base = target.childForFieldName('argument')!;
+        const letter = this.convert(value, { t: 'char' }, target, target.text);
+        const text = list.v as string;
+        this.assignTo(base, strv(text.slice(0, index) + (letter.v as string) + text.slice(index + 1)));
+        return letter;
+      }
       const items = list.v as CVal[];
       items[index] = this.copy(this.convert(value, this.itemType(list.elem), target, target.text));
       return items[index];
@@ -3308,6 +3323,7 @@ class Interp {
     if (!b) {
       if (/^(std::)?(endl|cout|cin)$/.test(id.text)) throw unsupported(id, `${id.text} here`);
       if (id.text === 'NULL') return { t: 'pointer', v: null };
+      if (/^(std::)?string::npos$/.test(id.text.replace(/\s+/g, ''))) return NPOS;
       if (id.text === 'INT_MAX') return int(2147483647);
       if (id.text === 'INT_MIN') return int(-2147483648);
       throw new CompileError(lineOf(id), `${id.text} is used but never declared.`);
@@ -3345,7 +3361,8 @@ class Interp {
     switch (n.type) {
       case 'number_literal': {
         const text = n.text.replace(/'/g, '').toLowerCase();
-        if (/[.e]/.test(text) && !text.startsWith('0x')) return dbl(parseFloat(text.replace(/f$/, '')));
+        // 9.99f is a float; 9.99 a double.
+        if (/[.e]/.test(text) && !text.startsWith('0x')) return /f$/.test(text) ? flt(parseFloat(text.slice(0, -1))) : dbl(parseFloat(text));
         const digits = text.replace(/[ul]+$/, '');
         const value = BigInt(digits.startsWith('0x') || digits.startsWith('0b') ? digits : /^0\d/.test(digits) ? `0o${digits.slice(1)}` : digits);
         // A whole number too big for an int is a long in C++ (3000000000 needs no L).
@@ -3398,8 +3415,8 @@ class Interp {
         if (op === '!' || op === 'not') return bool(!this.truthy(v));
         const x = this.num(v);
         const t = v.t === 'char' || v.t === 'bool' ? 'int' : v.t;
-        if (op === '-') return t === 'double' ? dbl(-x) : t === 'long' ? lng(-this.big(v)) : int(-x);
-        if (op === '+') return t === 'double' ? dbl(x) : t === 'long' ? v : int(x);
+        if (op === '-') return t === 'double' ? dbl(-x) : t === 'float' ? flt(-x) : t === 'long' ? lng(-this.big(v)) : int(-x);
+        if (op === '+') return isReal(t) ? v : t === 'long' ? v : int(x);
         if (op === '~') return t === 'long' ? lng(~this.big(v)) : int(~x);
         throw unsupported(n, `the operator ${op}`);
       }
@@ -3496,7 +3513,7 @@ class Interp {
       const objNode = f.childForFieldName('argument')!;
       const method = f.childForFieldName('field')!.text;
       const obj = this.eval(objNode);
-      if (obj.t === 'string') return this.stringMethod(n, obj, method, args());
+      if (obj.t === 'string') return this.stringMethod(n, obj, method, args(), objNode);
       if (obj.t === 'exception' && method === 'what' && !argNodes.length) return strv(obj.v as string);
       if (obj.t === 'vector') return this.vectorMethod(n, objNode, obj, method, argNodes);
       if (obj.t === 'map') return this.mapMethod(n, objNode, obj, method, argNodes);
@@ -3583,6 +3600,55 @@ class Interp {
         return this.scanf(n, argNodes);
       case 'strlen':
         return lng(this.textOf(this.eval(argNodes[0]), n).length);
+      case 'string': {
+        // string("text") / string(3, 'x') ("xxx") / string() ("")
+        if (dialect !== 'cpp') break;
+        const a = args();
+        if (a.length === 0) return strv('');
+        if (a.length === 1 && a[0].t === 'string') return strv(a[0].v as string);
+        if (a.length === 1 && a[0].t === 'char') throw new CompileError(lineOf(n), "string('a') does not work in C++: write string(1, 'a').");
+        if (a.length === 2 && a[1].t === 'char') return strv((a[1].v as string).repeat(Math.max(0, this.num(a[0]))));
+        throw unsupported(n, 'this kind of string(...)');
+      }
+      case 'toupper':
+      case 'tolower': {
+        // They give back an int: cout << toupper(c) prints a number, (char) toupper(c) the letter.
+        const c = this.num(args()[0]);
+        const ch = String.fromCharCode(c);
+        return int(name === 'toupper' ? (/[a-z]/.test(ch) ? c - 32 : c) : /[A-Z]/.test(ch) ? c + 32 : c);
+      }
+      case 'isdigit':
+      case 'isalpha':
+      case 'isalnum':
+      case 'isspace':
+      case 'isupper':
+      case 'islower':
+      case 'ispunct': {
+        // glibc's answers (what g++ on Linux prints): 0 for no, a bit of its table for yes.
+        const c = this.num(args()[0]);
+        const ch = c >= 0 && c < 128 ? String.fromCharCode(c) : '';
+        const yes: Record<string, [RegExp, number]> = {
+          isdigit: [/[0-9]/, 2048], isalpha: [/[A-Za-z]/, 1024], isalnum: [/[A-Za-z0-9]/, 8], isspace: [/[ \t\n\v\f\r]/, 8192],
+          isupper: [/[A-Z]/, 256], islower: [/[a-z]/, 512], ispunct: [/[!-\/:-@[-`{-~]/, 4],
+        };
+        const [re, bit] = yes[name];
+        return int(ch && re.test(ch) ? bit : 0);
+      }
+      case 'strcpy':
+      case 'strcat':
+      case 'strncpy': {
+        // strcpy(dst, src) / strcat(dst, src): the letters go into the char array dst (it must have room).
+        const [dst, src, count] = argNodes;
+        const arr = this.eval(dst);
+        if (arr.t !== 'array' || arr.elem !== 'char') throw new CompileError(lineOf(dst), `${dst.text} must be a char array to hold text.`);
+        const items = arr.v as CVal[];
+        let text = this.textOf(this.eval(src), n);
+        if (name === 'strncpy') text = text.slice(0, this.num(this.eval(count)));
+        const start = name === 'strcat' ? charText(items).length : 0;
+        if (start + text.length + 1 > items.length) throw new CppCrash('IndexOutOfRange', `"${text}" does not fit in ${dst.text} (room for ${items.length - 1} letters)`);
+        [...text, '\u0000'].forEach((c, j) => (items[start + j] = chr(c)));
+        return VOID;
+      }
       case 'strcmp': {
         const [a, b] = args().map((v) => this.textOf(v, n));
         return int(a < b ? -1 : a > b ? 1 : 0);
@@ -3666,7 +3732,7 @@ class Interp {
       }
       case 'to_string': {
         const v = args()[0];
-        return strv(v.t === 'double' ? (v.v as number).toFixed(6) : v.t === 'long' ? String(v.v) : String(this.num(v)));
+        return strv(isReal(v.t) ? cFixed(v.v as number, 6) : v.t === 'long' ? String(v.v) : String(this.num(v)));
       }
       case 'stoi': {
         const s = args()[0];
@@ -3701,12 +3767,17 @@ class Interp {
           const x = this.big(a);
           return lng(x < 0n ? -x : x);
         }
+        if (a.t === 'float') return flt(Math.abs(a.v as number));
         return a.t === 'double' ? dbl(Math.abs(a.v as number)) : int(Math.abs(this.num(a)));
+      }
+      case 'round': {
+        // C's round: halves go away from zero (round(-2.5) is -3).
+        const x = this.num(args()[0]);
+        return dbl(x < 0 ? -Math.round(-x) : Math.round(x));
       }
       case 'sqrt':
       case 'floor':
       case 'ceil':
-      case 'round':
         return dbl(Math[name](this.num(args()[0])));
       case 'pow': {
         const [a, b] = args();
@@ -3747,12 +3818,12 @@ class Interp {
         case 'E':
         case 'g':
         case 'G': {
-          if (v.t !== 'double') throw bad(conv, v);
+          if (!isReal(v.t)) throw bad(conv, v); // a float is passed to printf as a double
           const x = v.v as number;
           const p = prec === undefined ? 6 : Number(prec);
-          if (conv === 'f' || conv === 'F') text = x.toFixed(p);
-          else if (conv === 'g' || conv === 'G') text = cppDouble(x, p || 1);
-          else text = x.toExponential(p).replace(/e([+-])(\d)$/, 'e$10$2');
+          if (conv === 'f' || conv === 'F') text = cFixed(x, p);
+          else if (conv === 'g' || conv === 'G') text = cGeneral(x, p);
+          else text = cExp(x, p);
           if (conv === 'E' || conv === 'G') text = text.toUpperCase();
           if (flags.includes('+') && x >= 0) text = `+${text}`;
           break;
@@ -3835,8 +3906,62 @@ class Interp {
     return int(convs.length);
   }
 
-  private stringMethod(n: Node, s: CVal, method: string, a: CVal[]): CVal {
+  private stringMethod(n: Node, s: CVal, method: string, a: CVal[], objNode?: Node): CVal {
     const text = s.v as string;
+    const textArg = (v: CVal | undefined) => {
+      if (!v || (v.t !== 'string' && v.t !== 'char')) throw new CompileError(lineOf(n), `${method} needs text or a char here.`);
+      return String(v.v);
+    };
+    const pos = (v: CVal | undefined, what = 'position') => {
+      const i = this.num(v!);
+      if (i < 0 || i > text.length) {
+        throw libraryException('out_of_range', `${what} ${i} is outside a text of length ${text.length}`, `basic_string::${method}: __pos (which is ${i}) > this->size() (which is ${text.length})`);
+      }
+      return i;
+    };
+    // Changing the text in place: s.insert(...), s.erase(...), s.append(...), s.push_back(c)...
+    const store = (next: string): CVal => {
+      if (!objNode) throw unsupported(n, `string.${method}() here`);
+      this.assignTo(objNode, strv(next));
+      return VOID;
+    };
+    switch (method) {
+      case 'find':
+      case 'rfind': {
+        // Not found: string::npos.
+        const what = textArg(a[0]);
+        const from = a[1] ? this.num(a[1]) : method === 'find' ? 0 : text.length;
+        const i = method === 'find' ? (from > text.length ? -1 : text.indexOf(what, from)) : text.lastIndexOf(what, from);
+        return i < 0 ? NPOS : lng(i);
+      }
+      case 'insert':
+        if (a.length !== 2) break;
+        {
+          const i = pos(a[0]);
+          return store(text.slice(0, i) + textArg(a[1]) + text.slice(i));
+        }
+      case 'erase': {
+        const i = a.length ? pos(a[0]) : 0;
+        const len = a.length > 1 ? this.num(a[1]) : text.length;
+        return store(text.slice(0, i) + text.slice(i + Math.max(0, len)));
+      }
+      case 'replace': {
+        if (a.length !== 3) break;
+        const i = pos(a[0]);
+        return store(text.slice(0, i) + textArg(a[2]) + text.slice(i + Math.max(0, this.num(a[1]))));
+      }
+      case 'append':
+        if (a.length !== 1) break;
+        return store(text + textArg(a[0]));
+      case 'push_back':
+        if (a[0]?.t !== 'char') throw new CompileError(lineOf(n), 'push_back on text needs a char, like s.push_back(\'a\').');
+        return store(text + String(a[0].v));
+      case 'pop_back':
+        if (!text.length) throw new CppCrash('IndexOutOfRange', 'pop_back on empty text');
+        return store(text.slice(0, -1));
+      case 'clear':
+        return store('');
+    }
     if ((method === 'length' || method === 'size') && a.length === 0) return lng(text.length);
     if (method === 'empty' && a.length === 0) return bool(text.length === 0);
     if (method === 'at' && a.length === 1) {
@@ -4044,6 +4169,27 @@ class Interp {
         const item = fill ? this.convert(fill, this.itemType(vec.elem), n, objNode.text) : this.emptyItem(vec.elem ?? 'int');
         while (items.length < k) items.push(this.copy(item));
         items.length = k;
+        return VOID;
+      }
+      case 'insert':
+      case 'erase': {
+        // v.insert(v.begin() + 1, x) / v.erase(v.begin() + 2) / v.erase(v.begin(), v.begin() + 2)
+        const place = (v: CVal | undefined) => {
+          const t = v?.t === 'pointer' ? (v.v as PtrTarget | null) : null;
+          if (!t || t.arr !== items) throw unsupported(n, `vector.${method}() without a place like ${objNode.text}.begin() + 1`);
+          if (t.index! < 0 || t.index! > items.length) throw new CppCrash('IndexOutOfRange', `the place is outside ${objNode.text}`);
+          return t.index!;
+        };
+        const [first, second] = argNodes.map((x) => this.eval(x));
+        const at = place(first);
+        if (method === 'insert') {
+          if (argNodes.length !== 2) throw unsupported(n, 'this kind of vector.insert()');
+          items.splice(at, 0, this.copy(this.convert(second, this.itemType(vec.elem), n, objNode.text)));
+          return VOID;
+        }
+        const end = second ? place(second) : at + 1;
+        if (end > items.length || at >= items.length) throw new CppCrash('IndexOutOfRange', `erase outside ${objNode.text}`);
+        items.splice(at, end - at);
         return VOID;
       }
       case 'emplace_back':

@@ -1,0 +1,5 @@
+Index 5 out of bounds for length 3
+Index 10 out of bounds for length 3
+java.lang.NumberFormatException: For input string: "12x"
+java.lang.ArithmeticException: / by zero
+Index 2 out of bounds for length 0

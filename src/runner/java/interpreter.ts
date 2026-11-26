@@ -34,7 +34,8 @@
 // for printing, == / default equals compare objects, objects in arrays and lists,
 // null objects (NullPointerException). Frames show objects as Dog {name: "Rex",
 // age: 3}; a constructor runs in a "new Dog(...)" frame with this first.
-// Not yet: inheritance, interfaces, static variables, inner classes, Object.
+// Not yet: inner (non-static) classes, generic classes, Object.
+import { javaFixed, javaExp } from '../numfmt';
 import type { Node, Tree } from 'web-tree-sitter';
 import type { RawRunResult } from '../protocol';
 import { Input } from '../input';
@@ -924,6 +925,11 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
         throw unsupported(n, 'this kind of case');
       }
       if (n.type === 'type_identifier' && !allowed(n.text)) throw unsupported(n, `the type ${n.text}`);
+      // byte, short and float have their own sizes and rounding in Java; StepViz would treat them as int / double.
+      if ((n.type === 'integral_type' && (n.text === 'byte' || n.text === 'short')) || (n.type === 'floating_point_type' && n.text === 'float')) {
+        throw unsupported(n, `${n.text} numbers (use ${n.text === 'float' ? 'double' : 'int'})`);
+      }
+      if (n.type === 'decimal_floating_point_literal' && /[fF]$/.test(n.text)) throw unsupported(n, 'float numbers like 1.5f (use double: 1.5)');
       if (n.type === 'explicit_constructor_invocation') {
         if (n.childForFieldName('constructor')?.type !== 'super') throw unsupported(n, 'this(...) calls');
         const body = n.parent;
@@ -965,7 +971,7 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
         } else if (isException) {
           const args = named(n.childForFieldName('arguments'));
           if (args.length > 1) throw unsupported(n, 'exceptions with a cause');
-        } else if (type && BUILDER_TYPES.has(type.text)) {
+        } else if (type && (BUILDER_TYPES.has(type.text) || type.text === 'String')) {
           // new StringBuilder() / ("text") / (16)
         } else if (!isList && !/^new\s+Scanner\s*\(\s*System\.in\s*\)$/.test(n.text)) {
           throw unsupported(n, type?.text === 'List' || named(type)[0]?.text === 'List' ? 'new List (write new ArrayList<>())' : 'new objects');
@@ -1353,7 +1359,7 @@ const isScannerRead = (e: Node | null) =>
 /** System.out.printf / String.format for %d %s %f %.2f %c %b %x %n %% and widths. */
 function javaFormat(format: string, args: JVal[]): string {
   let k = 0;
-  return format.replace(/%([-0+ ,]*)(\d+)?(?:\.(\d+))?([dsfcbxXneE%])/g, (_m, flags: string, width: string, prec: string, conv: string) => {
+  return format.replace(/%([-0+ ,]*)(\d+)?(?:\.(\d+))?([dsfcbxXoneE%])/g, (_m, flags: string, width: string, prec: string, conv: string) => {
     if (conv === 'n') return '\n';
     if (conv === '%') return '%';
     const a = args[k++];
@@ -1371,7 +1377,8 @@ function javaFormat(format: string, args: JVal[]): string {
       case 'E': {
         if (a.t !== 'double') throw new JavaException('IllegalFormatConversionException', `${conv} != ${a.t}`);
         const p = prec === undefined ? 6 : Number(prec);
-        text = conv === 'f' ? (a.v as number).toFixed(p) : (a.v as number).toExponential(p).replace(/e([+-])(\d)$/, 'e$10$2');
+        // Java rounds the shortest decimal form of the double half-up (%.1f of 0.15 is 0.2).
+        text = conv === 'f' ? javaFixed(a.v as number, p) : javaExp(a.v as number, p);
         if (conv === 'E') text = text.toUpperCase();
         if (flags.includes(',')) {
           const [i, f] = text.split('.');
@@ -1387,7 +1394,10 @@ function javaFormat(format: string, args: JVal[]): string {
         break;
       case 'x':
       case 'X':
-        text = (Number(a.v) >>> 0).toString(16);
+      case 'o':
+        if (a.t !== 'int' && a.t !== 'long') throw new JavaException('IllegalFormatConversionException', `${conv} != ${a.t}`);
+        // Negative numbers show their two's-complement bits, like Java (an int as 32 bits, a long as 64).
+        text = (a.t === 'long' ? BigInt.asUintN(64, BigInt(a.v as number | bigint)) : BigInt(Number(a.v) >>> 0)).toString(conv === 'o' ? 8 : 16);
         if (conv === 'X') text = text.toUpperCase();
         break;
       default:
@@ -2496,9 +2506,13 @@ class Interp {
   /** The array and position for a[i], with Java's bounds check. */
   private element(n: Node): { array: JVal[]; index: number; elem: Prim } {
     const arr = this.eval(n.childForFieldName('array')!);
+    return this.slot(n, arr, this.eval(n.childForFieldName('index')!));
+  }
+
+  /** a[i] once the array and the position are worked out: Java's null and bounds checks. */
+  private slot(n: Node, arr: JVal, index: JVal): { array: JVal[]; index: number; elem: Prim } {
     if (arr.t !== 'array') throw new CompileError(lineOf(n), `${n.childForFieldName('array')!.text} is not an array.`);
     if (arr.v === null) throw new JavaException('NullPointerException', 'Cannot load from array because it is null');
-    const index = this.eval(n.childForFieldName('index')!);
     if (index.t !== 'int' && index.t !== 'char' && index.t !== 'long') throw new CompileError(lineOf(n), 'An array position must be a whole number.');
     const i = this.num(index);
     const items = arr.v as JVal[];
@@ -2645,17 +2659,38 @@ class Interp {
         const target = named(n)[0];
         const prefix = n.child(0)?.type === '++' || n.child(0)?.type === '--';
         const op = (prefix ? n.child(0) : n.child(1))!.type;
-        const before = this.readTarget(target);
+        // a[i++]++: the array and the position are worked out once.
+        const at = target.type === 'array_access' ? this.element(target) : null;
+        const before = at ? at.array[at.index] : this.readTarget(target);
         if (!NUMERIC.has(before.t)) throw new CompileError(lineOf(n), `${op} only works on numbers.`);
         // x++ keeps x's type (a char stays a char, an int wraps at 32 bits).
         const after = this.castTo(before.t, this.arith(op === '++' ? '+' : '-', before, int(1), n), n);
-        const stored = this.assignTo(target, after);
+        const stored = at ? (at.array[at.index] = this.coerce(after, this.itemType(at.elem), target, target.text)) : this.assignTo(target, after);
         return prefix ? stored : before;
       }
       case 'assignment_expression': {
         const op = n.childForFieldName('operator')!.type;
         const left = n.childForFieldName('left')!;
         const rightNode = n.childForFieldName('right')!;
+        if (left.type === 'array_access') {
+          // Java works out the array and the position first, then the right side (a[i++] = a[i] * 10),
+          // and each only once (a[i++] += 2 moves i once).
+          const arr = this.eval(left.childForFieldName('array')!);
+          const index = this.eval(left.childForFieldName('index')!);
+          if (op === '=') {
+            const right = rightNode.type === 'array_initializer' ? this.arrayFrom(rightNode, arr.elem?.endsWith('[]') ? (arr.elem.slice(0, -2) as Prim) : 'int') : this.eval(rightNode);
+            const at = this.slot(left, arr, index);
+            at.array[at.index] = this.coerce(right, this.itemType(at.elem), left, left.text);
+            return at.array[at.index];
+          }
+          const at = this.slot(left, arr, index);
+          const current = at.array[at.index];
+          const right = this.eval(rightNode);
+          const bin = op.slice(0, -1);
+          const result = bin === '+' && current.t === 'String' ? str(javaString(current) + javaString(right)) : this.arith(bin, current, right, n);
+          at.array[at.index] = this.coerce(result.t === current.t || current.t === 'String' ? result : this.castTo(current.t, result, n), this.itemType(at.elem), left, left.text);
+          return at.array[at.index];
+        }
         if (op === '=') {
           const cell = left.type === 'identifier' ? this.scope.lookup(left.text) : undefined;
           const right = rightNode.type === 'array_initializer' ? this.arrayFrom(rightNode, cell?.elem ?? 'int') : this.eval(rightNode);
@@ -2728,6 +2763,10 @@ class Interp {
         const object = n.childForFieldName('object')!;
         const field = n.childForFieldName('field')!.text;
         if (object.text === 'Integer' && (field === 'MAX_VALUE' || field === 'MIN_VALUE')) return int(field === 'MAX_VALUE' ? 2147483647 : -2147483648);
+        if (object.text === 'Double') {
+          const D: Record<string, number> = { NaN: NaN, POSITIVE_INFINITY: Infinity, NEGATIVE_INFINITY: -Infinity, MAX_VALUE: Number.MAX_VALUE, MIN_VALUE: Number.MIN_VALUE };
+          if (field in D) return dbl(D[field]);
+        }
         if (object.text === 'Long' && (field === 'MAX_VALUE' || field === 'MIN_VALUE')) return lng(field === 'MAX_VALUE' ? 9223372036854775807n : -9223372036854775808n);
         const st = this.qualifiedStatic(n);
         if (st) return st.v as JVal;
@@ -2766,6 +2805,22 @@ class Interp {
           const msg = msgNode ? this.eval(msgNode) : null;
           if (msg && msg.t !== 'String' && msg.t !== 'null') throw new CompileError(lineOf(n), 'The message of an exception must be text.');
           return { t: 'exception', v: msg ? (msg.v as string | null) : null, cls: type.text, id: freshId() };
+        }
+        if (type.text === 'String') {
+          // new String("hi") is a new object (== is false); new String(chars) joins the letters.
+          const args = named(n.childForFieldName('arguments')).map((a) => this.eval(a));
+          if (args.length === 0) return str('');
+          const a = args[0];
+          if (args.length === 1 && a.t === 'String') {
+            if (a.v === null) throw new JavaException('NullPointerException', '');
+            return str(a.v as string);
+          }
+          if (args.length === 1 && a.t === 'array' && a.elem === 'char') {
+            if (a.v === null) throw new JavaException('NullPointerException', '');
+            return str((a.v as JVal[]).map((c) => c.v).join(''));
+          }
+          if (a.t === 'builder') return str(javaString(a));
+          throw unsupported(n, 'this kind of new String');
         }
         if (BUILDER_TYPES.has(type.text)) {
           const args = named(n.childForFieldName('arguments')).map((a) => this.eval(a));
