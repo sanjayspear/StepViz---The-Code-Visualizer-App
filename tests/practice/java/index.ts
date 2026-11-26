@@ -7,8 +7,10 @@ import { SOLUTIONS as TWO_POINTERS } from './two-pointers.solutions';
 import { SOLUTIONS as SLIDING_WINDOW } from './sliding-window.solutions';
 import { SOLUTIONS as STACKS_QUEUES } from './stacks-queues.solutions';
 import { SOLUTIONS as BINARY_SEARCH } from './binary-search.solutions';
+import { SOLUTIONS as RECURSION_BACKTRACKING } from './recursion-backtracking.solutions';
 
 export const JAVA_SOLUTIONS_BY_TOPIC: Record<string, Record<number, string>> = {
+  'recursion-backtracking': RECURSION_BACKTRACKING,
   'binary-search': BINARY_SEARCH,
   'stacks-queues': STACKS_QUEUES,
   'sliding-window': SLIDING_WINDOW,
