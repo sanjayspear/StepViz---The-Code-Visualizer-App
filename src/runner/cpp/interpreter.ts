@@ -1468,7 +1468,8 @@ class Interp {
   private scope: Scope = new Scope(null);
   private globals: Scope = new Scope(null);
   private input: Input;
-  private stream = { fixed: false, precision: 6, boolalpha: false };
+  /** cout's settings: fixed / setprecision / boolalpha stay; setw is for the next value only; setfill and left / right stay. */
+  private stream = { fixed: false, precision: 6, boolalpha: false, width: 0, fill: ' ', left: false };
   /** The struct whose method or constructor is running (for private members and members without this->). */
   private currentStruct: CStruct | null = null;
   /** The const method that is running, if any (it may not change its object). */
@@ -2001,7 +2002,7 @@ class Interp {
     }
     if (value.type === 'initializer_list' && isStructItem(elem)) return named(value).map((e) => this.structFrom(e, structs.get(elem)!, 'this list'));
     if (value.type === 'initializer_list' && isPairItem(elem)) return named(value).map((e) => this.pairFrom(e, this.itemType(elem), e, 'this list'));
-    if (value.type === 'initializer_list') return named(value).map((e) => this.convert(this.eval(e), { t: elem }, e, 'this list'));
+    if (value.type === 'initializer_list') return named(value).map((e) => this.convert(this.eval(e), this.itemType(elem), e, 'this list'));
     const v = this.eval(value);
     if (v.t !== 'vector') throw new CompileError(lineOf(value), 'A vector needs a list of values like {1, 2, 3}.');
     return [...(v.v as CVal[])];
@@ -2970,7 +2971,9 @@ class Interp {
       if ((op !== '==' && op !== '!=') || a.t !== b.t) throw unsupported(n, 'iterators like this');
       return bool(op === '==' ? a.v === b.v : a.v !== b.v);
     }
-    if ((a.t === 'pointer' || b.t === 'pointer') && (op === '+' || op === '-')) {
+    // a + 2 with an array a: a list used as a pointer to its first item.
+    const asPointer = (x: CVal, y: CVal) => x.t === 'pointer' || (x.t === 'array' && x.elem !== 'char' && NUMERIC.has(y.t));
+    if ((asPointer(a, b) || asPointer(b, a)) && (op === '+' || op === '-')) {
       // p + 2, 2 + p, a + 1 (a list used as a pointer), p - 1, q - p (how far apart)
       const x = this.decay(a, n.childForFieldName('left'));
       const y = this.decay(b, n.childForFieldName('right'));
@@ -2984,8 +2987,11 @@ class Interp {
       throw unsupported(n, 'this pointer arithmetic');
     }
     if (a.t === 'pointer' || b.t === 'pointer') {
-      if (['<', '<=', '>', '>='].includes(op) && a.t === 'pointer' && b.t === 'pointer') {
-        const [s1, s2] = [a.v as PtrTarget | null, b.v as PtrTarget | null];
+      // q < arr + 5: an array next to a pointer is a pointer to its first item.
+      const pa = this.decay(a, n.childForFieldName('left'));
+      const pb = this.decay(b, n.childForFieldName('right'));
+      if (['<', '<=', '>', '>='].includes(op) && pa.t === 'pointer' && pb.t === 'pointer') {
+        const [s1, s2] = [pa.v as PtrTarget | null, pb.v as PtrTarget | null];
         if (!s1?.arr || s1.arr !== s2?.arr) throw unsupported(n, 'comparing pointers into different lists');
         const d = s1.index! - s2.index!;
         return bool(op === '<' ? d < 0 : op === '<=' ? d <= 0 : op === '>' ? d > 0 : d >= 0);
@@ -3052,12 +3058,20 @@ class Interp {
         this.stream.fixed = true;
         continue;
       }
-      if (name === 'boolalpha') {
-        this.stream.boolalpha = true;
+      if (name === 'boolalpha' || name === 'noboolalpha') {
+        this.stream.boolalpha = name === 'boolalpha';
         continue;
       }
-      if (item.type === 'call_expression' && /^(std::)?setprecision$/.test(item.childForFieldName('function')!.text)) {
-        this.stream.precision = this.num(this.eval(named(item.childForFieldName('arguments'))[0]));
+      if (name === 'left' || name === 'right') {
+        this.stream.left = name === 'left';
+        continue;
+      }
+      if (item.type === 'call_expression' && /^(std::)?(setprecision|setw|setfill)$/.test(item.childForFieldName('function')!.text)) {
+        const which = item.childForFieldName('function')!.text.replace(/^std::/, '');
+        const arg = this.eval(named(item.childForFieldName('arguments'))[0]);
+        if (which === 'setprecision') this.stream.precision = this.num(arg);
+        else if (which === 'setw') this.stream.width = this.num(arg);
+        else this.stream.fill = arg.t === 'char' ? (arg.v as string) : String.fromCharCode(this.num(arg));
         continue;
       }
       const v = this.eval(item);
@@ -3069,7 +3083,14 @@ class Interp {
           continue;
         }
       }
-      this.rt.output += this.coutText(v, item);
+      let text = this.coutText(v, item);
+      // setw(n): the next value takes at least n places, filled with the setfill letter (right side unless left).
+      if (this.stream.width > text.length) {
+        const pad = this.stream.fill.repeat(this.stream.width - text.length);
+        text = this.stream.left ? text + pad : pad + text;
+      }
+      this.stream.width = 0;
+      this.rt.output += text;
     }
     return { t: 'stream', v: null };
   }
@@ -3600,6 +3621,16 @@ class Interp {
         return this.scanf(n, argNodes);
       case 'strlen':
         return lng(this.textOf(this.eval(argNodes[0]), n).length);
+      case 'char':
+      case 'int':
+      case 'double':
+      case 'long':
+      case 'bool': {
+        // char(66) / int(x) / double(n): a cast written like a call.
+        const a = args();
+        if (a.length !== 1) throw new CompileError(lineOf(n), `${name}(...) needs one value.`);
+        return this.convert(a[0], { t: name as Prim }, n, `${name}(...)`);
+      }
       case 'string': {
         // string("text") / string(3, 'x') ("xxx") / string() ("")
         if (dialect !== 'cpp') break;

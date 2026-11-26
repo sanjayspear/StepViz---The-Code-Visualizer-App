@@ -191,6 +191,7 @@ const EXCEPTION_PARENT: Record<string, string | null> = {
   IllegalStateException: 'RuntimeException',
   UnsupportedOperationException: 'RuntimeException',
   EmptyStackException: 'RuntimeException',
+  ClassCastException: 'RuntimeException',
   NegativeArraySizeException: 'RuntimeException',
   NoSuchElementException: 'RuntimeException',
   InputMismatchException: 'NoSuchElementException',
@@ -779,6 +780,7 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
     if (c.childForFieldName('type_parameters')) throw unsupported(c, 'generic classes');
     const info: ClassInfo = { name, node: c, fields: [], constructors: [], methods: new Map(), parent, isAbstract: /\babstract\b/.test(modifiersOf(c)), interfaces: implemented, statics: [], insideMain: c.parent?.parent?.id === mainClass.id };
     for (const member of named(c.childForFieldName('body'))) {
+      if (member.type === 'interface_declaration' && c === mainClass) continue; // read with the other interfaces
       if (member.type === 'class_declaration') {
         if (c === mainClass) continue; // handled above
         throw unsupported(member, 'classes inside classes other than Main');
@@ -2763,6 +2765,7 @@ class Interp {
         const object = n.childForFieldName('object')!;
         const field = n.childForFieldName('field')!.text;
         if (object.text === 'Integer' && (field === 'MAX_VALUE' || field === 'MIN_VALUE')) return int(field === 'MAX_VALUE' ? 2147483647 : -2147483648);
+        if (object.text === 'Math' && (field === 'PI' || field === 'E')) return dbl(field === 'PI' ? Math.PI : Math.E);
         if (object.text === 'Double') {
           const D: Record<string, number> = { NaN: NaN, POSITIVE_INFINITY: Infinity, NEGATIVE_INFINITY: -Infinity, MAX_VALUE: Number.MAX_VALUE, MIN_VALUE: Number.MIN_VALUE };
           if (field in D) return dbl(D[field]);
@@ -3018,7 +3021,10 @@ class Interp {
       if ((name === 'thenComparing' || name === 'thenComparingInt' || name === 'thenComparingDouble') && argNodes.length === 1 && f.kind === 'comparing') {
         const next = args()[0];
         const nf = next.v as JFunc;
-        return { t: 'func', v: { ...f, then: nf.kind === 'lambda' && named(nf.node.childForFieldName('parameters')).length === 2 ? nf : { kind: 'comparing', key: nf, reversed: false } } };
+        // thenComparing(another Comparator) or thenComparing(a key, like Student::getName).
+        const isComparator =
+          nf.kind === 'natural' || nf.kind === 'comparing' || (nf.kind === 'builtin' && /::compare$/.test(nf.name)) || (nf.kind === 'lambda' && named(nf.node.childForFieldName('parameters')).length === 2);
+        return { t: 'func', v: { ...f, then: isComparator ? nf : { kind: 'comparing', key: nf, reversed: false } } };
       }
       if (name === 'compare' && argNodes.length === 2) {
         const [x, y] = args();
@@ -3883,6 +3889,7 @@ class Interp {
 
   private stringMethod(n: Node, target: JVal, name: string, a: JVal[]): JVal {
     const s = target.v as string;
+    if (name === 'hashCode' && !a.length) return int(javaHash(target)); // s[0]*31^(n-1) + ... + s[n-1], like Java
     const need = (count: number[], ...types: JType[][]) => {
       if (!count.includes(a.length) || a.some((v, i) => types[i] && !types[i].includes(v.t))) {
         throw new CompileError(lineOf(n), `${name} can't be used with these values.`);
