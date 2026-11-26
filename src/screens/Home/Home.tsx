@@ -106,10 +106,13 @@ export function Home({
           <span className="home-logo__name">StepViz</span>
         </div>
         <nav className="home-nav" aria-label="Main">
+          <a className="home-nav__link" href="#/practice">
+            Practice
+          </a>
           <button type="button" className="home-nav__link" onClick={scrollToExamples}>
             Examples
           </button>
-          <ComingSoonButton className="home-nav__link">How it works</ComingSoonButton>
+          <ComingSoonButton className="home-nav__link home-nav__link--wide">How it works</ComingSoonButton>
           <ComingSoonButton className="home-nav__signin" align="end">
             Sign in
           </ComingSoonButton>

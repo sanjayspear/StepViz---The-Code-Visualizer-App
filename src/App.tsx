@@ -2,11 +2,15 @@ import { useEffect, useState } from 'react';
 import { DEFAULT_EXAMPLE, exampleForSource, sourceOf, titleForSource, type CodeLanguage } from './examples';
 import { Home, type Language } from './screens/Home/Home';
 import { StepScreen } from './screens/Step/StepScreen';
+import { Practice } from './screens/Practice/Practice';
+import { parsePracticeHash, useHash } from './practice/route';
 import { pythonRunner } from './runner/pythonRunner';
 import { checkSource, getTrace } from './trace/getTrace';
 import type { Trace } from './trace/types';
 
 export default function App() {
+  // #/practice...: the Practice section. Anything else: the visualiser (its state is kept meanwhile).
+  const practiceRoute = parsePracticeHash(useHash());
   const [code, setCode] = useState(DEFAULT_EXAMPLE.source);
   const [language, setLanguage] = useState<Language>('python');
   const [busy, setBusy] = useState(false);
@@ -74,6 +78,8 @@ export default function App() {
       setLoadingPython(false);
     }
   };
+
+  if (practiceRoute) return <Practice route={practiceRoute} />;
 
   if (trace) {
     return <StepScreen trace={trace} title={titleForSource(trace.source)} onNewCode={() => setTrace(null)} />;

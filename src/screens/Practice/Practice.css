@@ -1,0 +1,576 @@
+/* Practice section. Layout after docs/practice-mockup .png, in StepViz's own tokens
+   (tokens.css): white cards with our border and radius, accent for actions and the
+   current tab, the success green for progress. Phone layout below 900 px. */
+
+.practice {
+  min-height: 100vh;
+  background: var(--color-page-bg);
+}
+
+/* Header: logo and the Home | Practice tabs --------------------------------- */
+
+.practice-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-md);
+  padding: 20px var(--home-page-padding);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.practice-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--button-min-height);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.practice-logo__mark {
+  color: var(--color-accent);
+}
+
+.practice-logo__name {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.practice-tabs {
+  display: flex;
+  gap: var(--gap-lg);
+}
+
+.practice-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--button-min-height);
+  border-bottom: 2px solid transparent;
+  font-size: 15px;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.practice-tabs__tab[aria-current='page'] {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* Main column -------------------------------------------------------------- */
+
+.practice-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-md);
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 32px var(--home-page-padding) 48px;
+}
+
+.practice-card {
+  padding: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-step-card);
+  background: var(--color-surface);
+}
+
+.practice-title {
+  font-size: var(--text-section-title);
+  line-height: 1.25;
+}
+
+.practice-title:focus {
+  outline: none;
+}
+
+.practice-section-title {
+  margin-bottom: var(--gap-sm);
+  font-size: var(--text-card-title);
+}
+
+.practice-muted {
+  color: var(--color-text-muted);
+  font-size: 15px;
+}
+
+.practice-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--button-min-height);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.practice-back {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--button-min-height);
+  color: var(--color-text-muted);
+  font-size: 15px;
+  text-decoration: none;
+}
+
+.practice-back:hover {
+  color: var(--color-text);
+}
+
+.practice-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--button-min-height);
+  padding: 0 18px;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-button);
+  background: var(--color-surface);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.practice-btn:hover {
+  border-color: var(--color-text);
+}
+
+.practice-btn[aria-disabled='true'] {
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+  cursor: default;
+}
+
+.practice-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  min-height: var(--button-min-height);
+  padding: 0 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-button);
+  background: var(--color-surface);
+  font-size: 15px;
+}
+
+.practice-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-sm);
+  margin-top: var(--gap-sm);
+}
+
+/* Progress: ring, bars, pills ------------------------------------------------- */
+
+.practice-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-md);
+}
+
+.practice-ring {
+  position: relative;
+  flex: none;
+  width: 84px;
+  height: 84px;
+}
+
+.practice-ring circle {
+  fill: none;
+  stroke-width: 8;
+}
+
+.practice-ring__track {
+  stroke: var(--color-success-bg);
+}
+
+.practice-ring__fill {
+  stroke: var(--color-success-border);
+  stroke-linecap: round;
+}
+
+.practice-ring__number {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 20px;
+}
+
+.practice-bar {
+  height: 8px;
+  margin-top: 10px;
+  border-radius: 4px;
+  background: var(--color-waiting-bg);
+  overflow: hidden;
+}
+
+.practice-bar__fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--color-success-border);
+}
+
+.practice-pill {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 3px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.practice-pill--E {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.practice-pill--M {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+}
+
+.practice-pill--H {
+  background: var(--color-error-bg);
+  color: var(--color-error-text);
+}
+
+/* Practice home ------------------------------------------------------------- */
+
+.practice-find {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.practice-surprise {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.practice-surprise__note {
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.practice-surprise__note:empty {
+  display: none;
+}
+
+.practice-topics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.practice-topic {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  height: 100%;
+  padding: 16px 18px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-feature-card);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+  transition: border-color var(--motion-fast);
+}
+
+.practice-topic:hover {
+  border-color: var(--color-border-strong);
+}
+
+.practice-topic__name {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.practice-more {
+  display: block;
+  min-height: var(--button-min-height);
+  margin: 8px auto 0;
+  padding: 0 16px;
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 15px;
+}
+
+.practice-more:hover {
+  color: var(--color-text);
+}
+
+/* Question list ---------------------------------------------------------------- */
+
+.practice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: var(--gap-sm);
+}
+
+.practice-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.practice-select .select-wrap select {
+  width: 220px;
+}
+
+.practice-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.practice-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--button-min-height);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.practice-check input,
+.practice-tick input,
+.practice-solved input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--color-success-border);
+  cursor: pointer;
+}
+
+.practice-count {
+  margin-top: 12px;
+}
+
+.practice-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-step-card);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.practice-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.practice-item:first-child {
+  border-top: 0;
+}
+
+/* The tick's whole cell is clickable: at least 44 x 44 px. */
+.practice-tick {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 52px;
+  min-height: 52px;
+  cursor: pointer;
+}
+
+.practice-item__link {
+  display: flex;
+  flex: 1;
+  gap: 10px;
+  min-width: 0;
+  min-height: 52px;
+  align-items: center;
+  padding: 10px 8px 10px 0;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.practice-item__link:hover .practice-item__title {
+  text-decoration: underline;
+}
+
+.practice-item__num {
+  flex: none;
+  min-width: 42px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.practice-item__title {
+  flex: 1;
+  font-size: 15px;
+}
+
+.practice-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+/* Question page -------------------------------------------------------------- */
+
+.practice-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text-muted);
+  font-size: 15px;
+}
+
+.practice-question__title {
+  margin-top: 10px;
+  font-family: var(--font-body);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.practice-question__lang {
+  margin-top: var(--gap-md);
+  padding-top: var(--gap-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.practice-soon {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-button);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-dark);
+  font-size: 15px;
+}
+
+.practice-soon:empty {
+  display: none;
+}
+
+.practice-solved {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  margin-top: var(--gap-md);
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button-lg);
+  cursor: pointer;
+}
+
+.practice-solved:has(input:checked) {
+  border-color: var(--color-success-border);
+  background: var(--color-success-bg);
+}
+
+.practice-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.practice-pager__btn {
+  min-width: 96px;
+}
+
+/* Phone ------------------------------------------------------------------------ */
+
+@media (max-width: 899px) {
+  .practice-header {
+    padding: 8px var(--home-page-padding);
+  }
+
+  .practice-logo__name {
+    font-size: 18px;
+  }
+
+  .practice-tabs {
+    gap: var(--gap-md);
+  }
+
+  .practice-main {
+    padding-top: 16px;
+    gap: var(--gap-sm);
+  }
+
+  .practice-card {
+    padding: 16px;
+  }
+
+  .practice-topics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .practice-select .select-wrap select {
+    width: 100%;
+  }
+
+  .practice-select {
+    flex: 1 1 100%;
+  }
+
+  .practice-select .select-wrap {
+    flex: 1;
+  }
+
+  .practice-question__title {
+    font-size: 19px;
+  }
+
+  /* Each row: "Q7  Easy" on one line, the full-width title under it. */
+  .practice-item__link {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      'num pill'
+      'title title';
+    gap: 2px 10px;
+  }
+
+  .practice-item__num {
+    grid-area: num;
+    min-width: 0;
+  }
+
+  .practice-item .practice-pill {
+    grid-area: pill;
+    justify-self: start;
+  }
+
+  .practice-item__title {
+    grid-area: title;
+  }
+
+  .practice-pager .practice-muted {
+    font-size: 13px;
+    text-align: center;
+  }
+}

@@ -49,6 +49,7 @@
   background: none;
   font-size: 15px;
   color: var(--color-text);
+  text-decoration: none;
 }
 
 .home-nav__signin {
@@ -388,6 +389,11 @@
   .home-nav__signin {
     font-size: 13px;
     white-space: nowrap;
+  }
+
+  /* Room for the Practice link: the "How it works" placeholder (Coming soon) shows from 900 px up. */
+  .home-nav__link--wide {
+    display: none;
   }
 
   .home-nav__signin {
