@@ -272,9 +272,16 @@ function objectFrameText(x: JVal, depth: number): string {
   const parts = [...o.fields].map(([k, c]) => {
     const v = c.v;
     if (typeof v === 'symbol') return `${k}: ?`;
-    return `${k}: ${v.t === 'object' ? objectFrameText(v, depth + 1) : formatJava(v)}`;
+    return `${k}: ${v.t === 'object' ? objectFrameText(v, depth + 1) : insideObject(v)}`;
   });
   return `${o.cls} {${parts.join(', ')}}`;
+}
+/** A field's value: objects in a list or array field show as Node {…} too (so a graph of nodes that
+ *  point at each other, like neighbours, is shown without going round in circles). */
+function insideObject(v: JVal): string {
+  if (v.t === 'object') return v.v === null ? 'null' : `${(v.v as JObject).cls} {…}`;
+  if ((v.t === 'array' || v.t === 'list') && v.v !== null) return `[${(v.v as JVal[]).map(insideObject).join(', ')}]`;
+  return formatJava(v) ?? String(v.v);
 }
 
 const isJVal = (x: unknown): x is JVal => typeof x === 'object' && x !== null && !Array.isArray(x) && 't' in x && 'v' in x;

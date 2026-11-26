@@ -10,8 +10,10 @@ import { SOLUTIONS as BINARY_SEARCH } from './binary-search.solutions';
 import { SOLUTIONS as RECURSION_BACKTRACKING } from './recursion-backtracking.solutions';
 import { SOLUTIONS as LINKED_LISTS } from './linked-lists.solutions';
 import { SOLUTIONS as TREES_BST } from './trees-bst.solutions';
+import { SOLUTIONS as GRAPHS } from './graphs.solutions';
 
 export const JAVA_SOLUTIONS_BY_TOPIC: Record<string, Record<number, string>> = {
+  graphs: GRAPHS,
   'trees-bst': TREES_BST,
   'linked-lists': LINKED_LISTS,
   'recursion-backtracking': RECURSION_BACKTRACKING,
