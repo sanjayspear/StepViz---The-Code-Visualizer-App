@@ -7,6 +7,7 @@ import { JAVA_TOPICS } from '../src/practice/content';
 import { PYTHON_WORDS } from '../src/practice/content/javascript/shared';
 import type { PracticeContent } from '../src/practice/content/types';
 import { checkJavaAnswer } from '../src/practice/javaHarness';
+import { runJava } from '../src/runner/java/interpreter';
 import type { JsForbid } from '../src/practice/jsHarness';
 import { createParser } from '../src/runner/treeSitter';
 import { JAVA_SOLUTIONS_BY_TOPIC } from './practice/java';
@@ -44,6 +45,9 @@ for (const [topic, items] of Object.entries(JAVA_TOPICS)) {
       const ref = check(solutions[c.id], c);
       expect(ref.status, JSON.stringify(ref)).toBe('ok');
       for (const r of ref.results) expect(r.passed, `${r.call}: expected ${r.expected}, got ${r.got} ${r.problem ?? ''} ${r.errorType ?? ''} ${r.message ?? ''} ${r.line ?? ''}`).toBe(true);
+      // The starter's own main() runs in the visualiser.
+      const shown = runJava(parser.parse(c.starter)!, { maxSteps: 2000, maxSeconds: 5 });
+      expect(shown.status, `Q${c.id}: the starter's main() runs: ${JSON.stringify(shown.error)}`).toBe('ok');
       const start = check(c.starter, c);
       expect(start.status, JSON.stringify(start)).toBe('ok');
       expect(start.results.some((r) => !r.passed)).toBe(true);
