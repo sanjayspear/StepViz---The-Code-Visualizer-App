@@ -29,7 +29,7 @@
 // {1, 2} / {.x = 1} / Dog d("Rex", 3) / Dog("Rex", 3), typedef struct (C).
 // Structs are values: copied when assigned or passed by value; references share.
 // Vectors and arrays of structs; for (auto& p : pts) works on the items themselves.
-// Not yet: inheritance, virtual, operator overloading, static members, destructors.
+// Not yet: destructors with code, templates, several bases.
 // P1: pointers (C and C++): int* p = &x, *p, p->x, nullptr/NULL, pointers as
 // parameters, ==; frames show "points to x" ("in main()" from another frame,
 // "(gone)" once x's block or function ended: using it then is a Dangling crash,
@@ -151,7 +151,35 @@ interface CStruct {
   /** methods marked virtual (or override) here; pure virtual ones (= 0) have no body */
   virtuals?: Set<string>;
   pure?: Set<string>;
+  /** static int count; (one box for the whole class, shown as Dog::count in the Global frame) */
+  statics?: Map<string, StaticInfo>;
+  /** static int nextId() { ... }: methods that run without an object */
+  staticMethods?: Set<string>;
 }
+interface StaticInfo {
+  isPrivate: boolean;
+  isProtected: boolean;
+  isConst: boolean;
+  line: number;
+  /** a line gives it its box: inline / const with a value in the class, or int Dog::count = 0; outside */
+  defined: boolean;
+}
+/** The static member called name of cls or a class it is built on, with the class it belongs to. */
+function findStatic(cls: string, name: string): { owner: CStruct; info: StaticInfo } | null {
+  for (let c = structs.get(cls); c; c = c.parent ? structs.get(c.parent) : undefined) {
+    const info = c.statics?.get(name);
+    if (info) return { owner: c, info };
+  }
+  return null;
+}
+/** The class a member declaration is written in. */
+function ownerOf(n: Node): string {
+  let p: Node | null = n.parent;
+  while (p && p.type !== 'class_specifier' && p.type !== 'struct_specifier') p = p.parent;
+  return p?.childForFieldName('name')?.text ?? '';
+}
+/** In-class statics with a value (static const int MAX = 3;): set up with the global variables. */
+let inClassStatics: Node[] = [];
 /** Is a Dog an Animal (the same struct, or one built on it)? */
 function isDerived(cls: string, base: string): boolean {
   for (let c: string | null | undefined = cls; c; c = structs.get(c)?.parent) if (structs.get(c)?.name === structs.get(base)?.name) return true;
@@ -472,15 +500,36 @@ function readStruct(spec: Node, name: string): CStruct {
     }
     const isPrivate = access === 'private';
     const isProtected = access === 'protected';
-    if (/^(static|friend|inline)\b/.test(m.text) || m.type === 'friend_declaration') {
-      throw unsupported(m, /^static/.test(m.text) ? 'static members' : /^friend/.test(m.text) || m.type === 'friend_declaration' ? 'friends' : m.text.split(/\s/)[0]);
+    const isStatic = dialect === 'cpp' && named(m).some((c) => c.type === 'storage_class_specifier' && c.text === 'static');
+    if (isStatic && /\bvirtual\b/.test(m.text)) throw new CompileError(lineOf(m), 'A static method can\'t be virtual: it runs without an object.');
+    if (isStatic && m.type === 'field_declaration' && m.childForFieldName('declarator')?.type !== 'function_declarator') {
+      // static int count;  static const int MAX = 3;  static inline int made = 0;
+      const ds = m.childrenForFieldName('declarator').filter((d): d is Node => !!d);
+      if (ds.length !== 1) throw unsupported(m, 'several static members in one line');
+      if (ds[0].type !== 'field_identifier') throw unsupported(ds[0], ds[0].type === 'pointer_declarator' ? 'static pointers' : 'static lists written with [ ]');
+      const mName = ds[0].text;
+      const isConst = named(m).some((c) => c.type === 'type_qualifier' && (c.text === 'const' || c.text === 'constexpr'));
+      const isInline = /\binline\b/.test(m.text) || /\bconstexpr\b/.test(m.text);
+      const value = m.childForFieldName('default_value');
+      if (value && !isConst && !isInline) {
+        throw new CompileError(lineOf(m), `${name}::${mName} can't get its value inside the class: write static inline int ${mName} = ...; or put a line after the class, like int ${name}::${mName} = 0;`);
+      }
+      if (info.statics?.has(mName) || info.fields.some((f) => f.name === mName)) throw unsupported(m, 'two members with the same name');
+      (info.statics ??= new Map()).set(mName, { isPrivate, isProtected, isConst, line: lineOf(m), defined: !!value || isInline });
+      if (value || isInline) inClassStatics.push(m);
+      continue;
     }
+    if (/^(friend|inline)\b/.test(m.text) || m.type === 'friend_declaration') {
+      throw unsupported(m, /^friend/.test(m.text) || m.type === 'friend_declaration' ? 'friends' : m.text.split(/\s/)[0]);
+    }
+    if (/^static\b/.test(m.text) && !isStatic) throw unsupported(m, 'static members');
     const isVirtual = /^virtual\b/.test(m.text) || /\boverride\b/.test(m.childForFieldName('declarator')?.text ?? '');
     if (m.type === 'field_declaration') {
       const d = m.childForFieldName('declarator');
       if (d?.type === 'function_declarator') {
         // int getAge();  defined later as int Dog::getAge() { ... }  /  virtual string speak() = 0;
         const mName = d.childForFieldName('declarator')!.text;
+        if (isStatic) (info.staticMethods ??= new Set()).add(mName);
         if (isPrivate) info.privateMethods.add(mName);
         if (isProtected) info.protectedMethods!.add(mName);
         if (isVirtual) info.virtuals!.add(mName);
@@ -525,6 +574,11 @@ function readStruct(spec: Node, name: string): CStruct {
         const key = inner.text.replace(/\s+/g, '');
         if (info.methods.has(key)) throw unsupported(m, 'two methods with the same name');
         info.methods.set(key, m);
+        if (isStatic) {
+          (info.staticMethods ??= new Set()).add(inner.text);
+          const self = m.descendantsOfType('this')[0];
+          if (self) throw new CompileError(lineOf(self), "this can't be used in a static method: it runs without an object.");
+        }
         if (isPrivate) info.privateMethods.add(inner.text);
         if (isProtected) info.protectedMethods!.add(inner.text);
         if (isVirtual) info.virtuals!.add(inner.text);
@@ -555,6 +609,7 @@ function checkSubset(tree: Tree): Program {
   operators = new Map();
   const globals: Node[] = [];
   structs = new Map();
+  inClassStatics = [];
   const outOfClass: Node[] = [];
   const addStruct = (spec: Node, name: string) => {
     if (structs.has(name)) throw unsupported(spec, 'two structs with the same name');
@@ -614,6 +669,19 @@ function checkSubset(tree: Tree): Program {
       case 'declaration':
         if (n.childForFieldName('declarator')?.type === 'function_declarator') throw unsupported(n, 'function declarations without a body');
         if (n.childForFieldName('type')?.childForFieldName('body')) throw unsupported(n, 'a struct and a variable in one line');
+        for (const d of declarators(n)) {
+          const q = d.type === 'init_declarator' ? d.childForFieldName('declarator') : d;
+          if (q?.type !== 'qualified_identifier') continue;
+          // int Dog::count = 0;  the box for a static member.
+          const owner = structs.get(q.childForFieldName('scope')?.text ?? '');
+          const member = q.childForFieldName('name')?.text ?? '';
+          const info = owner?.statics?.get(member);
+          if (!owner) throw unsupported(q, q.text);
+          if (!info) throw new CompileError(lineOf(n), `${owner.name} has no static member called ${member}.`);
+          if (info.defined) throw new CompileError(lineOf(n), `${owner.name}::${member} already has its box: give it a value in one place only.`);
+          if (info.isConst && d.type !== 'init_declarator') throw new CompileError(lineOf(n), `${owner.name}::${member} is const, so it needs a value here.`);
+          info.defined = true;
+        }
         globals.push(n);
         continue;
       default:
@@ -634,6 +702,16 @@ function checkSubset(tree: Tree): Program {
       owner.methods.set(member, def);
     }
   }
+  for (const st of new Set(structs.values())) {
+    for (const [member, info] of st.statics ?? []) {
+      if (!info.defined) {
+        throw new CompileError(info.line, `${st.name}::${member} is static, so it also needs a line after the class that gives it its box, like int ${st.name}::${member} = 0;`);
+      }
+    }
+  }
+  // Static members with a value in the class are set up in program order with the global variables.
+  globals.push(...inClassStatics);
+  globals.sort((a, b) => a.startIndex - b.startIndex);
   const main = functions.get('main');
   if (!main || main.childForFieldName('type')?.text !== 'int') {
     throw new CompileError(main ? lineOf(main) : 1, 'StepViz needs an int main() function to start the program.');
@@ -669,6 +747,10 @@ function checkSubset(tree: Tree): Program {
       if (name === 'vector' && args.some((a) => /map|set/.test(a.text))) throw unsupported(n, 'lists of maps');
     }
     if (n.type === 'sized_type_specifier' && /unsigned/.test(n.text)) throw unsupported(n, 'unsigned numbers');
+    // static int calls = 0; inside a function keeps its value between calls: not traced yet.
+    if (n.type === 'storage_class_specifier' && n.text === 'static' && n.parent?.type === 'declaration' && n.parent.parent?.type !== 'translation_unit') {
+      throw unsupported(n.parent, 'static variables inside functions');
+    }
     for (const c of named(n)) visit(c);
   };
   for (const f of functions.values()) visit(f);
@@ -789,6 +871,11 @@ function declaratorInfo(d: Node): DeclaratorInfo {
   while (node.type === 'array_declarator') {
     sizes.unshift(node.childForFieldName('size') ?? null);
     node = node.childForFieldName('declarator')!;
+  }
+  // int Dog::count = 0;  /  static const int MAX = 3; in the class: the box is called Dog::count.
+  if (node.type === 'qualified_identifier') return { name: node.text.replace(/\s+/g, ''), value, arraySize: undefined, reference, pointer: false, moreSizes: [] };
+  if (node.type === 'field_identifier' && node.parent?.type === 'field_declaration') {
+    return { name: `${ownerOf(node)}::${node.text}`, value: node.parent.childForFieldName('default_value'), arraySize: undefined, reference, pointer: false, moreSizes: [] };
   }
   if (node.type !== 'identifier') throw unsupported(node, 'this kind of declaration');
   const arraySize = sizes.length ? sizes[0] : undefined;
@@ -945,6 +1032,8 @@ interface Binding {
   refOf?: string;
   /** Animal& r = dog: the type the reference was declared with (it decides non-virtual calls) */
   staticCls?: string;
+  /** static const int MAX = 3: it can't be given a new value */
+  isConst?: boolean;
 }
 
 class Scope {
@@ -1006,7 +1095,7 @@ const isStream = (n: Node, name: 'cout' | 'cin') => n.text === name || n.text ==
 const declaredNames = (stmts: Node[]): { name: string; type: DeclType; arrayLen?: number }[] => {
   const out: { name: string; type: DeclType }[] = [];
   for (const s of stmts) {
-    if (s.type !== 'declaration') continue;
+    if (s.type !== 'declaration' && s.type !== 'field_declaration') continue;
     const type = typeOf(s.childForFieldName('type'));
     for (const d of declarators(s)) {
       const info = declaratorInfo(d);
@@ -1164,6 +1253,15 @@ class Interp {
       // pa->x = 7: the struct pa points to changes.
       return o.type === 'this' ? 'this' : viaPointer ? `*${o.text}` : o.text;
     }
+    // count++ inside Dog's code / Dog::count = 5: the static box Dog::count changes.
+    if (n.type === 'qualified_identifier' && structs.has(n.childForFieldName('scope')?.text ?? '')) {
+      const found = findStatic(n.childForFieldName('scope')!.text, n.childForFieldName('name')?.text ?? '');
+      if (found) return `${found.owner.name}::${n.childForFieldName('name')!.text}`;
+    }
+    if (n.type === 'identifier' && this.currentStruct && !this.isLocal(n.text)) {
+      const found = findStatic(this.currentStruct.name, n.text);
+      if (found) return `${found.owner.name}::${n.text}`;
+    }
     if (n.type === 'identifier' && !this.scope.lookup(n.text) && this.scope.lookup('this')) return 'this';
     // g[1][2] = 9: the table g changes.
     let base = n;
@@ -1179,6 +1277,7 @@ class Interp {
 
   private infoOf(s: Node): StepInfo {
     switch (s.type) {
+      case 'field_declaration': // static const int MAX = 3; in a class
       case 'declaration': {
         const ds = declarators(s);
         const t = ds.map((d) => declaratorInfo(d).name);
@@ -1213,7 +1312,7 @@ class Interp {
             if (obj) return { k: 'assign', t: [obj.text] };
           }
           if (f.type === 'field_expression' && MUTATORS.has(f.childForFieldName('field')?.text ?? '')) {
-            return { k: 'assign', t: [f.childForFieldName('argument')!.text] };
+            return { k: 'assign', t: [this.targetName(f.childForFieldName('argument')!)] };
           }
         }
         return { k: 'other' };
@@ -1442,6 +1541,8 @@ class Interp {
       const info = declaratorInfo(d);
       const binding = this.scope.vars.get(info.name) ?? { cell: { ...type, v: UNSET } };
       this.scope.vars.set(info.name, binding);
+      const [owner, member] = info.name.split('::');
+      if (member && findStatic(owner, member)?.info.isConst) binding.isConst = true;
       if (info.reference) {
         const target = info.value;
         if (target?.type !== 'identifier' && target?.type !== 'subscript_expression') throw unsupported(d, 'this kind of reference');
@@ -1724,7 +1825,15 @@ class Interp {
       let v: CVal;
       if (f.size !== undefined) {
         const elem = (f.type.t === 'struct' ? f.type.cls : f.type.t) as Prim;
-        const n = f.size ? this.num(this.eval(f.size)) : 0;
+        // int a[N]; with static const int N = 3; in the class: the size may use the class's statics.
+        const saved = this.currentStruct;
+        this.currentStruct = structs.get(f.owner) ?? saved;
+        let n = 0;
+        try {
+          n = f.size ? this.num(this.eval(f.size)) : 0;
+        } finally {
+          this.currentStruct = saved;
+        }
         v = { t: 'array', elem, v: Array.from({ length: n }, () => (isStructItem(elem) ? this.blank(structs.get(elem)!, zero) : zero ? this.zeroOf(elem) : UNSET_VAL)) };
       } else if (f.type.t === 'struct') v = this.blank(structs.get(f.type.cls!)!, zero);
       else if (f.type.t === 'vector') v = { t: 'vector', elem: f.type.elem, v: [] };
@@ -2626,7 +2735,7 @@ class Interp {
       if (list.t === 'pointer') return list.pt?.t ?? 'int';
       return list.elem ?? (list.t === 'string' ? 'char' : 'int');
     }
-    const b = this.scope.lookup(t.text) ?? this.implicitMember(t);
+    const b = this.varBinding(t);
     if (!b) throw new CompileError(lineOf(t), `${t.text} is used but never declared.`);
     return b.cell.t;
   }
@@ -2686,9 +2795,10 @@ class Interp {
       return stored;
     }
     if (target.type === 'parenthesized_expression') return this.assignTo(named(target)[0], value);
-    if (target.type !== 'identifier') throw unsupported(target, 'this kind of assignment');
-    const b = this.scope.lookup(target.text) ?? this.implicitMember(target);
+    if (target.type !== 'identifier' && target.type !== 'qualified_identifier') throw unsupported(target, 'this kind of assignment');
+    const b = this.varBinding(target);
     if (!b) throw new CompileError(lineOf(target), `${target.text} is used but never declared.`);
+    if (b.isConst) throw new CompileError(lineOf(target), `${target.text} is const, so it can't be given a new value.`);
     if (b.cell.t === 'vector') {
       if (value.t !== 'vector') this.mismatch(value, b.cell, target, target.text);
       b.cell.v = this.copy(value);
@@ -2696,8 +2806,71 @@ class Interp {
     return b.cell.v;
   }
 
+  /**
+   * The box a name stands for: a variable, a member used without this->, or a static member
+   * (count inside Dog's code, or Dog::count anywhere), with C++'s private / protected checks.
+   */
+  private varBinding(id: Node): Binding | undefined {
+    if (id.type === 'qualified_identifier') {
+      const scopeName = id.childForFieldName('scope')?.text ?? '';
+      const member = id.childForFieldName('name')?.text ?? '';
+      const st = structs.get(scopeName);
+      if (!st) return this.scope.lookup(id.text);
+      const found = findStatic(st.name, member);
+      if (!found) {
+        if (st.fields.some((f) => f.name === member) || allMembers(st.name).some((f) => f.name === member)) {
+          throw new CompileError(lineOf(id), `${member} belongs to each ${st.name} object, so ${id.text} needs an object: use it like d.${member}.`);
+        }
+        throw new CompileError(lineOf(id), `${st.name} has no static member called ${member}.`);
+      }
+      this.checkStaticAccess(found, member, id);
+      return this.globals.vars.get(`${found.owner.name}::${member}`);
+    }
+    const local = this.scope.lookup(id.text);
+    if (local && this.globals.vars.get(id.text) !== local) return local;
+    const member = this.implicitMember(id);
+    if (member) return member;
+    if (this.currentStruct) {
+      const found = findStatic(this.currentStruct.name, id.text);
+      if (found) {
+        this.checkStaticAccess(found, id.text, id);
+        return this.globals.vars.get(`${found.owner.name}::${id.text}`);
+      }
+      const self = this.scope.lookup('this');
+      if (!self && allMembers(this.currentStruct.name).some((f) => f.name === id.text)) {
+        throw new CompileError(lineOf(id), `${id.text} belongs to each ${this.currentStruct.name} object, so a static method can't use it on its own.`);
+      }
+    }
+    return local;
+  }
+
+  private checkMethodAccess(owner: CStruct, method: string, at: Node) {
+    if (owner.privateMethods.has(method) && this.currentStruct?.name !== owner.name) {
+      throw new CompileError(lineOf(at), `${method} is private in ${owner.name}, so only code inside ${owner.name} can use it.`);
+    }
+    if (owner.protectedMethods?.has(method) && !(this.currentStruct && isDerived(this.currentStruct.name, owner.name))) {
+      throw new CompileError(lineOf(at), `${method} is protected in ${owner.name}, so only code inside ${owner.name} and the classes built on it can use it.`);
+    }
+  }
+
+  /** A variable of the running function (not a global one). */
+  private isLocal(name: string): boolean {
+    const b = this.scope.lookup(name);
+    return !!b && this.globals.vars.get(name) !== b;
+  }
+
+  private checkStaticAccess(found: { owner: CStruct; info: StaticInfo }, member: string, at: Node) {
+    const owner = found.owner.name;
+    if (found.info.isPrivate && this.currentStruct?.name !== owner) {
+      throw new CompileError(lineOf(at), `${member} is private in ${owner}, so only code inside ${owner} can use it.`);
+    }
+    if (found.info.isProtected && !(this.currentStruct && isDerived(this.currentStruct.name, owner))) {
+      throw new CompileError(lineOf(at), `${member} is protected in ${owner}, so only code inside ${owner} and the classes built on it can use it.`);
+    }
+  }
+
   private readVar(id: Node): CVal {
-    const b = this.scope.lookup(id.text) ?? this.implicitMember(id);
+    const b = this.varBinding(id);
     if (!b) {
       if (/^(std::)?(endl|cout|cin)$/.test(id.text)) throw unsupported(id, `${id.text} here`);
       if (id.text === 'NULL') return { t: 'pointer', v: null };
@@ -2852,6 +3025,7 @@ class Interp {
         return this.readTarget(n);
       case 'this': {
         const self = this.scope.lookup('this');
+        if (!self && this.currentStruct) throw new CompileError(lineOf(n), "this can't be used in a static method: it runs without an object.");
         if (!self) throw new CompileError(lineOf(n), "this can only be used inside a struct's own methods and constructors.");
         return self.cell.v as CVal;
       }
@@ -2905,12 +3079,9 @@ class Interp {
         // A pure virtual method (= 0) has no body in the base: the object's own class gives it.
         const found = findStructMethod(staticCls, method) ?? (virtual && byPlace ? findStructMethod(target.cls!, method) : null);
         if (!found) throw new CompileError(lineOf(n), `${staticCls} has no method called ${method}.`);
-        if (found.owner.privateMethods.has(method) && this.currentStruct?.name !== found.owner.name) {
-          throw new CompileError(lineOf(n), `${method} is private in ${found.owner.name}, so only code inside ${found.owner.name} can use it.`);
-        }
-        if (found.owner.protectedMethods?.has(method) && !(this.currentStruct && isDerived(this.currentStruct.name, found.owner.name))) {
-          throw new CompileError(lineOf(n), `${method} is protected in ${found.owner.name}, so only code inside ${found.owner.name} and the classes built on it can use it.`);
-        }
+        this.checkMethodAccess(found.owner, method, n);
+        // d.nextId() on a static method: it still runs without the object.
+        if (found.owner.staticMethods?.has(method)) return this.callFn(n, found.m, argNodes, null, `${found.owner.name}::${method}`, null, found.owner);
         const actual = byPlace && virtual ? findStructMethod(target.cls!, method)! : found;
         const label = objNode.type === 'identifier' ? `${objNode.text}${viaPointer ? '->' : '.'}${method}` : objNode.type === 'this' ? method : `${actual.owner.name}::${method}`;
         return this.callFn(n, actual.m, argNodes, target, label, null, actual.owner);
@@ -2922,6 +3093,22 @@ class Interp {
     // A method of this struct, called inside another one (bark() instead of this->bark()): virtual ones use the object's own class.
     const self = this.scope.lookup('this')?.cell.v;
     const own = this.currentStruct ? findStructMethod(this.currentStruct.name, name) : null;
+    // Dog::nextId() anywhere, or nextId() inside Dog's code: a static method runs without an object.
+    const qualifiedSt = f.type === 'qualified_identifier' ? structs.get(f.childForFieldName('scope')?.text ?? '') : undefined;
+    const staticName = qualifiedSt ? f.childForFieldName('name')!.text : name;
+    const staticOwner = qualifiedSt ?? (own && !this.program.functions.has(name) ? this.currentStruct : undefined);
+    const staticFound = staticOwner ? findStructMethod(staticOwner.name, staticName) : null;
+    if (staticFound?.owner.staticMethods?.has(staticName)) {
+      this.checkMethodAccess(staticFound.owner, staticName, n);
+      return this.callFn(n, staticFound.m, argNodes, null, `${staticFound.owner.name}::${staticName}`, null, staticFound.owner);
+    }
+    if (own && (!self || self === UNSET) && !this.program.functions.has(name)) {
+      throw new CompileError(lineOf(n), `${name}() belongs to each ${this.currentStruct!.name} object, so a static method can't call it on its own.`);
+    }
+    if (qualifiedSt && (!self || self === UNSET)) {
+      if (findStructMethod(qualifiedSt.name, staticName)) throw new CompileError(lineOf(n), `${staticName}() is not static, so it needs an object: call it like d.${staticName}().`);
+      throw new CompileError(lineOf(n), `${qualifiedSt.name} has no method called ${staticName}.`);
+    }
     const virtual = !!this.currentStruct && isVirtualIn(this.currentStruct.name, name);
     if ((own || virtual) && self && self !== UNSET && !this.program.functions.has(name)) {
       const actual = virtual ? findStructMethod(self.cls!, name)! : own!;
