@@ -102,3 +102,13 @@ test("C: '\\0', '\\n', \"\\x41\" and octal escapes; text written in quotes can b
   expect(r.status).toBe('ok');
   expect(r.steps.at(-1)!.output).toBe('2 5 ABy\n');
 });
+
+test('C: C++ library functions stay on Home, like a C compiler (max, swap, to_string, int(x))', () => {
+  const max = run(main('    printf("%d", max(2, 3));'));
+  expect(max.status).toBe('syntax-error');
+  expect(max.error?.message).toBe('Line 6: C has no max(): compare the two values yourself, like a > b ? a : b.');
+  const cast = run(main('    printf("%d", int(2.5));'));
+  expect(cast.error?.message).toBe('Line 6: int(x) is C++: write (int) x in C.');
+  const swap = run(main('    int a = 1;\n    int b = 2;\n    swap(a, b);'));
+  expect(swap.error?.message).toBe('Line 8: swap() is a C++ function: C does not have it.');
+});

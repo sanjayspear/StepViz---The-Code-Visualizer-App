@@ -3,7 +3,7 @@
 // or classes): Q26, Q28, Q29, Q30, Q31, Q32, Q34, Q35, Q36, Q38, Q41, Q42, Q43, Q47, Q49, Q50, Q53, Q54, Q55.
 import { fromPython } from '../javascript/shared';
 import { STRINGS } from '../python/strings';
-import { cStarter, PRINT_INTS } from './shared';
+import { cStarter } from './shared';
 
 export const STRINGS_C = fromPython(
   STRINGS,

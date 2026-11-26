@@ -534,6 +534,9 @@ function pointerText(x: CVal, here: string | null): string {
   return `points to ${t.name}${where}`;
 }
 
+/** Library functions that only C++ has (C mode stops on Home for them). */
+const CPP_ONLY = new Set(['char', 'int', 'double', 'long', 'bool', 'string', 'getline', 'swap', 'sort', 'make_pair', 'reverse', 'accumulate', 'count', 'max_element', 'min_element', 'find', 'to_string', 'stoi', 'stol', 'stoll', 'stod', 'max', 'min']);
+
 /** The text of a C / C++ literal without its quotes: \n, \t, \0, \\, \', \", \x41, \101 ... */
 function unescapeC(raw: string): string {
   const simple: Record<string, string> = { n: '\n', t: '\t', r: '\r', a: '\u0007', b: '\b', f: '\f', v: '\v', '\\': '\\', "'": "'", '"': '"', '?': '?' };
@@ -3775,6 +3778,14 @@ class Interp {
     // Dog("Rex", 3) as a value: a new object.
     if (structs.has(name) && dialect === 'cpp') return this.construct(n, structs.get(name)!, argNodes);
     if (this.program.functions.has(name)) return this.call(n, name, argNodes);
+    // C has only its own library: C++ functions stay on Home, like a C compiler.
+    if (dialect === 'c' && CPP_ONLY.has(name)) {
+      if (name === 'max' || name === 'min') {
+        throw new CompileError(lineOf(n), `C has no ${name}(): compare the two values yourself, like a ${name === 'max' ? '>' : '<'} b ? a : b.`);
+      }
+      if (['char', 'int', 'double', 'long', 'bool'].includes(name)) throw new CompileError(lineOf(n), `${name}(x) is C++: write (${name}) x in C.`);
+      throw new CompileError(lineOf(n), `${name}() is a C++ function: C does not have it.`);
+    }
     switch (name) {
       case 'printf': {
         const [fmt, ...rest] = argNodes;
