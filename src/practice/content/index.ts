@@ -15,6 +15,7 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { BASICS_MATH_C } from './c/basics-math';
 import { TREES_BST_CPP } from './cpp/trees-bst';
 import { LINKED_LISTS_CPP } from './cpp/linked-lists';
 import { GRAPHS_CPP } from './cpp/graphs';
@@ -131,11 +132,17 @@ export const CPP_TOPICS: Record<string, PracticeContent[]> = {
   'basics-math': BASICS_MATH_CPP,
 };
 
+/** C content by topic id: only the questions that fit C (the others show C as coming soon). */
+export const C_TOPICS: Record<string, PracticeContent[]> = {
+  'basics-math': BASICS_MATH_C,
+};
+
 const BY_LANGUAGE: Partial<Record<CodeLanguage, Map<number, PracticeContent>>> = {
   python: byId(PYTHON_TOPICS),
   javascript: byId(JS_TOPICS),
   java: byId(JAVA_TOPICS),
   cpp: byId(CPP_TOPICS),
+  c: byId(C_TOPICS),
 };
 
 export function contentFor(id: number, language: CodeLanguage): PracticeContent | undefined {

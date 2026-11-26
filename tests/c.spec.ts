@@ -84,3 +84,21 @@ test('Bubble sort in C: list view with the temp-variable swap as one step', () =
   expect(r.listView).toMatchObject({ list: 'nums', loopVars: ['i', 'j'] });
   expect(r.steps.filter((s) => s.kind === 'swap').map((s) => s.list!.swap)).toEqual([[0, 1], [2, 3], [1, 2], [0, 1]]);
 });
+
+test("C: '\\0', '\\n', \"\\x41\" and octal escapes; text written in quotes can be given to a char s[] parameter", () => {
+  const r = run(
+    main(
+      `    char t[] = "ab";
+    int n = 0;
+    while (t[n] != '\\0') n++;
+    printf("%d %d %s%c%c", n, length("hello"), "\\x41\\102", '\\t' == 9 ? 'y' : 'n', '\\n');`,
+      `int length(char s[]) {
+    return strlen(s);
+}
+
+`,
+    ),
+  );
+  expect(r.status).toBe('ok');
+  expect(r.steps.at(-1)!.output).toBe('2 5 ABy\n');
+});

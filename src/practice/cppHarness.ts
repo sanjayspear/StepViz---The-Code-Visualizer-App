@@ -168,6 +168,8 @@ function literal(type: string, value: Value): string {
   if (value === null) return type.endsWith('*') ? 'nullptr' : '{}';
   const vec = /^(?:std::)?vector<(.+)>$/.exec(type);
   if (vec) return `{${(value as Value[]).map((x) => literal(vec[1], x)).join(', ')}}`;
+  // C text in a char array: char s[] = "hello";
+  if (type === 'char[]' && typeof value === 'string') return JSON.stringify(value);
   if (type.endsWith('[]')) return `{${(value as Value[]).map((x) => literal(type.slice(0, -2), x)).join(', ')}}`;
   switch (type) {
     case 'int':
@@ -199,6 +201,8 @@ function literal(type: string, value: Value): string {
 /** A variable declaration holding the value (arrays keep their size from the list). */
 function declare(type: string, name: string, value: Value): string {
   const t = bare(type);
+  // An empty list: C has no zero-length array, so it gets one unused place (the length passed is 0).
+  if (t.endsWith('[]') && Array.isArray(value) && !value.length) return `${t.slice(0, -2)} ${name}[1];`;
   if (t.endsWith('[]')) return `${t.slice(0, -2)} ${name}[] = ${literal(t, value)};`;
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     // A Reader is made from a vector variable: StepViz's C++ can't pass {...} straight to a constructor.
@@ -299,6 +303,7 @@ export function checkCppAnswer(parser: Parser, source: string, spec: { tests: Pr
 
     const globals: string[] = [];
     const body: string[] = [];
+    let emptyArg = false;
     nodeCtx = { lines: [], nodes: [], nodeType: '', n: 0 };
     /** A declaration, after the lines that build the nodes it uses. */
     const declareHere = (type: string, name: string, value: Value) => {
@@ -346,9 +351,21 @@ export function checkCppAnswer(parser: Parser, source: string, spec: { tests: Pr
           nodeCtx.nodes = [];
           names = heads;
         } else {
-          names = (t.args ?? []).map((a, i) => {
-            declareHere(fn!.params[i]?.type ?? 'int', `stepvizArg${i}`, a);
-            return `stepvizArg${i}`;
+          names = [];
+          const args = t.args ?? [];
+          // C: int sum(int nums[], int n) takes the length after an array; the tests give only the list.
+          let extra = fn!.params.length - args.length;
+          let p = 0;
+          args.forEach((a, i) => {
+            const type = fn!.params[p]?.type ?? 'int';
+            declareHere(type, `stepvizArg${i}`, a);
+            names.push(`stepvizArg${i}`);
+            p++;
+            if (extra > 0 && bare(type).endsWith('[]') && bare(type) !== 'char[]' && Array.isArray(a) && /^(int|long|long long|size_t)$/.test(bare(fn!.params[p]?.type ?? ''))) {
+              names.push(String(a.length));
+              p++;
+              extra--;
+            }
           });
         }
         if (nodeCtx.nodes.length) keep(nodeCtx.nodeType, 'stepvizInput', nodeCtx.nodes[0]);
@@ -359,10 +376,17 @@ export function checkCppAnswer(parser: Parser, source: string, spec: { tests: Pr
         if (t.mutated) {
           const type = bare(fn!.params[t.mutated.arg]?.type ?? 'vector<int>');
           if (type.endsWith('[]')) {
-            // An array can't be copied by =: keep it as a vector.
+            // An array can't be copied by =: keep it as a vector (C: a global array of the same length).
             const name = `stepvizArg${t.mutated.arg}`;
-            globals.push(`vector<${type.slice(0, -2)}> stepvizArg;`);
-            body.push(`for (int stepvizI = 0; stepvizI < ${(t.args?.[t.mutated.arg] as Value[]).length}; stepvizI++) stepvizArg.push_back(${name}[stepvizI]);`);
+            const len = (t.args?.[t.mutated.arg] as Value[]).length;
+            if (dialect === 'c') {
+              globals.push(`${type.slice(0, -2)} stepvizArg[${Math.max(1, len)}];`);
+              body.push(`for (int stepvizI = 0; stepvizI < ${len}; stepvizI++) stepvizArg[stepvizI] = ${name}[stepvizI];`);
+              emptyArg = len === 0;
+            } else {
+              globals.push(`vector<${type.slice(0, -2)}> stepvizArg;`);
+              body.push(`for (int stepvizI = 0; stepvizI < ${len}; stepvizI++) stepvizArg.push_back(${name}[stepvizI]);`);
+            }
           } else keep(type, 'stepvizArg', `stepvizArg${t.mutated.arg}`);
         }
       }
@@ -425,7 +449,7 @@ export function checkCppAnswer(parser: Parser, source: string, spec: { tests: Pr
     let gotText = textOf(gotPlain);
     if (t.mutated) {
       const m = t.mutated;
-      let after = exportValue(mirror(run.value('stepvizArg'), memo));
+      let after = emptyArg ? [] : exportValue(mirror(run.value('stepvizArg'), memo));
       const arg = `argument ${m.arg + 1}`;
       if (m.prefix) {
         const k = typeof gotPlain === 'number' ? gotPlain : -1;

@@ -534,6 +534,16 @@ function pointerText(x: CVal, here: string | null): string {
   return `points to ${t.name}${where}`;
 }
 
+/** The text of a C / C++ literal without its quotes: \n, \t, \0, \\, \', \", \x41, \101 ... */
+function unescapeC(raw: string): string {
+  const simple: Record<string, string> = { n: '\n', t: '\t', r: '\r', a: '\u0007', b: '\b', f: '\f', v: '\v', '\\': '\\', "'": "'", '"': '"', '?': '?' };
+  return raw.replace(/\\(x[0-9a-fA-F]+|[0-7]{1,3}|.)/g, (_, e: string) => {
+    if (e[0] === 'x') return String.fromCharCode(parseInt(e.slice(1), 16));
+    if (/^[0-7]/.test(e)) return String.fromCharCode(parseInt(e, 8));
+    return simple[e] ?? e;
+  });
+}
+
 /** How a struct shows: Point {x: 1, y: ?} (a struct inside it, one level deep: Point {…}). */
 function structText(x: CVal, depth: number): string {
   if (depth > 1) return `${x.cls} {…}`;
@@ -2910,7 +2920,9 @@ class Interp {
         if (type.t === 'struct' && b.cell.t === 'struct' && !isDerived(b.cell.cls!, type.cls!)) this.mismatch(b.cell.v as CVal, type, arg, info.name);
         scope.vars.set(info.name, { cell: b.cell, refOf: b.refOf ?? arg.text, staticCls: type.t === 'struct' ? type.cls : undefined });
       } else if (info.arraySize !== undefined) {
-        const a = this.eval(arg);
+        let a = this.eval(arg);
+        // f("hello") for a char s[] parameter: the text in a char array, ending in '\0' (like C).
+        if (a.t === 'string' && type.t === 'char') a = { t: 'array', elem: 'char', v: [...(a.v as string), '\u0000'].map(chr) };
         if (a.t !== 'array') throw new CompileError(lineOf(arg), `${info.name} needs an array.`);
         scope.vars.set(info.name, { cell: { t: 'array', elem: a.elem, v: a } }); // arrays are not copied
       } else if (info.pointer) {
@@ -3544,13 +3556,13 @@ class Interp {
       }
       case 'string_literal': {
         const raw = n.text.slice(1, -1);
-        return strv(JSON.parse(`"${raw.replace(/\\'/g, "'")}"`));
+        return strv(unescapeC(raw));
       }
       case 'concatenated_string':
         return strv(named(n).map((s) => this.eval(s).v as string).join(''));
       case 'char_literal': {
         const body = n.text.slice(1, -1);
-        return chr(body.startsWith('\\') ? JSON.parse(`"${body === "\\'" ? "'" : body}"`) : body);
+        return chr(unescapeC(body));
       }
       case 'null':
         return { t: 'pointer', v: null };

@@ -33,10 +33,11 @@ export function jsTests(tests: PracticeTest[]): PracticeTest[] {
  * The content of a topic in another language, built on the Python content. A part set to null means
  * "not in this language yet" (the question page then shows the language as coming soon).
  */
-export function fromPython(python: PracticeContent[], parts: Record<number, JsPart | null>): PracticeContent[] {
+export function fromPython(python: PracticeContent[], parts: Record<number, JsPart | null>, opts: { partial?: boolean } = {}): PracticeContent[] {
   return python.flatMap((py) => {
     const js = parts[py.id];
-    if (js === null) return [];
+    // partial: a language that only has some questions of a topic (C: the ones that fit C).
+    if (js === null || (js === undefined && opts.partial)) return [];
     if (!js) throw new Error(`JavaScript content for Q${py.id} is missing`);
     if (py.forbid && js.forbid === undefined) throw new Error(`Q${py.id}: the Python rule needs a JavaScript version (or forbid: null)`);
     return {
