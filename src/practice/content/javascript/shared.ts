@@ -47,4 +47,4 @@ export function fromPython(python: PracticeContent[], parts: Record<number, JsPa
 
 /** Words that only make sense in Python: a hint using them needs a JavaScript version. */
 export const PYTHON_WORDS =
-  /\b(Python|True|False|None|def|self|dict|dictionary|tuple|heapq|deque|sorted|append|enumerate|elif|nonlocal|Counter|cmp_to_key|isdigit|isalpha|isalnum|popleft|zip|ord|chr|f-string|bisect)\b|\b[a-z]+_[a-z0-9_]+\(|float\("inf"\)|\blen\(|\brange\(|\bprint\(|\bstr\(|\bint\(|\blist\(|\bset\(|\.lower\(\)|\.upper\(\)|\[::-1\]|\/\/|\[1:\]|\[:-1\]|\[1:-1\]|\[i:\]|\[:i\]|\[j:i\]|s\[[a-z0-9 +-]*:[a-z0-9 +-]*\]/;
+  /\b(Python|True|False|None|def|self|dict|dictionary|tuple|heapq|deque|append|enumerate|elif|nonlocal|Counter|cmp_to_key|isdigit|isalpha|isalnum|popleft|f-string|bisect)\b|\b(sorted|zip|ord|chr)\(|\b[a-z]+_[a-z0-9_]+\(|float\("inf"\)|\blen\(|\brange\(|\bprint\(|\bstr\(|\bint\(|\blist\(|\bset\(|\.lower\(\)|\.upper\(\)|\[::-1\]|\/\/|\[1:\]|\[:-1\]|\[1:-1\]|\[i:\]|\[:i\]|\[j:i\]|s\[[a-z0-9 +-]*:[a-z0-9 +-]*\]/;

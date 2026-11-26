@@ -15,6 +15,8 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { ARRAYS_MATRICES_JS } from './javascript/arrays-matrices';
+import { STRINGS_JS } from './javascript/strings';
 import { BASICS_MATH_JS } from './javascript/basics-math';
 
 /** Python content by topic id (questions.json). */
@@ -37,6 +39,8 @@ export const PYTHON_TOPICS: Record<string, PracticeContent[]> = {
 
 /** JavaScript content by topic id (tests from the Python content, see javascript/shared.ts). */
 export const JS_TOPICS: Record<string, PracticeContent[]> = {
+  'arrays-matrices': ARRAYS_MATRICES_JS,
+  strings: STRINGS_JS,
   'basics-math': BASICS_MATH_JS,
 };
 

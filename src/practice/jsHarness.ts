@@ -68,7 +68,8 @@ export function forbiddenJs(source: string, forbid: JsForbid | undefined): [numb
       if ((label === 'name' || tok.type.keyword) && names.has(text)) return [line, text];
       if (ops.has(text) && label !== 'name' && label !== 'string' && label !== 'template') return [line, text];
       if (label === 'string' || label === 'template') code.push([line, '"…"']);
-      else if (label !== '`' && label !== 'regexp') code.push([line, text]);
+      else if (label === 'regexp') code.push([line, '/…/']);
+      else if (label !== '`') code.push([line, text]);
     }
   } catch {
     return null;
