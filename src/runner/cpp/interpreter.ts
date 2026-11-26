@@ -537,8 +537,19 @@ function pointerText(x: CVal, here: string | null): string {
 /** How a struct shows: Point {x: 1, y: ?} (a struct inside it, one level deep: Point {…}). */
 function structText(x: CVal, depth: number): string {
   if (depth > 1) return `${x.cls} {…}`;
-  const parts = [...(x.v as Map<string, CVal>)].map(([k, v]) => `${k}: ${v.t === 'struct' ? structText(v, depth + 1) : v.t === 'pointer' ? memberPointerText(v) : formatCpp(v) ?? '?'}`);
+  const parts = [...(x.v as Map<string, CVal>)].map(([k, v]) => `${k}: ${insideText(v, depth)}`);
   return `${x.cls} {${parts.join(', ')}}`;
+}
+
+/** A value inside an object: pointers to objects are not opened again, also inside a vector member (neighbors). */
+function insideText(v: CVal, depth: number): string {
+  if (v === UNSET_VAL) return '?';
+  if (v.t === 'struct') return structText(v, depth + 1);
+  if (v.t === 'pointer') return memberPointerText(v);
+  if ((v.t === 'vector' || v.t === 'array') && v.elem !== 'char' && (v.v as CVal[]).some((x) => x.t === 'pointer' || x.t === 'struct')) {
+    return `[${(v.v as CVal[]).map((x) => insideText(x, depth)).join(', ')}]`;
+  }
+  return formatCpp(v) ?? '?';
 }
 
 /**

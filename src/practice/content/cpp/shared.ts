@@ -59,8 +59,5 @@ export function nullTo(tests: import('../types').PracticeTest[], instead: import
   return tests.map((t) => (t.expected === null && !t.mutated ? { ...t, expected: instead } : t));
 }
 
-/**
- * Questions without C++ content yet (their parts are null): they need pointers between objects
- * (ListNode* next), which StepViz's C++ can't run yet. The question page shows C++ as coming soon.
- */
-export const CPP_LATER = new Set([266]);
+/** Questions without C++ content yet (their parts are null): the question page shows C++ as coming soon. */
+export const CPP_LATER = new Set<number>();

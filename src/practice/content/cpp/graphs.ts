@@ -1,6 +1,5 @@
 // Practice, C++: Graphs (Q261-Q280). Tests come from the Python content;
 // reference solutions in tests/practice/cpp/graphs.solutions.ts.
-// Q266 (clone a graph) needs pointers between objects: it waits for that stage (CPP_LATER).
 import { fromPython } from '../javascript/shared';
 import { GRAPHS } from '../python/graphs';
 import { cppStarter, PRINT_INTS } from './shared';
@@ -57,7 +56,36 @@ export const GRAPHS_CPP = fromPython(GRAPHS, {
     example: 'Example: maxAreaIsland({{1, 1, 0}, {0, 1, 0}, {0, 0, 1}}) returns 3.',
     starter: fn('int maxAreaIsland(vector<vector<int>> grid)', '1 is land, 0 is water. The number of cells in the biggest island (0 if there is none).', `${grid('grid', '{{1, 1, 0}, {0, 1, 0}, {0, 0, 1}}')}\n${show('maxAreaIsland(grid)')}`),
   },
-  266: null,
+  266: {
+    example: 'Example: cloneGraph(node) gives new nodes with the same values and the same neighbour links.',
+    starter: `#include <iostream>
+#include <vector>
+using namespace std;
+
+struct Node {
+    int val;
+    vector<Node*> neighbors;
+    Node(int x) : val(x) {}
+};
+
+Node* cloneGraph(Node* node) {
+    // A deep copy of the connected graph that node is part of (every value is different, 1 to 100).
+    // Return the copy of node.
+    return nullptr;
+}
+
+int main() {
+    Node* a = new Node(1);
+    Node* b = new Node(2);
+    a->neighbors.push_back(b);
+    b->neighbors.push_back(a);
+    Node* copy = cloneGraph(a);
+    cout << boolalpha << (copy != nullptr && copy != a) << endl; // true when it makes new nodes
+    return 0;
+}
+`,
+    hint: "Keep the copy of each node, found by its value (a vector<Node*> copies(101, nullptr) works, since every value is different). Visit the graph (DFS or BFS); the first time you meet a node, make its copy; then fill each copy's neighbors with the copies of the old neighbours. Looking a node up first stops you copying it twice. Like copying a friendship map: every person is drawn once, then every line between them.",
+  },
   267: {
     example: 'Example: hasCycleUndirected(3, {{0, 1}, {1, 2}, {2, 0}}) returns true.',
     starter: fn('bool hasCycleUndirected(int n, vector<vector<int>>& edges)', 'Nodes 0 to n-1, edges go both ways (no edge appears twice). true if there is a cycle.', `${grid('edges', '{{0, 1}, {1, 2}, {2, 0}}')}\n${yes('hasCycleUndirected(3, edges)')}`),

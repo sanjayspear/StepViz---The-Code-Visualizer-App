@@ -132,3 +132,26 @@ int main() {
   expect(home.status).toBe('syntax-error');
   expect(home.error?.message).toBe("Line 3: A Box can't hold a whole Box inside itself: use a pointer, like Box* inner;");
 });
+
+test('a graph whose nodes point to each other through a vector<Node*> member shows without going round for ever', () => {
+  const r = run(`#include <iostream>
+#include <vector>
+using namespace std;
+struct Node {
+    int val;
+    vector<Node*> neighbors;
+    Node(int x) : val(x) {}
+};
+int main() {
+    Node* a = new Node(1);
+    Node* b = new Node(2);
+    a->neighbors.push_back(b);
+    b->neighbors.push_back(a);
+    vector<Node*> all = {a, b};
+    cout << a->neighbors[0]->neighbors[0]->val << endl;
+    return 0;
+}`);
+  expect(r.status).toBe('ok');
+  expect(r.steps.at(-1)!.output).toBe('1\n');
+  expect(r.steps.at(-1)!.frames[0].vars.a).toBe("points to new Node {val: 1, neighbors: …");
+});

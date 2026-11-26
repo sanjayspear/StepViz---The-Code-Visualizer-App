@@ -1,4 +1,4 @@
-// C++ reference solutions for Practice: Graphs (Q266 waits for pointers). Never shipped to students.
+// C++ reference solutions for Practice: Graphs. Never shipped to students.
 const file = (functions: string) => `#include <iostream>
 #include <vector>
 #include <string>
@@ -90,7 +90,29 @@ const FLOW = `void spread(vector<vector<int>>& h, vector<vector<int>>& seen, int
 }
 `;
 
+const GRAPH_NODE = `struct Node {
+    int val;
+    vector<Node*> neighbors;
+    Node(int x) : val(x) {}
+};
+`;
+
 export const SOLUTIONS: Record<number, string> = {
+  266: file(`${GRAPH_NODE}
+Node* copyOf(Node* n, vector<Node*>& copies) {
+    if (copies[n->val] != nullptr) return copies[n->val];
+    Node* c = new Node(n->val);
+    copies[n->val] = c;
+    for (Node* m : n->neighbors) c->neighbors.push_back(copyOf(m, copies));
+    return c;
+}
+
+Node* cloneGraph(Node* node) {
+    if (node == nullptr) return nullptr;
+    vector<Node*> copies(101, nullptr);
+    return copyOf(node, copies);
+}
+`),
   261: file(`vector<vector<int>> toAdjList(int n, vector<vector<int>> edges) {
     vector<vector<int>> adj(n);
     for (int i = 0; i < edges.size(); i++) {
