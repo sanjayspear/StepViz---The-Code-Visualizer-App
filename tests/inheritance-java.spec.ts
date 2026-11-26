@@ -105,5 +105,5 @@ test("Java's rules for classes that extend others stay on Home", () => {
     'Line 12: A has no constructor that takes no values, so the constructor below it must start with super(...).',
   );
   expect(msg(main('class A {\n}\n\nclass B extends A {\n    B() {\n        int x = 1;\n        super();\n    }\n}'))).toMatch(/^Line 7: /);
-  expect(msg(main('class A implements Runnable {\n}'))).toBe("Line 1: StepViz can't run interfaces (implements) in Java yet.");
+  expect(msg(main('class A implements Runnable {\n}'))).toBe("Line 1: StepViz can't run the interface Runnable in Java yet.");
 });

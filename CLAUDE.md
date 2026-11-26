@@ -58,7 +58,9 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
      G1 tables (2-D arrays) in Java/C++/C and vector<vector<int>> (done), H1 Java
      HashMap/TreeMap/LinkedHashMap (done), P2 C/C++ pointer arithmetic + new/delete
      (done), K2 Java inheritance (done), C5 C++ inheritance (done). That list is
-     finished; nothing else is planned.
+     finished. Then (2026-11-26, my order): try-line step removed in Python/JS
+     (done), I1 Java interfaces + Comparable (done), S2 sets (Java HashSet/
+     TreeSet/LinkedHashSet, C++ std::set).
 
 Phase 1 covers:
 
@@ -296,6 +298,23 @@ Playwright tests. Static build for GitHub Pages.
   static members, friends, destructors, protected, structs inside functions, ->
   except this->. A member value written in the struct may use members above
   it (int b = a + 1;).
+- Java interfaces (I1): interface Shape { double area(); default String label()
+  { ... } } (default, static and private methods with bodies; others are promises),
+  interface A extends B, class C implements A, B (with extends too), interface
+  types for variables, parameters and lists, instanceof / casts to interfaces
+  (ClassCastException when the object does not implement it). A method runs from
+  the object's class first, then an interface's default method. Comparable<T>:
+  class Student implements Comparable<Student> with public int compareTo(Student
+  o); Collections.sort / Arrays.sort / Collections.max call compareTo (each call
+  is a step) in Java's own order for lists under 32 items (TimSort's binary
+  insertion sort); longer lists use a stable merge sort (same result). Rules:
+  "Shape is an interface, so new Shape() is not allowed: make an object of a
+  class that implements it."; "Dot must have its own area() method, because
+  Shape only promises it."; "area() must be public in Dot, because Shape makes it
+  public (write public before it)."; "P objects can't be sorted by themselves:
+  write class P implements Comparable<P> with a compareTo method." Unsupported:
+  constants in interfaces, generic interfaces of the program, lambdas,
+  Comparator, TreeMap/TreeSet with object keys.
 - C++ inheritance (C5): class Dog : public Animal (one public base; struct bases
   are public by default). Members of all levels (base first): Dog {name: "Rex",
   breed: "Lab"}. The base part is made first, in a frame "Animal::Animal("Rex")"

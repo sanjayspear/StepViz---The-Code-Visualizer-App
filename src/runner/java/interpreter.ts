@@ -409,7 +409,6 @@ export function syntaxError(tree: Tree): CompileError | null {
 /** Names of features StepViz cannot run yet, by syntax node type. */
 const FEATURES: Record<string, string> = {
   package_declaration: 'packages',
-  interface_declaration: 'interfaces',
   enum_declaration: 'enums',
   record_declaration: 'records',
   field_declaration: 'variables outside methods',
@@ -479,22 +478,67 @@ export interface ClassInfo {
   /** class Dog extends Animal: "Animal" */
   parent: string | null;
   isAbstract: boolean;
+  /** interface Shape { ... } */
+  isInterface?: boolean;
+  /** implements Shape, Comparable / interface A extends B */
+  interfaces?: string[];
+  /** methods an interface (or abstract class) only promises: no body */
+  promises?: Set<string>;
 }
+
+/** Comparable<T>: Java's own interface; Collections.sort calls its compareTo. */
+const COMPARABLE: ClassInfo = { name: 'Comparable', node: null as unknown as Node, fields: [], constructors: [], methods: new Map(), parent: null, isAbstract: true, isInterface: true, interfaces: [], promises: new Set(['compareTo']) };
 
 /** All classes of the program (set by checkSubset), for inheritance. */
 let classInfos = new Map<string, ClassInfo>();
 /** Is a Dog an Animal? (the same class, or a class further down) */
 function isSubclass(cls: string, ancestor: string): boolean {
-  for (let c: string | null = cls; c; c = classInfos.get(c)?.parent ?? null) if (c === ancestor) return true;
+  // Up through extends and implements (a Circle is a Shape if it implements Shape).
+  const todo = [cls];
+  const seen = new Set<string>();
+  while (todo.length) {
+    const c = todo.pop()!;
+    if (c === ancestor) return true;
+    if (seen.has(c)) continue;
+    seen.add(c);
+    const info = classInfos.get(c);
+    if (info?.parent) todo.push(info.parent);
+    todo.push(...(info?.interfaces ?? []));
+  }
   return false;
 }
-/** A method by name, in the class or the classes above it: the class that has it, and the method. */
+/** The interfaces a class has, with the ones they extend (and those of the classes above). */
+function interfacesOf(cls: string): ClassInfo[] {
+  const out: ClassInfo[] = [];
+  const todo = [cls];
+  const seen = new Set<string>();
+  while (todo.length) {
+    const info = classInfos.get(todo.shift()!);
+    if (!info || seen.has(info.name)) continue;
+    seen.add(info.name);
+    if (info.isInterface) out.push(info);
+    if (info.parent) todo.push(info.parent);
+    todo.push(...(info.interfaces ?? []));
+  }
+  return out;
+}
+/**
+ * A method by name: the class's own (or a class above), else an interface's default method;
+ * else the method an abstract class or interface only promises (no body).
+ */
 function findMethod(cls: string, name: string): { owner: ClassInfo; m: Node } | null {
+  let promised: { owner: ClassInfo; m: Node } | null = null;
   for (let c = classInfos.get(cls); c; c = c.parent ? classInfos.get(c.parent) : undefined) {
     const m = c.methods.get(name);
-    if (m) return { owner: c, m };
+    if (m && m.childForFieldName('body')) return { owner: c, m };
+    if (m) promised ??= { owner: c, m };
   }
-  return null;
+  for (const i of interfacesOf(cls)) {
+    const m = i.methods.get(name);
+    if (m && m.childForFieldName('body')) return { owner: i, m };
+    if (m) promised ??= { owner: i, m };
+  }
+  return promised;
 }
 /** Fields of a class and the classes above it, the top class's first (the order Java builds them). */
 function allFields(cls: string): (ClassInfo['fields'][number] & { owner: string })[] {
@@ -521,8 +565,12 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
       if (!IMPORTS.has(what)) throw unsupported(n, `the import ${what}`);
       continue;
     }
-    if (n.type !== 'class_declaration') throw unsupported(n, FEATURES[n.type] ?? n.type.replace(/_/g, ' '));
+    if (n.type !== 'class_declaration' && n.type !== 'interface_declaration') throw unsupported(n, FEATURES[n.type] ?? n.type.replace(/_/g, ' '));
   }
+  const interfaceNodes = [
+    ...top.filter((n) => n.type === 'interface_declaration'),
+    ...named(top.find((n) => n.type === 'class_declaration' && n.childForFieldName('name')?.text === 'Main')?.childForFieldName('body')).filter((n) => n.type === 'interface_declaration'),
+  ];
   const topClasses = top.filter((n) => n.type === 'class_declaration');
   const NEED_MAIN = 'StepViz needs a public class Main with a main method.';
   const mainClass = topClasses.find((c) => c.childForFieldName('name')?.text === 'Main');
@@ -542,9 +590,32 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
     if (!/\bstatic\b/.test(modifiersOf(member))) throw unsupported(member, 'inner classes (write static class instead)');
     others.push(member);
   }
-  classNames = new Set(others.map((c) => c.childForFieldName('name')!.text));
+  classNames = new Set([...others, ...interfaceNodes].map((c) => c.childForFieldName('name')!.text));
 
   const classes = new Map<string, ClassInfo>();
+  // interface Shape extends Named { double area(); default String label() { ... } }
+  for (const n of interfaceNodes) {
+    const name = n.childForFieldName('name')!.text;
+    if (TAKEN_NAMES.has(name)) throw unsupported(n, `an interface called ${name}`);
+    if (classes.has(name)) throw unsupported(n, 'two classes with the same name');
+    if (n.childForFieldName('type_parameters')) throw unsupported(n, 'generic interfaces');
+    const ext = named(n).find((x) => x.type === 'extends_interfaces');
+    const parents = named(named(ext)[0]).map((t) => t.text);
+    const info: ClassInfo = { name, node: n, fields: [], constructors: [], methods: new Map(), parent: null, isAbstract: true, isInterface: true, interfaces: parents, promises: new Set() };
+    for (const member of named(n.childForFieldName('body'))) {
+      if (member.type === 'constant_declaration') throw unsupported(member, 'constants in interfaces');
+      if (member.type !== 'method_declaration') throw unsupported(member, FEATURES[member.type] ?? member.type.replace(/_/g, ' '));
+      const m = member.childForFieldName('name')!.text;
+      if (info.methods.has(m)) throw unsupported(member, 'two methods with the same name');
+      if (!member.childForFieldName('body')) info.promises!.add(m);
+      else if (!/\b(default|static|private)\b/.test(member.namedChildren.find((c) => c?.type === 'modifiers')?.text ?? '')) {
+        throw new CompileError(lineOf(member), `A method with a body in an interface needs the word default (default ${member.childForFieldName('type')?.text} ${m}() { ... }).`);
+      }
+      info.methods.set(m, member);
+    }
+    classes.set(name, info);
+  }
+  let usesComparable = false;
   for (const c of [mainClass, ...others]) {
     const name = c.childForFieldName('name')!.text;
     if (c !== mainClass && TAKEN_NAMES.has(name)) throw unsupported(c, `a class called ${name}`);
@@ -552,9 +623,21 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
     const superclass = c.childForFieldName('superclass');
     const parent = superclass ? named(superclass)[0]?.text ?? null : null;
     if (parent && (c === mainClass || !classNames.has(parent))) throw unsupported(c, parent && !classNames.has(parent) ? `extending ${parent}` : 'Main extending another class');
-    if (c.childForFieldName('interfaces')) throw unsupported(c, 'interfaces (implements)');
+    // implements Shape, Comparable<Dog>
+    const implemented: string[] = [];
+    for (const t of named(named(c.childForFieldName('interfaces'))[0])) {
+      if (t.type === 'generic_type' && named(t)[0]?.text === 'Comparable') {
+        if (named(named(t)[1])[0]?.text !== name) throw unsupported(t, `Comparable<${named(named(t)[1])[0]?.text}> (write Comparable<${name}>)`);
+        implemented.push('Comparable');
+        usesComparable = true;
+        continue;
+      }
+      if (!classes.get(t.text)?.isInterface) throw unsupported(t, classNames.has(t.text) ? `implements ${t.text} (${t.text} is a class: use extends)` : `the interface ${t.text}`);
+      implemented.push(t.text);
+    }
+    if (c === mainClass && implemented.length) throw unsupported(c, 'Main implementing an interface');
     if (c.childForFieldName('type_parameters')) throw unsupported(c, 'generic classes');
-    const info: ClassInfo = { name, node: c, fields: [], constructors: [], methods: new Map(), parent, isAbstract: /\babstract\b/.test(modifiersOf(c)) };
+    const info: ClassInfo = { name, node: c, fields: [], constructors: [], methods: new Map(), parent, isAbstract: /\babstract\b/.test(modifiersOf(c)), interfaces: implemented };
     for (const member of named(c.childForFieldName('body'))) {
       if (member.type === 'class_declaration') {
         if (c === mainClass) continue; // handled above
@@ -589,8 +672,12 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
     }
     classes.set(name, info);
   }
+  if (usesComparable) classes.set('Comparable', COMPARABLE);
   classInfos = classes;
-  for (const info of classes.values()) {
+  for (const info of [...classes.values()].filter((i) => i.isInterface)) {
+    for (const p of info.interfaces ?? []) if (!classes.get(p)?.isInterface) throw unsupported(info.node, `the interface ${p}`);
+  }
+  for (const info of [...classes.values()].filter((i) => !i.isInterface)) {
     // No class may be its own ancestor; a field may not reuse a name from a class above it.
     const seen = new Set<string>();
     for (let p = info.parent; p; p = classes.get(p)?.parent ?? null) {
@@ -600,8 +687,24 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
       const clash = info.fields.find((f) => above.fields.some((g) => g.name === f.name));
       if (clash) throw unsupported(clash.declarator, `a field with the same name as one in ${p}`);
     }
-    // A class that is not abstract must have every method a class above it only promises.
+    // A method an interface promises must be public in the class (Java's rule).
+    for (const i of interfacesOf(info.name)) {
+      for (const mName of i.promises ?? []) {
+        const own = info.methods.get(mName);
+        if (own && !/\bpublic\b/.test(own.namedChildren.find((x) => x?.type === 'modifiers')?.text ?? '')) {
+          throw new CompileError(lineOf(own), `${mName}() must be public in ${info.name}, because ${i.name} makes it public (write public before it).`);
+        }
+      }
+    }
+    // A class that is not abstract must have every method an interface or a class above it only promises.
     if (!info.isAbstract) {
+      for (const i of interfacesOf(info.name)) {
+        for (const mName of i.promises ?? []) {
+          if (!findMethod(info.name, mName)?.m.childForFieldName('body')) {
+            throw new CompileError(lineOf(info.node), `${info.name} must have its own ${mName}() method, because ${i.name} only promises it.`);
+          }
+        }
+      }
       for (let p = info.parent; p; p = classes.get(p)?.parent ?? null) {
         for (const [mName, m] of classes.get(p)!.methods) {
           if (m.childForFieldName('body')) continue;
@@ -627,7 +730,7 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
   const allowed = (t: string) => ALLOWED_TYPES.has(t) || classNames.has(t);
   const bodies = [...classes.values()].flatMap((c) => [...c.methods.values(), ...c.constructors]);
   for (const c of classes.values()) {
-    for (const fd of named(c.node.childForFieldName('body')).filter((x) => x.type === 'field_declaration')) {
+    for (const fd of named(c.node?.childForFieldName('body')).filter((x) => x.type === 'field_declaration')) {
       for (const part of named(fd)) if (part.type !== 'modifiers') visitSubset(part);
     }
   }
@@ -1662,6 +1765,7 @@ class Interp {
   /** new Dog("Rex", 3): every field (the classes above first) starts at 0 / null / false, then the constructors run, top class first. */
   private construct(node: Node, name: string, args: JVal[]): JVal {
     const cls = this.classes.get(name)!;
+    if (cls.isInterface) throw new CompileError(lineOf(node), `${name} is an interface, so new ${name}() is not allowed: make an object of a class that implements it.`);
     if (cls.isAbstract) throw new CompileError(lineOf(node), `${name} is abstract, so new ${name}() is not allowed: make one of the classes that extend it.`);
     const o: JObject = { cls: name, fields: new Map() };
     const obj: JVal = { t: 'object', cls: name, v: o, id: freshId() };
@@ -2129,7 +2233,8 @@ class Interp {
           if (v.t === 'null' || (v.t === 'object' && v.v === null)) return { t: 'object', cls: to.cls, v: null };
           if (v.t !== 'object') throw new CompileError(lineOf(n), `${formatJava(v)} can't be turned into a ${to.cls}.`);
           const real = (v.v as JObject).cls;
-          if (!isSubclass(real, to.cls!) && !isSubclass(to.cls!, v.cls!)) throw new CompileError(lineOf(n), `A ${v.cls} can never be a ${to.cls}, so this cast can't work.`);
+          const anInterface = classInfos.get(to.cls!)?.isInterface || classInfos.get(v.cls!)?.isInterface;
+          if (!anInterface && !isSubclass(real, to.cls!) && !isSubclass(to.cls!, v.cls!)) throw new CompileError(lineOf(n), `A ${v.cls} can never be a ${to.cls}, so this cast can't work.`);
           if (!isSubclass(real, to.cls!)) throw new JavaException('ClassCastException', `class ${real} cannot be cast to class ${to.cls}`);
           return { ...v, cls: to.cls };
         }
@@ -2295,8 +2400,7 @@ class Interp {
         return str(deep(a));
       }
       if (name === 'sort') {
-        const items = a.v as JVal[];
-        items.sort((x, y) => this.compare(x, y));
+        this.sortItems(a.v as JVal[], n);
         return VOID;
       }
       throw unsupported(n, `Arrays.${name}`);
@@ -2359,6 +2463,71 @@ class Interp {
   }
 
   /** compareTo order, like Java: numbers by size, text by character codes ("B" before "a"). */
+  /**
+   * Sort like Java: numbers and text by value; objects with their compareTo (Comparable), in
+   * Java's own order of comparisons for short lists (binary insertion sort, as TimSort does under 32 items).
+   */
+  private sortItems(items: JVal[], at: Node) {
+    if (!items.some((x) => x.t === 'object')) {
+      items.sort((x, y) => this.compare(x, y));
+      return;
+    }
+    const cmp = (x: JVal, y: JVal) => this.compareObjects(x, y, at);
+    const n = items.length;
+    if (n < 2) return;
+    if (n >= 32) {
+      // Longer lists: a stable merge sort (the same result as Java; the comparisons may come in another order).
+      const sorted = this.mergeSort(items, cmp);
+      items.splice(0, n, ...sorted);
+      return;
+    }
+    // countRunAndMakeAscending
+    let runHi = 1;
+    if (cmp(items[runHi++], items[0]) < 0) {
+      while (runHi < n && cmp(items[runHi], items[runHi - 1]) < 0) runHi++;
+      items.splice(0, runHi, ...items.slice(0, runHi).reverse());
+    } else {
+      while (runHi < n && cmp(items[runHi], items[runHi - 1]) >= 0) runHi++;
+    }
+    // binarySort
+    for (let start = runHi; start < n; start++) {
+      const pivot = items[start];
+      let left = 0;
+      let right = start;
+      while (left < right) {
+        const mid = (left + right) >>> 1;
+        if (cmp(pivot, items[mid]) < 0) right = mid;
+        else left = mid + 1;
+      }
+      items.splice(start, 1);
+      items.splice(left, 0, pivot);
+    }
+  }
+
+  private mergeSort(items: JVal[], cmp: (a: JVal, b: JVal) => number): JVal[] {
+    if (items.length < 2) return items.slice();
+    const mid = items.length >> 1;
+    const a = this.mergeSort(items.slice(0, mid), cmp);
+    const b = this.mergeSort(items.slice(mid), cmp);
+    const out: JVal[] = [];
+    while (a.length && b.length) out.push(cmp(b[0], a[0]) < 0 ? b.shift()! : a.shift()!);
+    return [...out, ...a, ...b];
+  }
+
+  /** a.compareTo(b) for objects that implement Comparable (its steps show, like any method). */
+  private compareObjects(x: JVal, y: JVal, at: Node): number {
+    if (x.t !== 'object' || y.t !== 'object') throw new CompileError(lineOf(at), 'A list to sort must hold one kind of value.');
+    if (x.v === null || y.v === null) throw new JavaException('NullPointerException', 'Cannot compare a null value');
+    const cls = (x.v as JObject).cls;
+    const found = findMethod(cls, 'compareTo');
+    if (!isSubclass(cls, 'Comparable') || !found) {
+      throw new CompileError(lineOf(at), `${cls} objects can't be sorted by themselves: write class ${cls} implements Comparable<${cls}> with a compareTo method.`);
+    }
+    const result = this.callMethod(at, found.owner, found.m, [y], x, `${cls}.compareTo`);
+    if (result.t !== 'int') throw new CompileError(lineOf(found.m), 'compareTo must give back an int.');
+    return result.v as number;
+  }
+
   private compare(x: JVal, y: JVal): number {
     if (x.v === null || y.v === null) throw new JavaException('NullPointerException', 'Cannot compare a null value');
     if (x.t === 'String' && y.t === 'String') return compareText(x.v as string, y.v as string);
@@ -2722,7 +2891,7 @@ class Interp {
     switch (name) {
       case 'sort':
         if (a.length !== 1) break;
-        items.sort((x, y) => this.compare(x, y));
+        this.sortItems(items, n);
         list.mod = (list.mod ?? 0) + 1;
         return VOID;
       case 'reverse':
@@ -2744,7 +2913,7 @@ class Interp {
         if (a.length !== 1) break;
         if (!items.length) throw new JavaException('NoSuchElementException', '');
         return items.reduce((best, x) => {
-          const c = this.compare(x, best);
+          const c = x.t === 'object' ? this.compareObjects(x, best, n) : this.compare(x, best);
           return (name === 'max' ? c > 0 : c < 0) ? x : best;
         });
       }
