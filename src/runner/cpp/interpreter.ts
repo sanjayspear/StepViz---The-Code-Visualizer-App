@@ -36,7 +36,7 @@
 // nullptr a NullPointer crash). std::map (sorted by key): m[k] (adds a missing key,
 // like C++), count, contains, erase, at, size, empty, clear, find(k) != end(),
 // for (auto& [k, v] : m) and kv.first / kv.second. Not yet: pointer arithmetic,
-// pointers to pointers, new/delete, char* text, unordered_map, iterators.
+// pointers to pointers, char* text, general iterators.
 //
 // StepViz is stricter than a real compiler where real C++ would quietly give
 // garbage: an index outside a list, a variable used before it has a value and
@@ -72,8 +72,153 @@ interface CFunc {
 
 /** A map's entries by key ("s:Sam", "n:3"): [key, value]. Shown and walked in key order, like std::map. */
 type MapEntries = Map<string, [CVal, CVal]>;
-const keyOf = (k: CVal): string => (k.t === 'string' ? `s:${k.v}` : k.t === 'char' ? `n:${(k.v as string).charCodeAt(0)}` : `n:${Number(k.v)}`);
+const keyOf = (k: CVal): string =>
+  k.t === 'string' ? `s:${k.v}` : k.t === 'char' ? `n:${(k.v as string).charCodeAt(0)}` : k.t === 'bool' ? `n:${k.v ? 1 : 0}` : `n:${typeof k.v === 'bigint' ? k.v : Number(k.v)}`;
+
+// --------------------------------------------------------------------------
+// unordered_map / unordered_set: libstdc++'s hash table, step for step, so the order the
+// items are shown and walked in is g++'s (it depends on the hash, the number of buckets and
+// the order the keys were put in).
+
+const M64 = (1n << 64n) - 1n;
+const MURMUR = (0xc6a4a793n << 32n) + 0x5bd1e995n;
+const shiftMix = (v: bigint) => v ^ (v >> 47n);
+/** std::_Hash_bytes (MurmurHash for a 64-bit size_t) with std::hash's seed 0xc70f6907. */
+function hashBytes(bytes: Uint8Array, seed = 0xc70f6907n): bigint {
+  const len = bytes.length;
+  const aligned = len & ~7;
+  let hash = (seed ^ ((BigInt(len) * MURMUR) & M64)) & M64;
+  for (let p = 0; p < aligned; p += 8) {
+    let data = 0n;
+    for (let i = 7; i >= 0; i--) data = (data << 8n) | BigInt(bytes[p + i]);
+    data = (shiftMix((data * MURMUR) & M64) * MURMUR) & M64;
+    hash ^= data;
+    hash = (hash * MURMUR) & M64;
+  }
+  if (len & 7) {
+    let data = 0n;
+    for (let i = (len & 7) - 1; i >= 0; i--) data = (data << 8n) | BigInt(bytes[aligned + i]);
+    hash ^= data;
+    hash = (hash * MURMUR) & M64;
+  }
+  hash = (shiftMix(hash) * MURMUR) & M64;
+  return shiftMix(hash);
+}
+/** std::hash of a key: whole numbers are their own hash; text and doubles go through _Hash_bytes. */
+function stdHash(k: CVal): bigint {
+  if (k.t === 'string') return hashBytes(new TextEncoder().encode(k.v as string));
+  if (k.t === 'double') {
+    const x = k.v as number;
+    if (x === 0) return 0n;
+    const bytes = new Uint8Array(8);
+    new DataView(bytes.buffer).setFloat64(0, x, true);
+    return hashBytes(bytes);
+  }
+  const n = k.t === 'char' ? BigInt((k.v as string).charCodeAt(0)) : k.t === 'bool' ? BigInt(k.v ? 1 : 0) : typeof k.v === 'bigint' ? k.v : BigInt(k.v as number);
+  return BigInt.asUintN(64, n);
+}
+/** _Prime_rehash_policy::_M_next_bkt (max_load_factor 1): [bucket count, size that triggers the next rehash]. */
+const FAST_BKT = [2, 2, 2, 3, 5, 5, 7, 7, 11, 11, 11, 11, 13, 13];
+const PRIMES = [
+  2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 103, 109, 113, 127, 137, 139, 149, 157, 167, 179, 193,
+  199, 211, 227, 241, 257, 277, 293, 313, 337, 359, 383, 409, 439, 467, 503, 541, 577, 619, 661, 709, 761, 823, 887, 953, 1031, 1109, 1193, 1289, 1381,
+  1493, 1613, 1741, 1879, 2029, 2179, 2357,
+];
+function nextBkt(n: number): [number, number] {
+  if (n < FAST_BKT.length) return n === 0 ? [1, -1] : [FAST_BKT[n], FAST_BKT[n]];
+  const p = PRIMES.slice(6).find((x) => x >= n);
+  if (p === undefined) throw new CppCrash('TooBig', 'this unordered container grew larger than StepViz follows');
+  return [p, p];
+}
+/** The entries of an unordered_map / unordered_set, kept in libstdc++'s node order. */
+class HashEntries extends Map<string, [CVal, CVal]> {
+  buckets = 1;
+  nextResize = 0;
+  /** libstdc++'s singly linked list of nodes: the order of iteration */
+  order: string[] = [];
+  private bucketOfId = new Map<string, number>();
+  private hashOfId = new Map<string, bigint>();
+
+  override set(id: string, entry: [CVal, CVal]): this {
+    if (!super.has(id)) this.insertNode(id, entry[0]);
+    return super.set(id, entry);
+  }
+  override delete(id: string): boolean {
+    const i = this.order.indexOf(id);
+    if (i >= 0) this.order.splice(i, 1);
+    this.bucketOfId.delete(id);
+    this.hashOfId.delete(id);
+    return super.delete(id);
+  }
+  override clear() {
+    // The buckets stay: clear() keeps bucket_count().
+    this.order = [];
+    this.bucketOfId.clear();
+    this.hashOfId.clear();
+    super.clear();
+  }
+  /** The range / initializer_list constructor sizes the table for n items first. */
+  sizeFor(n: number) {
+    if (n === 0) return;
+    const [b, next] = nextBkt(n);
+    this.nextResize = next;
+    if (b > this.buckets) this.buckets = b;
+  }
+  ordered(): [CVal, CVal][] {
+    return this.order.map((id) => super.get(id)!);
+  }
+  clone(copyValue: (v: CVal) => CVal): HashEntries {
+    const c = new HashEntries();
+    c.buckets = this.buckets;
+    c.nextResize = this.nextResize;
+    c.order = [...this.order];
+    c.bucketOfId = new Map(this.bucketOfId);
+    c.hashOfId = new Map(this.hashOfId);
+    for (const id of this.order) {
+      const [k, v] = super.get(id)!;
+      Map.prototype.set.call(c, id, [k, copyValue(v)]);
+    }
+    return c;
+  }
+  /** _M_insert_unique_node: rehash if needed, then put the node first in its bucket (or first of all). */
+  private insertNode(id: string, key: CVal) {
+    const count = this.order.length;
+    if (count + 1 > this.nextResize) {
+      const minBkts = Math.max(count + 1, this.nextResize ? 0 : 11);
+      if (minBkts >= this.buckets) {
+        const [b, next] = nextBkt(Math.max(minBkts + 1, this.buckets * 2));
+        this.nextResize = next;
+        this.rehash(b);
+      } else this.nextResize = this.buckets;
+    }
+    const hash = stdHash(key);
+    this.hashOfId.set(id, hash);
+    this.place(id, Number(hash % BigInt(this.buckets)), this.order);
+  }
+  private place(id: string, bucket: number, order: string[]) {
+    this.bucketOfId.set(id, bucket);
+    const first = order.findIndex((x) => x !== id && this.bucketOfId.get(x) === bucket);
+    order.splice(first >= 0 ? first : 0, 0, id);
+  }
+  /** _M_rehash_aux: walk the old list; each node goes first in its new bucket, or first of all. */
+  private rehash(n: number) {
+    const old = this.order;
+    const order: string[] = [];
+    const placed = new Map<string, number>();
+    for (const id of old) {
+      const b = Number(this.hashOfId.get(id)! % BigInt(n));
+      const first = order.findIndex((x) => placed.get(x) === b);
+      order.splice(first >= 0 ? first : 0, 0, id);
+      placed.set(id, b);
+    }
+    this.order = order;
+    this.bucketOfId = placed;
+    this.buckets = n;
+  }
+}
+
 function sortedEntries(m: MapEntries): [CVal, CVal][] {
+  if (m instanceof HashEntries) return m.ordered();
   return [...m.values()].sort(([a], [b]) => {
     if (a.t === 'string') return (a.v as string) < (b.v as string) ? -1 : (a.v as string) > (b.v as string) ? 1 : 0;
     const x = a.t === 'char' ? (a.v as string).charCodeAt(0) : Number(a.v);
@@ -138,6 +283,8 @@ export interface CVal {
   elem?: Prim;
   /** stack / queue / priority_queue: a vector with that container's own methods */
   coll?: Coll;
+  /** unordered_map / unordered_set (v is a HashEntries) */
+  hashed?: boolean;
   /** exception: its class (runtime_error, out_of_range...); struct: its struct or class name */
   cls?: string;
   /** pointer: the type it points to (v is a PtrTarget, or null for nullptr) */
@@ -233,6 +380,9 @@ function structName(typeNode: Node | null): string | null {
 }
 /** Vectors and arrays of structs keep the struct name as their item type. */
 const isStructItem = (elem: Prim | undefined) => !!elem && structs.has(elem);
+/** pair<int,string> as an item type (vector<pair<int, string>>): 'pair<int,string>'. */
+const isPairItem = (elem: Prim | undefined) => !!elem && elem.startsWith('pair<');
+const pairParts = (elem: string): [Prim, Prim] => elem.slice(5, -1).split(',') as [Prim, Prim];
 
 /** The standard exceptions StepViz knows, each with its parent class. */
 const EXCEPTION_PARENT: Record<string, string | null> = {
@@ -633,7 +783,7 @@ const FEATURES: Record<string, string> = {
 };
 
 const INCLUDES = new Set([
-  '<iostream>', '<vector>', '<string>', '<cmath>', '<algorithm>', '<iomanip>', '<utility>', '<climits>', '<bits/stdc++.h>', '<stdexcept>', '<exception>', '<map>', '<set>', '<stack>', '<queue>', '<numeric>', '<functional>',
+  '<iostream>', '<vector>', '<string>', '<cmath>', '<algorithm>', '<iomanip>', '<utility>', '<climits>', '<bits/stdc++.h>', '<stdexcept>', '<exception>', '<map>', '<set>', '<stack>', '<queue>', '<numeric>', '<functional>', '<unordered_map>', '<unordered_set>',
 ]);
 const C_INCLUDES = new Set(['<stdio.h>', '<stdlib.h>', '<math.h>', '<string.h>', '<stdbool.h>', '<limits.h>']);
 
@@ -907,9 +1057,11 @@ function checkSubset(tree: Tree): Program {
 
     if (n.type === 'template_type') {
       const name = n.childForFieldName('name')?.text;
-      if (name === 'unordered_map') throw unsupported(n, 'unordered_map (map works)');
-      if (name === 'unordered_set') throw unsupported(n, 'unordered_set (set works)');
-      if (!['vector', 'map', 'set', 'stack', 'queue', 'priority_queue', 'greater', 'less'].includes(name ?? '')) throw unsupported(n, name ?? 'templates');
+      if (!['vector', 'map', 'set', 'unordered_map', 'unordered_set', 'stack', 'queue', 'priority_queue', 'greater', 'less', 'pair'].includes(name ?? '')) throw unsupported(n, name ?? 'templates');
+      if (name === 'pair') {
+        const args = named(n.childForFieldName('arguments'));
+        if (args.length !== 2 || args.some((a) => /</.test(a.text))) throw unsupported(n, 'this kind of pair');
+      }
       if (['stack', 'queue', 'priority_queue'].includes(name ?? '')) {
         // stack<int>, queue<string>, priority_queue<int, vector<int>, greater<int>>
         const args = named(n.childForFieldName('arguments'));
@@ -918,8 +1070,9 @@ function checkSubset(tree: Tree): Program {
         if (!ok || /vector|map|set|</.test(args[0]?.text ?? '')) throw unsupported(n, `this kind of ${name}`);
       }
       const args = named(n.childForFieldName('arguments'));
-      if (name === 'set' && args.some((a) => /vector|map|set|</.test(a.text))) throw unsupported(n, 'sets of lists');
-      if (name === 'map' && args.some((a) => /vector|map|set|</.test(a.text))) throw unsupported(n, 'maps of lists');
+      if ((name === 'set' || name === 'unordered_set') && args.some((a) => /vector|map|set|</.test(a.text))) throw unsupported(n, 'sets of lists');
+      if ((name === 'map' || name === 'unordered_map') && args.some((a) => /vector|map|set|</.test(a.text))) throw unsupported(n, 'maps of lists');
+      if ((name === 'unordered_map' || name === 'unordered_set') && args.length !== (name === 'unordered_map' ? 2 : 1)) throw unsupported(n, `this kind of ${name}`);
       // vector<vector<int>> is fine (a list of rows); vector<map<...>> and sets are not.
       if (name === 'vector' && args.some((a) => /map|set/.test(a.text))) throw unsupported(n, 'lists of maps');
     }
@@ -958,6 +1111,7 @@ interface DeclType {
   /** map: the key type */
   kt?: Prim;
   coll?: Coll;
+  hashed?: boolean;
 }
 
 function primOf(n: Node | null): Prim | 'void' | 'auto' {
@@ -976,6 +1130,15 @@ function primOf(n: Node | null): Prim | 'void' | 'auto' {
 }
 
 function typeOf(typeNode: Node | null): DeclType {
+  if (typeNode?.type === 'template_type' && /^unordered_(map|set)$/.test(typeNode.childForFieldName('name')?.text ?? '')) {
+    // unordered_map<string, int> / unordered_set<int>: like map / set, kept in libstdc++'s hash-table order.
+    const name = typeNode.childForFieldName('name')!.text;
+    const args = named(typeNode.childForFieldName('arguments')).map((x) => primOf(named(x).find((c) => c.type !== 'type_qualifier') ?? null));
+    const [k, v] = name === 'unordered_map' ? args : [args[0], args[0]];
+    if (!k || !v || k === 'void' || k === 'auto' || v === 'void' || v === 'auto' || k === 'double') throw unsupported(typeNode, `this kind of ${name}`);
+    if (isStructItem(k)) throw unsupported(typeNode, `${name} with struct keys`);
+    return { t: name === 'unordered_map' ? 'map' : 'set', kt: k, elem: v, hashed: true };
+  }
   if (typeNode?.type === 'template_type' && typeNode.childForFieldName('name')?.text === 'map') {
     const [k, v] = named(typeNode.childForFieldName('arguments')).map((a) => primOf(named(a).find((c) => c.type !== 'type_qualifier') ?? null));
     if (!k || !v || k === 'void' || k === 'auto' || v === 'void' || v === 'auto') throw unsupported(typeNode, 'this kind of map');
@@ -989,8 +1152,14 @@ function typeOf(typeNode: Node | null): DeclType {
     if (isStructItem(elem)) throw unsupported(typeNode, 'sets of structs');
     return { t: 'set', kt: elem, elem };
   }
-  if (typeNode?.type === 'qualified_identifier' && /^std::(map|set)/.test(typeNode.text)) return typeOf(typeNode.childForFieldName('name'));
+  if (typeNode?.type === 'qualified_identifier' && /^std::(map|set|unordered_map|unordered_set)/.test(typeNode.text)) return typeOf(typeNode.childForFieldName('name'));
   if (typeNode?.type === 'qualified_identifier' && /map/.test(typeNode.text) && !/vector/.test(typeNode.text)) return typeOf(typeNode.childForFieldName('name'));
+  if (typeNode?.type === 'template_type' && typeNode.childForFieldName('name')?.text === 'pair') {
+    // pair<int, string>: a struct with first and second.
+    const [a, b] = named(typeNode.childForFieldName('arguments')).map((x) => primOf(named(x).find((c) => c.type !== 'type_qualifier') ?? x));
+    if (!a || !b || a === 'void' || a === 'auto' || b === 'void' || b === 'auto') throw unsupported(typeNode, 'this kind of pair');
+    return { t: 'struct', cls: 'pair', kt: a, elem: b };
+  }
   if (typeNode?.type === 'template_type' && ['stack', 'queue', 'priority_queue'].includes(typeNode.childForFieldName('name')?.text ?? '')) {
     const name = typeNode.childForFieldName('name')!.text;
     const args = named(typeNode.childForFieldName('arguments'));
@@ -1006,6 +1175,7 @@ function typeOf(typeNode: Node | null): DeclType {
     // vector<vector<int>>: the items are vector<int> rows.
     if (argType?.type === 'template_type' || (argType?.type === 'qualified_identifier' && /vector/.test(argType.text))) {
       const inner = typeOf(argType);
+      if (inner.t === 'struct' && inner.cls === 'pair') return { t: 'vector', elem: `pair<${inner.kt},${inner.elem}>` as Prim };
       if (inner.t !== 'vector') throw unsupported(typeNode, 'this kind of vector');
       return { t: 'vector', elem: `vector<${inner.elem}>` as Prim };
     }
@@ -1790,7 +1960,8 @@ class Interp {
       }
       if (type.t === 'set') {
         // set<int> s;  set<int> s = {3, 1, 2};  set<int> copy = other;
-        const set: CVal = { t: 'set', kt: type.kt, elem: type.elem, v: new Map() };
+        const set: CVal = { t: 'set', kt: type.kt, elem: type.elem, hashed: type.hashed, v: type.hashed ? new HashEntries() : new Map() };
+        if (info.value?.type === 'initializer_list' && set.v instanceof HashEntries) set.v.sizeFor(named(info.value).length);
         if (info.value?.type === 'initializer_list') for (const e of named(info.value)) this.setInsert(set, this.eval(e), e, info.name);
         else if (info.value) binding.cell.v = this.copy(this.convert(this.eval(info.value), type, d, info.name));
         if (!info.value || info.value.type === 'initializer_list') binding.cell.v = set;
@@ -1798,7 +1969,12 @@ class Interp {
       }
       if (type.t === 'map') {
         // map<string, int> m;  m = {{"a", 1}, {"b", 2}};  map<...> copy = other;
-        binding.cell.v = info.value ? this.mapFrom(info.value, type, d, info.name) : { t: 'map', kt: type.kt, elem: type.elem, v: new Map() };
+        binding.cell.v = info.value ? this.mapFrom(info.value, type, d, info.name) : { t: 'map', kt: type.kt, elem: type.elem, hashed: type.hashed, v: type.hashed ? new HashEntries() : new Map() };
+        continue;
+      }
+      if (type.t === 'struct' && type.cls === 'pair') {
+        // pair<int, string> p;  p = {1, "a"};  p(1, "a");  p = make_pair(1, "a");
+        binding.cell = { ...type, v: info.value ? this.pairFrom(info.value, type, d, info.name) : this.emptyItem(`pair<${type.kt},${type.elem}>` as Prim) };
         continue;
       }
       if (type.t === 'struct') {
@@ -1824,6 +2000,7 @@ class Interp {
       return named(value).map((e) => (e.type === 'initializer_list' ? { t: 'vector', elem: inner, v: this.vectorFrom(e, inner) } : this.copy(this.convert(this.eval(e), this.itemType(elem), e, 'this list'))));
     }
     if (value.type === 'initializer_list' && isStructItem(elem)) return named(value).map((e) => this.structFrom(e, structs.get(elem)!, 'this list'));
+    if (value.type === 'initializer_list' && isPairItem(elem)) return named(value).map((e) => this.pairFrom(e, this.itemType(elem), e, 'this list'));
     if (value.type === 'initializer_list') return named(value).map((e) => this.convert(this.eval(e), { t: elem }, e, 'this list'));
     const v = this.eval(value);
     if (v.t !== 'vector') throw new CompileError(lineOf(value), 'A vector needs a list of values like {1, 2, 3}.');
@@ -1842,6 +2019,7 @@ class Interp {
   /** Lists, text and structs are copied when assigned or passed by value (a struct copies its arrays too). */
   private copy(v: CVal): CVal {
     if (v.t === 'vector') return { ...v, v: (v.v as CVal[]).map((x) => this.copy(x)) };
+    if ((v.t === 'map' || v.t === 'set') && v.v instanceof HashEntries) return { ...v, v: v.v.clone((x) => this.copy(x)) };
     if (v.t === 'map' || v.t === 'set') return { ...v, v: new Map([...(v.v as MapEntries)].map(([k, [key, val]]) => [k, [key, this.copy(val)] as [CVal, CVal]])) };
     if (v.t === 'struct') {
       const fields = new Map<string, CVal>();
@@ -1853,8 +2031,9 @@ class Interp {
 
   /** A map from {{"a", 1}, {"b", 2}} or from another map (a copy). */
   private mapFrom(n: Node, type: DeclType, at: Node, name: string): CVal {
-    const m: CVal = { t: 'map', kt: type.kt, elem: type.elem, v: new Map() };
+    const m: CVal = { t: 'map', kt: type.kt, elem: type.elem, hashed: type.hashed, v: type.hashed ? new HashEntries() : new Map() };
     if (n.type !== 'initializer_list') return this.copy(this.convert(this.eval(n), type, at, name));
+    if (m.v instanceof HashEntries) m.v.sizeFor(named(n).length);
     for (const pair of named(n)) {
       const [k, v] = named(pair);
       if (pair.type !== 'initializer_list' || !k || !v) throw new CompileError(lineOf(pair), 'Each item of a map needs a key and a value, like {"a", 1}.');
@@ -1954,6 +2133,10 @@ class Interp {
     // Rows: int g[3][4] has int[] items; vector<vector<int>> has vector<int> items.
     if (elem?.endsWith('[]')) return { t: 'array', elem: elem.slice(0, -2) as Prim };
     if (elem?.startsWith('vector<')) return { t: 'vector', elem: elem.slice(7, -1) as Prim };
+    if (isPairItem(elem)) {
+      const [a, b] = pairParts(elem!);
+      return { t: 'struct', cls: 'pair', kt: a, elem: b };
+    }
     if (elem?.endsWith('*')) {
       const base = elem.slice(0, -1) as Prim;
       return { t: 'pointer', pt: isStructItem(base) ? { t: 'struct', cls: structs.get(base)!.name } : { t: base } };
@@ -1965,6 +2148,10 @@ class Interp {
   private emptyItem(elem: Prim): CVal {
     if (elem.endsWith('*')) return { t: 'pointer', v: null, pt: this.itemType(elem).pt };
     if (elem.startsWith('vector<')) return { t: 'vector', elem: elem.slice(7, -1) as Prim, v: [] };
+    if (isPairItem(elem)) {
+      const [a, b] = pairParts(elem);
+      return this.makePair(this.emptyItem(a), this.emptyItem(b), a, b);
+    }
     if (isStructItem(elem)) return this.blank(structs.get(elem)!, true);
     return elem === 'string' ? strv('') : this.zeroOf(elem);
   }
@@ -2420,7 +2607,27 @@ class Interp {
           const at = k++;
           const item = items[at];
           if (item === UNSET_VAL) throw new CppCrash('Uninitialized', `item ${at} has no value yet`);
-          if (isRef) {
+          const declNode = s.childForFieldName('declarator')!;
+          const bindNode = declNode.type === 'structured_binding_declarator' ? declNode : declNode.type === 'reference_declarator' && named(declNode)[0]?.type === 'structured_binding_declarator' ? named(declNode)[0] : null;
+          if (bindNode) {
+            // for (auto [a, b] : pairs) / for (auto& [x, y] : points): one name for each part, in order.
+            const names = named(bindNode).map((c) => c.text);
+            const whole = isRef ? item : this.copy(item);
+            if (whole.t !== 'struct') throw new CompileError(lineOf(bindNode), `[${names.join(', ')}] needs pairs or structs to take apart.`);
+            const fields = whole.v as Map<string, CVal>;
+            const keys = [...fields.keys()];
+            if (keys.length !== names.length) throw new CompileError(lineOf(bindNode), `A ${whole.cls} has ${keys.length} parts, so write ${keys.length} names in [...].`);
+            names.forEach((name, i) => {
+              const key = keys[i];
+              const now = fields.get(key)!;
+              if (!isRef) {
+                this.scope.vars.set(name, { cell: { t: now.t, elem: now.elem, cls: now.cls, v: now } });
+                return;
+              }
+              const cell = { t: now.t, elem: now.elem, cls: now.cls, get v() { return fields.get(key)!; }, set v(x: CVal) { fields.set(key, x); } };
+              this.scope.vars.set(name, { cell: cell as Cell, refOf: `${listText}[${at}].${key}` });
+            });
+          } else if (isRef) {
             // for (auto& p : pts): p is the item itself (changing p changes pts[at]).
             const list = items;
             const base = itemBinding!.cell;
@@ -2628,8 +2835,16 @@ class Interp {
     if (v === UNSET_VAL) throw new CppCrash('Uninitialized', `${name} was given a value that has no value yet`);
     const t = to.t;
     if (t === 'map' || v.t === 'map' || t === 'set' || v.t === 'set') {
-      if (t === 'auto' || (t === v.t && v.kt === to.kt && v.elem === to.elem)) return v;
+      if (t === 'auto' || (t === v.t && v.kt === to.kt && v.elem === to.elem && !!(v as CVal).hashed === !!(to as DeclType).hashed)) return v;
       return this.mismatch(v, to, at, name);
+    }
+    if ((t === 'struct' && to.cls === 'pair') || (v.t === 'struct' && v.cls === 'pair')) {
+      if (t === 'auto') return v;
+      if (t !== 'struct' || to.cls !== 'pair' || v.t !== 'struct' || v.cls !== 'pair') return this.mismatch(v, to, at, name);
+      const f = v.v as Map<string, CVal>;
+      const a = to.kt ? this.convert(f.get('first')!, this.itemType(to.kt), at, `${name}.first`) : f.get('first')!;
+      const b = to.elem ? this.convert(f.get('second')!, this.itemType(to.elem), at, `${name}.second`) : f.get('second')!;
+      return this.makePair(a, b, to.kt ?? v.kt, to.elem ?? v.elem);
     }
     if (t === 'pointer' || v.t === 'pointer') {
       // Animal* can point to a Dog (a class built on Animal).
@@ -2776,6 +2991,12 @@ class Interp {
       const same = samePlace(a.v as PtrTarget | null, b.v as PtrTarget | null);
       return bool(op === '==' ? same : !same);
     }
+    if (a.t === 'struct' && b.t === 'struct' && a.cls === 'pair' && b.cls === 'pair' && ['==', '!=', '<', '<=', '>', '>='].includes(op)) {
+      // pairs compare first, then second.
+      const lt = this.lessThan(a, b, n);
+      const gt = this.lessThan(b, a, n);
+      return bool(op === '==' ? !lt && !gt : op === '!=' ? lt || gt : op === '<' ? lt : op === '<=' ? !gt : op === '>' ? gt : !lt);
+    }
     if (a.t === 'struct' || b.t === 'struct') {
       const own = this.callOperator(op, a, b, n.childForFieldName('left'), n, n.childForFieldName('right'));
       if (own) return own;
@@ -2900,7 +3121,7 @@ class Interp {
       case 'map':
         throw unsupported(at, 'printing a whole list with cout');
       case 'struct': {
-        const first = structs.get(v.cls!)!.fields[0]?.name ?? 'x';
+        const first = v.cls === 'pair' ? 'first' : structs.get(v.cls!)!.fields[0]?.name ?? 'x';
         throw new CompileError(lineOf(at), `cout can't print a ${v.cls} directly: print its parts, like ${at.text}.${first}.`);
       }
       case 'pointer':
@@ -3204,6 +3425,7 @@ class Interp {
         if (op === '=') {
           if (rightNode.type === 'initializer_list') {
             const b = this.scope.lookup(left.text);
+            if (b?.cell.t === 'struct' && b.cell.cls === 'pair') return this.assignTo(left, this.pairFrom(rightNode, b.cell, rightNode, left.text));
             if (b?.cell.t === 'vector') return this.assignTo(left, { t: 'vector', elem: b.cell.elem, v: this.vectorFrom(rightNode, b.cell.elem!) });
           }
           const value = this.eval(rightNode);
@@ -3392,6 +3614,12 @@ class Interp {
         stdSort(part, less);
         r.items.splice(r.from, part.length, ...part);
         return VOID;
+      }
+      case 'make_pair': {
+        const [a, b] = args();
+        if (!a || !b || argNodes.length !== 2) throw new CompileError(lineOf(n), 'make_pair needs two values, like make_pair(1, "a").');
+        // make_pair("a", 1): text written in quotes becomes a string.
+        return this.makePair(a, b, a.t as Prim, b.t as Prim);
       }
       case 'reverse': {
         const r = this.range(n, argNodes[0], argNodes[1]);
@@ -3628,6 +3856,21 @@ class Interp {
     throw unsupported(n, `string.${method}()`);
   }
 
+  private makePair(first: CVal, second: CVal, kt?: Prim, elem?: Prim): CVal {
+    return { t: 'struct', cls: 'pair', kt, elem, v: new Map([['first', this.copy(first)], ['second', this.copy(second)]]) };
+  }
+
+  /** A pair from {1, "a"}, (1, "a"), make_pair(1, "a") or another pair. */
+  private pairFrom(n: Node, type: DeclType, at: Node, name: string): CVal {
+    if (n.type === 'initializer_list' || n.type === 'argument_list') return this.pairFromValues(named(n), type, at, name);
+    return this.convert(this.eval(n), type, at, name);
+  }
+  private pairFromValues(parts: Node[], type: DeclType, at: Node, name: string): CVal {
+    if (parts.length !== 2) throw new CompileError(lineOf(at), `A pair has two parts (first and second), not ${parts.length}.`);
+    const [a, b] = parts.map((p) => this.eval(p));
+    return this.convert(this.makePair(a, b), type, at, name);
+  }
+
   /** stack (top is the end), queue (front is position 0) and priority_queue (libstdc++'s heap, top first). */
   private containerMethod(n: Node, objNode: Node, c: CVal, method: string, a: CVal[]): CVal {
     const items = c.v as CVal[];
@@ -3673,6 +3916,13 @@ class Interp {
 
   /** a < b like C++: numbers, text by character codes, structs with the program's operator<. */
   private lessThan(a: CVal, b: CVal, at: Node): boolean {
+    if (a.cls === 'pair' && b.cls === 'pair' && a.t === 'struct' && b.t === 'struct') {
+      // pair: first decides; when the firsts are equal, second decides (like C++).
+      const [x, y] = [a.v as Map<string, CVal>, b.v as Map<string, CVal>];
+      if (this.lessThan(x.get('first')!, y.get('first')!, at)) return true;
+      if (this.lessThan(y.get('first')!, x.get('first')!, at)) return false;
+      return this.lessThan(x.get('second')!, y.get('second')!, at);
+    }
     if (a.t === 'struct' || b.t === 'struct') {
       const r = this.callOperator('<', a, b, null, at);
       if (!r) throw new CompileError(lineOf(at), `C++ can't put ${a.cls} values in order by itself: write bool operator<.`);
@@ -3780,7 +4030,8 @@ class Interp {
         return { t: 'pointer', pt: this.itemType(vec.elem), v: itemPointer(items, method === 'begin' ? 0 : items.length, objNode.text, frame, b?.cell ?? null) };
       }
       case 'push_back':
-        if (isStructItem(vec.elem)) items.push(this.structFrom(argNodes[0], structs.get(vec.elem!)!, objNode.text));
+        if (isPairItem(vec.elem)) items.push(this.pairFrom(argNodes[0], this.itemType(vec.elem), n, objNode.text));
+        else if (isStructItem(vec.elem)) items.push(this.structFrom(argNodes[0], structs.get(vec.elem!)!, objNode.text));
         else if (vec.elem?.startsWith('vector<') && argNodes[0]?.type === 'initializer_list') {
           const inner = vec.elem.slice(7, -1) as Prim;
           items.push({ t: 'vector', elem: inner, v: this.vectorFrom(argNodes[0], inner) });
@@ -3796,6 +4047,11 @@ class Interp {
         return VOID;
       }
       case 'emplace_back':
+        if (isPairItem(vec.elem)) {
+          // v.emplace_back(1, "a"): a pair made from the two values.
+          items.push(this.pairFromValues(argNodes, this.itemType(vec.elem), n, objNode.text));
+          return VOID;
+        }
         if (!isStructItem(vec.elem)) throw unsupported(n, 'vector.emplace_back() here');
         items.push(this.construct(n, structs.get(vec.elem!)!, argNodes));
         return VOID;

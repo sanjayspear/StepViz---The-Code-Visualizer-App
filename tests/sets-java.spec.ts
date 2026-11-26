@@ -53,5 +53,5 @@ test('C++ std::set: sorted, insert keeps one of each, erase / count / find, rang
   expect(e[1].what).toBe('s does not change: a set holds each value only once.');
   expect(e[2].what).toMatch(/^(2 is added to s|s gets 2)\.$/);
   expect(e[3].what).toBe('5 is taken out of s.');
-  expect(runCpp(cpp.parse('#include <unordered_set>\nint main() {\n    return 0;\n}')!, opts).status).toBe('syntax-error');
+  expect(runCpp(cpp.parse('#include <deque>\nint main() {\n    return 0;\n}')!, opts).status).toBe('syntax-error');
 });

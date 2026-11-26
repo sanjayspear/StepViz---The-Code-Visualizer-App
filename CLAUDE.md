@@ -346,6 +346,21 @@ Playwright tests. Static build for GitHub Pages.
   Home ("static variables inside functions"); before, it was wrongly reset on
   every call. Unsupported: several statics in one line, static arrays written
   with [ ], static pointers.
+- C++ pair and unordered containers (C7, 2026-11-26): pair<A, B> (= {1, "a"},
+  p(1, "a"), make_pair, p.first / p.second, vector<pair<...>> with {..},
+  push_back({..}), emplace_back(a, b)); shown like map entries: pair {first:
+  2, second: "b"}; ==, <, ... compare first, then second (and sort uses
+  that); "A pair has two parts (first and second), not 3."; "cout can't print
+  a pair directly: print its parts, like p.first." Structured bindings in
+  range-for over pairs or structs: for (auto [a, b] : v) / for (auto& [a, b]
+  : v) (b shows "(same box as v[0].second)"). unordered_map / unordered_set
+  follow libstdc++'s hash table step for step, so the order shown in frames
+  and walked by loops is g++'s: std::hash (whole numbers are their own hash,
+  text through _Hash_bytes, checked against known values), 13 buckets after
+  the first insert (an {...} list sizes it first), the prime growth (29, 59,
+  127, 257, 541, 1109), and each new key goes first in its bucket or first of
+  all. Unsupported: nested pairs, pairs as map values or keys, double or
+  struct keys in unordered containers, bucket functions, custom hashes.
 - C++ algorithms and containers (C6, 2026-11-26): every sort is libstdc++'s
   std::sort step for step (introsort with median-of-three, heap sort when too
   deep, final insertion sort), so a lambda or the program's operator< is
@@ -608,7 +623,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`); C6 C++ libstdc++ sort, lambdas, algorithms, stack/queue/priority_queue (`tests/algorithms-cpp.spec.ts`; 242 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`); C6 C++ libstdc++ sort, lambdas, algorithms, stack/queue/priority_queue (`tests/algorithms-cpp.spec.ts`); C7 C++ pair, unordered_map, unordered_set (`tests/containers-cpp.spec.ts`; 245 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

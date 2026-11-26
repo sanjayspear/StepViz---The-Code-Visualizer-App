@@ -103,7 +103,7 @@ test('map: m[k] adds a missing key, key order, erase, find, count, at, loops wit
   expect(e[r.steps.findIndex((s) => s.line === 14)].what).toBe('"Ali" is taken out of votes.');
   const atCrash = run(prog('    map<string, int> m;\n    try {\n        int v = m.at("x");\n    } catch (const out_of_range& ex) {\n        cout << ex.what() << endl;\n    }'));
   expect(atCrash.steps.at(-1)!.output).toBe('map::at\n');
-  expect(run(prog('    unordered_map<string, int> m;')).error?.message).toBe("Line 7: StepViz can't run unordered_map (map works) in C++ yet.");
+  expect(run(prog('    unordered_map<double, int> m;')).error?.message).toBe("Line 7: StepViz can't run this kind of unordered_map in C++ yet.");
 });
 
 test('pointer arithmetic: a list used as a pointer, p++, p += 2, *(p - 1), p[i], q - p; a pointer parameter receiving a list', () => {
