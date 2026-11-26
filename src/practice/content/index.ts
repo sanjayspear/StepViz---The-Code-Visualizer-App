@@ -15,6 +15,7 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { BASICS_MATH_JS } from './javascript/basics-math';
 
 /** Python content by topic id (questions.json). */
 export const PYTHON_TOPICS: Record<string, PracticeContent[]> = {
@@ -34,8 +35,15 @@ export const PYTHON_TOPICS: Record<string, PracticeContent[]> = {
   'sorting-greedy-intervals': SORTING_GREEDY_INTERVALS,
 };
 
+/** JavaScript content by topic id (tests from the Python content, see javascript/shared.ts). */
+export const JS_TOPICS: Record<string, PracticeContent[]> = {
+  'basics-math': BASICS_MATH_JS,
+};
+
+const byId = (topics: Record<string, PracticeContent[]>) => new Map(Object.values(topics).flatMap((list) => list.map((c) => [c.id, c] as const)));
 const BY_LANGUAGE: Partial<Record<CodeLanguage, Map<number, PracticeContent>>> = {
-  python: new Map(Object.values(PYTHON_TOPICS).flatMap((list) => list.map((c) => [c.id, c] as const))),
+  python: byId(PYTHON_TOPICS),
+  javascript: byId(JS_TOPICS),
 };
 
 export function contentFor(id: number, language: CodeLanguage): PracticeContent | undefined {

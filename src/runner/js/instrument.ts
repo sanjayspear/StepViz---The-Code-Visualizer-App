@@ -83,7 +83,7 @@ function friendly(message: string): string {
   return 'JavaScript could not understand this line.';
 }
 
-function parseProgram(source: string): { ast: N } | { error: JsSyntaxError } {
+export function parseProgram(source: string): { ast: N } | { error: JsSyntaxError } {
   try {
     const ast = parse(source, { ecmaVersion: 'latest', sourceType: 'script', locations: true });
     return { ast };
@@ -97,7 +97,7 @@ function parseProgram(source: string): { ast: N } | { error: JsSyntaxError } {
 // --------------------------------------------------------------------------
 // Small helpers
 
-function walk(node: N, visit: (n: N, parent: N | null) => boolean | void, parent: N | null = null) {
+export function walk(node: N, visit: (n: N, parent: N | null) => boolean | void, parent: N | null = null) {
   if (!node || typeof node.type !== 'string') return;
   if (visit(node, parent) === false) return;
   for (const key of Object.keys(node)) {
@@ -242,7 +242,7 @@ export function analyzeJs(source: string): { ok: true } | { ok: false; error: Js
   return blocked ? { ok: false, error: blocked } : { ok: true };
 }
 
-function findBlocked(ast: N): JsSyntaxError | null {
+export function findBlocked(ast: N): JsSyntaxError | null {
   let found: JsSyntaxError | null = null;
   walk(ast, (n) => {
     if (found) return false;

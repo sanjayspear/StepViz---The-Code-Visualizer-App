@@ -2,7 +2,7 @@
 // which is terminated afterwards. A watchdog terminates it if a run goes past
 // the time limit (for example a long built-in call the hooks cannot interrupt),
 // so the page stays responsive.
-import type { JsFromWorker, JsToWorker, RawRunResult, SyntaxErrorInfo } from './protocol';
+import type { CheckResult, JsFromWorker, JsToWorker, RawRunResult, SyntaxErrorInfo } from './protocol';
 import { MAX_SECONDS, MAX_STEPS } from './pythonRunner';
 
 const WATCHDOG_GRACE_MS = 1500;
@@ -40,4 +40,10 @@ export async function runJavaScript(source: string): Promise<RawRunResult> {
     MAX_SECONDS * 1000 + WATCHDOG_GRACE_MS,
   );
   return reply ? reply.result : { status: 'cap', steps: [], error: null };
+}
+
+/** Practice: run an answer against its tests (5 s in all, 2 s per test; the watchdog stops a stuck worker). */
+export async function checkJavaScript(source: string, spec: string): Promise<CheckResult> {
+  const reply = await inWorker<Extract<JsFromWorker, { type: 'check-result' }>>({ type: 'check', source, spec, maxSeconds: MAX_SECONDS }, MAX_SECONDS * 1000 + WATCHDOG_GRACE_MS);
+  return reply ? reply.result : { status: 'timeout', results: [] };
 }

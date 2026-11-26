@@ -23,12 +23,13 @@ import { go, listHref, practiceHomeHref, questionHref, toggleDifficulty, type Pr
 import type { CodeLanguage } from '../../examples';
 import { contentFor } from '../../practice/content';
 import { pythonRunner } from '../../runner/pythonRunner';
+import { checkJavaScript } from '../../runner/jsRunner';
 import type { CheckResult, CheckTestResult } from '../../runner/protocol';
 import { CodeEditor } from '../Home/CodeEditor';
 import './Practice.css';
 
 /** Show a Python answer in the visualiser; gives back a message when it can't. */
-export type Visualize = (source: string) => Promise<string | null>;
+export type Visualize = (source: string, language: CodeLanguage) => Promise<string | null>;
 
 export function Practice({ route, onVisualize }: { route: PracticeRoute; onVisualize: Visualize }) {
   const progress = usePracticeProgress();
@@ -381,12 +382,13 @@ function QuestionPage({ id, scope, filters, progress, onVisualize }: { id: numbe
     setNotice(null);
     setPromptOpen(false);
     try {
-      const r = await pythonRunner.check(code, JSON.stringify({ tests: content.tests, forbid: content.forbid }));
+      const spec = JSON.stringify({ tests: content.tests, forbid: content.forbid });
+      const r = language === 'javascript' ? await checkJavaScript(code, spec) : await pythonRunner.check(code, spec);
       setResult(r);
       const all = r.status === 'ok' && r.results.length > 0 && r.results.every((t) => t.passed);
       if (all && !progress.isSolved(q.id)) setPromptOpen(true);
     } catch {
-      setNotice('Python could not start. Please reload the page and try again.');
+      setNotice(language === 'python' ? 'Python could not start. Please reload the page and try again.' : 'The tests could not start. Please reload the page and try again.');
     } finally {
       setBusy(null);
     }
@@ -394,7 +396,7 @@ function QuestionPage({ id, scope, filters, progress, onVisualize }: { id: numbe
   const visualize = async () => {
     setBusy('visualize');
     setNotice(null);
-    const problem = await onVisualize(code);
+    const problem = await onVisualize(code, language);
     setBusy(null);
     if (problem) setNotice(problem);
   };
@@ -444,10 +446,10 @@ function QuestionPage({ id, scope, filters, progress, onVisualize }: { id: numbe
             <CodeEditor value={code} onChange={changeCode} language={language} ariaLabel={`Your answer to Q${q.id}`} />
             <div className="practice-actions">
               <button type="button" className="practice-btn practice-btn--primary" onClick={() => void runTests()} disabled={busy !== null}>
-                {busy === 'tests' ? (pythonRunner.isReady ? 'Running tests…' : 'Loading Python…') : 'Run tests'}
+                {busy === 'tests' ? (language !== 'python' || pythonRunner.isReady ? 'Running tests…' : 'Loading Python…') : 'Run tests'}
               </button>
               <button type="button" className="practice-btn" onClick={() => void visualize()} disabled={busy !== null}>
-                {busy === 'visualize' ? (pythonRunner.isReady ? 'Running…' : 'Loading Python…') : 'Visualize my code'}
+                {busy === 'visualize' ? (language !== 'python' || pythonRunner.isReady ? 'Running…' : 'Loading Python…') : 'Visualize my code'}
               </button>
               <button type="button" className="practice-btn" aria-expanded={showHint} onClick={() => setShowHint(!showHint)}>
                 {showHint ? 'Hide hint' : 'Hint'}
@@ -526,7 +528,7 @@ function QuestionPage({ id, scope, filters, progress, onVisualize }: { id: numbe
 
 /** What the tests said: a summary pill, then each test with a word (Passed / Failed), never colour alone. */
 function TestResults({ result }: { result: CheckResult }) {
-  if (result.status === 'syntax-error') return <p className="practice-problem">{result.error?.message ?? 'Python could not understand this code.'}</p>;
+  if (result.status === 'syntax-error') return <p className="practice-problem">{result.error?.message ?? 'This code could not be understood.'}</p>;
   if (result.status === 'forbidden') {
     return (
       <p className="practice-problem">

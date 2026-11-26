@@ -204,3 +204,30 @@ test('P2: "Visualize my code" shows the answer step by step; "New code" comes ba
   await expect(answer(page)).toContainText('def factorial_rec(n):');
   await expect(answer(page)).not.toContainText('print(factorial_iter(3))');
 });
+
+test('JavaScript: the starter, Run tests in the JavaScript worker, a rule, and Visualize my code', async ({ page }) => {
+  await page.goto('./#/practice/q/3?from=basics-math');
+  await page.locator('.practice-question select').selectOption('javascript');
+  await expect(page.getByText('Example: digitSum(1234) returns 10.')).toBeVisible();
+  await expect(answer(page)).toContainText('function digitSum(n) {');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.getByText('0 of 5 tests passed')).toBeVisible();
+  await expect(page.locator('.practice-test').first()).toContainText('It gave null.');
+  await typeAnswer(page, 'function digitSum(n) {\n  let t = 0;\n  for (const c of String(n)) t += Number(c);\n  return t;\n}\nconsole.log(digitSum(42));\n');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.getByText('5 of 5 tests passed')).toBeVisible();
+  await expect(page.getByText('All tests passed.')).toBeVisible();
+  // Q2 forbids %.
+  await page.goto('./#/practice/q/2?from=basics-math');
+  await page.locator('.practice-question select').selectOption('javascript');
+  await typeAnswer(page, 'function isEven(n) {\n  return n % 2 === 0;\n}\n');
+  await page.getByRole('button', { name: 'Run tests' }).click();
+  await expect(page.getByText('Line 2: This question asks you to find the answer without %. Your code uses %.')).toBeVisible();
+  // The visualiser runs the JavaScript answer.
+  await page.goto('./#/practice/q/3?from=basics-math');
+  await page.locator('.practice-question select').selectOption('javascript');
+  await typeAnswer(page, 'function digitSum(n) {\n  let t = 0;\n  while (n > 0) {\n    t += n % 10;\n    n = Math.floor(n / 10);\n  }\n  return t;\n}\nconsole.log(digitSum(42));\n');
+  await page.getByRole('button', { name: 'Visualize my code' }).click();
+  await expect(page.getByRole('button', { name: /New code/ })).toBeVisible();
+  await expect(page.locator('body')).toContainText('digitSum(42)');
+});

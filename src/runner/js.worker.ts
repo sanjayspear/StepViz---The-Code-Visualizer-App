@@ -7,6 +7,7 @@ import { analyzeJs } from './js/instrument';
 import { runJs } from './js/runtime';
 import type { JsFromWorker, JsToWorker } from './protocol';
 import { lockDown } from './lockdown';
+import { checkJs } from '../practice/jsHarness';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -17,5 +18,8 @@ self.onmessage = (event: MessageEvent<JsToWorker>) => {
   } else if (msg.type === 'run') {
     const result = runJs(msg.source, { maxSteps: msg.maxSteps, maxSeconds: msg.maxSeconds, beforeRun: lockDown });
     self.postMessage({ type: 'run-result', result } satisfies JsFromWorker);
+  } else if (msg.type === 'check') {
+    const result = checkJs(msg.source, JSON.parse(msg.spec), { maxSeconds: msg.maxSeconds, beforeRun: lockDown });
+    self.postMessage({ type: 'check-result', result } satisfies JsFromWorker);
   }
 };

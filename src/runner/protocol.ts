@@ -77,14 +77,17 @@ export interface CheckResult {
 // JavaScript worker (one fresh worker per message).
 export type JsToWorker =
   | { type: 'analyze'; source: string }
-  | { type: 'run'; source: string; maxSteps: number; maxSeconds: number };
+  | { type: 'run'; source: string; maxSteps: number; maxSeconds: number }
+  /** Practice: run a JavaScript answer against its tests (src/practice/jsHarness.ts), untraced. */
+  | { type: 'check'; source: string; spec: string; maxSeconds: number };
 
 export type JsFromWorker =
   | { type: 'analyze-result'; result: { ok: true } | { ok: false; error: SyntaxErrorInfo } }
-  | { type: 'run-result'; result: RawRunResult };
+  | { type: 'run-result'; result: RawRunResult }
+  | { type: 'check-result'; result: CheckResult };
 
 // Java (and later C++/C) worker: tree-sitter files come from our own site.
-export type TreeToWorker = JsToWorker & {
+export type TreeToWorker = Exclude<JsToWorker, { type: 'check' }> & {
   files: { engine: string; grammar: string };
   input?: string;
   /** C++ worker: 'c' runs the program as C */

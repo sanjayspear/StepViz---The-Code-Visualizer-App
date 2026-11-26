@@ -33,17 +33,17 @@ export default function App() {
   useEffect(() => setTrace(null), [hash]);
 
   /** Practice: visualise a Python answer (it is not stored anywhere). Gives back a message when it can't. */
-  const visualizeAnswer = async (source: string): Promise<string | null> => {
+  const visualizeAnswer = async (source: string, answerLanguage: CodeLanguage): Promise<string | null> => {
     try {
-      const check = await checkSource(source, 'python');
+      const check = await checkSource(source, answerLanguage);
       if (!check.ok) return check.message;
-      if (check.inputCalls > 0) return 'This answer asks for input(), so it can\'t be visualised here. Call your function with values instead.';
-      const outcome = await getTrace(source, [], 'python');
+      if (check.inputCalls > 0) return 'This answer reads input, so it can\'t be visualised here. Call your function with values instead.';
+      const outcome = await getTrace(source, [], answerLanguage);
       if (outcome.kind === 'error') return outcome.message;
       setTrace(outcome.trace);
       return null;
     } catch {
-      return 'Python could not start. Please reload the page and try again.';
+      return answerLanguage === 'python' ? 'Python could not start. Please reload the page and try again.' : 'Your code could not be run. Please reload the page and try again.';
     }
   };
 
