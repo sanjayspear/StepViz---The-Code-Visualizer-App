@@ -154,7 +154,7 @@ test('problems found before running stay on Home with a line number', () => {
   expect(msg(main('        int x = 1\n        System.out.println(x);'))).toBe('Line 3: Java could not understand this line.');
   expect(msg('public class Hello {\n    public static void main(String[] args) {}\n}')).toBe('Line 1: StepViz needs a public class Main with a main method.');
   expect(msg('public class Main {\n    static void hi() {}\n}')).toBe('Line 1: StepViz needs a public class Main with a main method.');
-  expect(msg(main('        int[][] a = {{1, 2}};'))).toBe("Line 3: StepViz can't run arrays of arrays in Java yet.");
+  expect(msg(main('        Runnable r = () -> { };'))).toMatch(/^Line 3: StepViz can't run /);
   expect(msg('import java.util.Scanner;\n' + main('        int x = 1;\n        try (Scanner sc = new Scanner(System.in)) { x = 2; }'))).toBe("Line 5: StepViz can't run try with resources in Java yet.");
   expect(msg('import java.util.HashMap;\n' + main('        int x = 1;'))).toBe("Line 1: StepViz can't run the import java.util.HashMap in Java yet.");
   expect(msg(main('        Object o = new Object();'))).toMatch(/^Line 3: StepViz can't run (the type Object|new objects) in Java yet\.$/);
@@ -211,8 +211,8 @@ test('arrays: new, {...}, length, reading and writing, for-each, out of bounds',
   expect(r.steps.at(-1)!.output).toBe('10 3 [1.5, 2.0] null\n');
   expect(r.error).toEqual({ line: 15, type: 'ArrayIndexOutOfBoundsException', message: 'Index 3 out of bounds for length 3' });
   expect(explainTrace(asTrace(src)).at(-1)!.what).toBe('This position is outside the list.');
-  const msg = run(main('        int[][] g = new int[2][2];')).error!.message;
-  expect(msg).toBe("Line 3: StepViz can't run arrays of arrays in Java yet.");
+  // Tables (int[][]) work: see tables-cpp.spec.ts.
+  expect(run(main('        int[][] g = new int[2][2];')).status).toBe('ok');
 });
 
 test('Bubble sort with a temp variable: list view, compared items, one swap step before it runs', () => {

@@ -54,9 +54,9 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
    - C4 (done): C++ structs and classes, C structs (typedef, designated
      initializers), vectors/arrays of structs, range-for with &.
    - P1 (done): basic pointers (C and C++) and std::map.
-   - All planned stages are built. Not planned yet: pointer arithmetic, new/delete,
-     inheritance (Java/C++), unordered_map, Java static variables, Python/JS-only
-     extras.
+   - Then, on the owner's "act like the senior developer and architect", my order:
+     G1 tables (2-D arrays) in Java/C++/C and vector<vector<int>> (done), Java
+     HashMap, C/C++ pointer arithmetic + new/delete, inheritance (Java and C++).
 
 Phase 1 covers:
 
@@ -296,6 +296,15 @@ Playwright tests. Static build for GitHub Pages.
   changes from 1 to 3." / ""Ali" is taken out of m." / "m is emptied: it has no
   keys now." Python del d[k] / del a[i] now counts as a change. unordered_map
   stays on Home ("unordered_map (map works)").
+- Tables (G1): a 2-D array is an array of rows, shown g = [[1, 2], [3, 4]] (C
+  char tables as ["Sam", "Bo", ""]). Java: new int[2][3], new int[2][] (rows null),
+  {{...}}, rows of different lengths, Arrays.deepToString; println of a missing
+  row prints null. C/C++: int g[2][3] = {{1}, {4}} (missing items 0; no {...}:
+  "no value yet"), every size after the first must be written, tables passed to
+  functions (not copied), scanf("%s", names[2]). vector<vector<int>>, vector<int>
+  v(n) / v(n, value), vector<int>(4, 0) as a value, push_back of rows (copied),
+  resize. Texts: "g[1][2] changes from 0 to 9." / "Row 1 of g: position 2 was 0
+  and is now 9." Unsupported: tables of structs (C/C++), sorting a list of lists.
 - List changes read item by item in every language: "nums[0] changes from 5 to 2.",
   "3 is added to the end of squares.", "4 is taken off the end of squares.",
   "7 is put in at position 1 of xs.", "1 is taken out of xs at position 0.",
@@ -335,7 +344,8 @@ Paused on 2026-11-25.
 - T2 (2026-11-25): catch steps for Python and JavaScript (tests in `tests/trycatch-tracer.spec.ts`).
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
-- P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`; 179 tests pass).
+- P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`; 183 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

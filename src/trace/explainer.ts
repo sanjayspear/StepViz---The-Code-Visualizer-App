@@ -571,6 +571,16 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
         const diff = now.map((x, i) => (x === was[i] ? -1 : i)).filter((i) => i >= 0);
         if (diff.length === 1) {
           const i = diff[0];
+          // A 2-D list: one item of one row changed (g[1][2] changes from 0 to 5).
+          const rowWas = listItems(was[i]);
+          const rowNow = listItems(now[i]);
+          if (rowWas && rowNow && rowWas.length === rowNow.length) {
+            const cols = rowNow.map((x, j) => (x === rowWas[j] ? -1 : j)).filter((j) => j >= 0);
+            if (cols.length === 1) {
+              const j = cols[0];
+              return { sub: 'assign-change', variants: [`${t}[${i}][${j}] changes from ${sayValue(rowWas[j])} to ${sayValue(rowNow[j])}.`, `Row ${i} of ${t}: position ${j} was ${sayValue(rowWas[j])} and is now ${sayValue(rowNow[j])}.`] };
+            }
+          }
           return {
             sub: 'assign-change',
             variants: [

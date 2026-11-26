@@ -163,6 +163,10 @@ export function javaDouble(x: number): string {
 }
 
 const ARRAY_CODE: Record<string, string> = { int: 'I', long: 'J', double: 'D', boolean: 'Z', char: 'C', String: 'Ljava.lang.String;' };
+/** Java's code for an item type in [I@... : I, [I (a row of an int[][]), LDog; */
+const arrayCode = (elem: string): string => (elem.endsWith('[]') ? `[${arrayCode(elem.slice(0, -2))}` : ARRAY_CODE[elem] ?? `L${elem};`);
+/** How many [] a type has: int[][] -> 2. */
+const depthOf = (n: Node | null | undefined) => (n?.text.match(/\[/g) ?? []).length;
 
 /** String.valueOf: how a value prints or joins a string. */
 export function javaString(val: JVal): string {
@@ -174,9 +178,10 @@ export function javaString(val: JVal): string {
     case 'String':
       return val.v === null ? 'null' : (val.v as string);
     case 'array': {
+      if (val.v === null) return 'null';
       // Printing an array shows its type and an id, like Java ([I@1b6d3586).
       const hash = (0x1b6d3586 + Number(val.id ?? 0) * 0x9e37) >>> 0;
-      return `[${ARRAY_CODE[val.elem ?? 'int'] ?? `L${val.elem};`}@${hash.toString(16)}`;
+      return `[${arrayCode(val.elem ?? 'int')}@${hash.toString(16)}`;
     }
     case 'list':
       return arrayText(val);
@@ -210,6 +215,7 @@ export function formatJava(x: unknown): string | undefined {
   if (x.t === 'String') return x.v === null ? 'null' : JSON.stringify(x.v);
   if (x.t === 'char') return `'${x.v}'`;
   if (x.t === 'void') return 'nothing';
+  if ((x.t === 'array' || x.t === 'list') && x.v === null) return 'null';
   if (x.t === 'array' || x.t === 'list') return formatJava(x.v);
   if (x.t === 'Scanner') return 'Scanner';
   if (x.t === 'object') return objectFrameText(x, 0);
@@ -243,6 +249,7 @@ const NULL: JVal = { t: 'null', v: null };
 
 /** Default value of a new array element. */
 function zeroOf(t: Prim): JVal {
+  if (t.endsWith('[]')) return { t: 'array', v: null as unknown as JVal[], elem: t.slice(0, -2) as Prim };
   if (classNames.has(t)) return { t: 'object', cls: t, v: null };
   if (t === 'double') return dbl(0);
   if (t === 'boolean') return bool(false);
@@ -508,9 +515,6 @@ function checkSubset(tree: Tree): { main: Node; methods: Map<string, Node>; clas
       }
       if (n.type === 'type_identifier' && LIST_TYPES.has(n.text)) throw unsupported(n, `${n.text} without the type of its items (like ${n.text}<Integer>)`);
       if (n.type === 'array_type' && /^(Integer|Long|Double|Boolean|Character|ArrayList|List)\b/.test(n.text)) throw unsupported(n, `arrays of ${n.childForFieldName('element')!.text}`);
-      if (n.type === 'array_type' && n.childForFieldName('element')?.type === 'array_type') throw unsupported(n, 'arrays of arrays');
-      if (n.type === 'array_type' && /\]\s*\[/.test(n.text)) throw unsupported(n, 'arrays of arrays');
-      if (n.type === 'array_creation_expression' && n.childrenForFieldName('dimensions').length > 1) throw unsupported(n, 'arrays of arrays');
       if (n.type === 'object_creation_expression') {
         const type = n.childForFieldName('type');
         const isList = type?.type === 'generic_type' && named(type)[0]?.text === 'ArrayList';
@@ -795,8 +799,13 @@ function primOf(text: string): Prim {
 function declType(typeNode: Node | null, declarator?: Node | null): DeclType {
   if (!typeNode) return { t: 'void' };
   const extraDims = declarator?.childForFieldName('dimensions');
-  if (typeNode.type === 'array_type') return { t: 'array', elem: primOf(typeNode.childForFieldName('element')!.text) };
-  if (extraDims) return { t: 'array', elem: primOf(typeNode.text) };
+  // int[] / int[][] (a 2-D array is an array of rows: its items are int[] arrays).
+  const rows = (depth: number) => '[]'.repeat(Math.max(0, depth - 1));
+  if (typeNode.type === 'array_type') {
+    const depth = depthOf(typeNode.childForFieldName('dimensions')) + depthOf(extraDims);
+    return { t: 'array', elem: (primOf(typeNode.childForFieldName('element')!.text) + rows(depth)) as Prim };
+  }
+  if (extraDims) return { t: 'array', elem: (primOf(typeNode.text) + rows(depthOf(extraDims))) as Prim };
   if (typeNode.type === 'generic_type') {
     const arg = named(named(typeNode)[1])[0];
     return { t: 'list', elem: arg ? WRAPPERS[arg.text] ?? (arg.text as Prim) : undefined };
@@ -1024,6 +1033,10 @@ class Interp {
       return o.type === 'this' ? 'this' : o.text;
     }
     if (n.type === 'identifier' && !this.scope.lookup(n.text) && this.scope.lookup('this')) return 'this';
+    // g[1][2] = 9: the table g changes.
+    let base = n;
+    while (base.type === 'array_access') base = base.childForFieldName('array')!;
+    if (base !== n && base.type === 'identifier') return base.text;
     return arrayBase(n) ?? n.text;
   }
 
@@ -1617,6 +1630,7 @@ class Interp {
 
   /** The type of one item of an array: int, String, or a class of the program. */
   private itemType(elem: Prim): DeclType {
+    if (elem.endsWith('[]')) return { t: 'array', elem: elem.slice(0, -2) as Prim };
     return isClassItem(elem) ? { t: 'object', cls: elem } : { t: elem };
   }
 
@@ -1757,7 +1771,10 @@ class Interp {
   }
 
   private arrayFrom(init: Node, elem: Prim): JVal {
-    const items = named(init).map((e) => this.coerce(this.eval(e), this.itemType(elem), e, 'this array'));
+    // {{1, 2}, {3, 4}}: each inner {...} is a row.
+    const items = named(init).map((e) =>
+      e.type === 'array_initializer' && elem.endsWith('[]') ? this.arrayFrom(e, elem.slice(0, -2) as Prim) : this.coerce(this.eval(e), this.itemType(elem), e, 'this array'),
+    );
     return { t: 'array', v: items, elem, id: freshId() };
   }
 
@@ -1860,14 +1877,22 @@ class Interp {
         return array[index];
       }
       case 'array_creation_expression': {
-        const elem = primOf(n.childForFieldName('type')!.text);
+        const base = primOf(n.childForFieldName('type')!.text);
+        const dims = n.childrenForFieldName('dimensions').filter((d): d is Node => !!d);
+        // new int[3][4]: sizes given; new int[3][]: rows not made yet (null).
+        const sizes = dims.filter((d) => d.type === 'dimensions_expr').map((d) => named(d)[0]);
+        const total = sizes.length + dims.filter((d) => d.type === 'dimensions').reduce((k, d) => k + depthOf(d), 0);
         const init = n.childForFieldName('value');
-        if (init) return this.arrayFrom(init, elem);
-        const sizeNode = named(n.childrenForFieldName('dimensions')[0])[0];
-        const size = this.eval(sizeNode);
-        if (size.t !== 'int') throw new CompileError(lineOf(n), 'An array size must be a whole number.');
-        if ((size.v as number) < 0) throw new JavaException('NegativeArraySizeException', String(size.v));
-        return { t: 'array', v: Array.from({ length: size.v as number }, () => zeroOf(elem)), elem, id: freshId() };
+        if (init) return this.arrayFrom(init, (base + '[]'.repeat(Math.max(0, depthOf(dims[0]) + dims.slice(1).reduce((k, d) => k + depthOf(d), 0) - 1))) as Prim);
+        const make = (level: number): JVal => {
+          const elem = (base + '[]'.repeat(total - level - 1)) as Prim;
+          const size = this.eval(sizes[level]);
+          if (size.t !== 'int' && size.t !== 'char') throw new CompileError(lineOf(n), 'An array size must be a whole number.');
+          const k = this.num(size);
+          if (k < 0) throw new JavaException('NegativeArraySizeException', String(k));
+          return { t: 'array', v: Array.from({ length: k }, () => (level + 1 < sizes.length ? make(level + 1) : zeroOf(elem))), elem, id: freshId() };
+        };
+        return make(0);
       }
       case 'field_access': {
         const object = n.childForFieldName('object')!;
@@ -1988,6 +2013,10 @@ class Interp {
       const a = args()[0];
       if (!a || a.t !== 'array') throw new CompileError(lineOf(n), `Arrays.${name} needs an array.`);
       if (name === 'toString') return str(a.v === null ? 'null' : arrayText(a));
+      if (name === 'deepToString') {
+        const deep = (x: JVal): string => (x.t === 'array' ? (x.v === null ? 'null' : `[${(x.v as JVal[]).map(deep).join(', ')}]`) : javaString(x));
+        return str(deep(a));
+      }
       if (name === 'sort') {
         const items = a.v as JVal[];
         items.sort((x, y) => this.compare(x, y));

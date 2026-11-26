@@ -541,9 +541,10 @@ function checkSubset(tree: Tree): Program {
       if (name === 'unordered_map') throw unsupported(n, 'unordered_map (map works)');
       if (name !== 'vector' && name !== 'map') throw unsupported(n, name ?? 'templates');
       const args = named(n.childForFieldName('arguments'));
-      if (args.some((a) => /vector|map|set|</.test(a.text))) throw unsupported(n, name === 'map' ? 'maps of lists' : 'lists of lists');
+      if (name === 'map' && args.some((a) => /vector|map|set|</.test(a.text))) throw unsupported(n, 'maps of lists');
+      // vector<vector<int>> is fine (a list of rows); vector<map<...>> and sets are not.
+      if (name === 'vector' && args.some((a) => /map|set/.test(a.text))) throw unsupported(n, 'lists of maps');
     }
-    if (n.type === 'array_declarator' && n.childForFieldName('declarator')?.type === 'array_declarator') throw unsupported(n, 'arrays of arrays');
     if (n.type === 'sized_type_specifier' && /unsigned/.test(n.text)) throw unsupported(n, 'unsigned numbers');
     for (const c of named(n)) visit(c);
   };
@@ -593,9 +594,17 @@ function typeOf(typeNode: Node | null): DeclType {
     return { t: 'map', kt: k, elem: v };
   }
   if (typeNode?.type === 'qualified_identifier' && /map/.test(typeNode.text) && !/vector/.test(typeNode.text)) return typeOf(typeNode.childForFieldName('name'));
-  if (typeNode?.type === 'template_type') {
+  // vector<int> as a type, or as the start of a value (vector<int>(4, 0)).
+  if (typeNode?.type === 'template_type' || (typeNode?.type === 'template_function' && /vector$/.test(typeNode.childForFieldName('name')?.text ?? ''))) {
     const arg = named(named(typeNode.childForFieldName('arguments'))[0]);
-    const elem = primOf(arg.find((c) => c.type !== 'type_qualifier') ?? null);
+    const argType = arg.find((c) => c.type !== 'type_qualifier') ?? null;
+    // vector<vector<int>>: the items are vector<int> rows.
+    if (argType?.type === 'template_type' || (argType?.type === 'qualified_identifier' && /vector/.test(argType.text))) {
+      const inner = typeOf(argType);
+      if (inner.t !== 'vector') throw unsupported(typeNode, 'this kind of vector');
+      return { t: 'vector', elem: `vector<${inner.elem}>` as Prim };
+    }
+    const elem = primOf(argType);
     if (elem === 'void' || elem === 'auto') throw unsupported(typeNode, `vector<${elem}>`);
     return { t: 'vector', elem };
   }
@@ -613,6 +622,8 @@ interface DeclaratorInfo {
   reference: boolean;
   /** int* p */
   pointer?: boolean;
+  /** int g[3][4]: the sizes after the first ([4]) */
+  moreSizes?: (Node | null)[];
 }
 
 function declaratorInfo(d: Node): DeclaratorInfo {
@@ -633,13 +644,15 @@ function declaratorInfo(d: Node): DeclaratorInfo {
     node = node.childForFieldName('declarator')!;
     if (node.type === 'array_declarator') throw unsupported(node, 'arrays of pointers');
   }
-  let arraySize: Node | null | undefined;
-  if (node.type === 'array_declarator') {
-    arraySize = node.childForFieldName('size') ?? null;
+  // int g[3][4]: the tree has [4] outside [3]; collect them first to last.
+  const sizes: (Node | null)[] = [];
+  while (node.type === 'array_declarator') {
+    sizes.unshift(node.childForFieldName('size') ?? null);
     node = node.childForFieldName('declarator')!;
   }
   if (node.type !== 'identifier') throw unsupported(node, 'this kind of declaration');
-  return { name: node.text, value, arraySize, reference, pointer };
+  const arraySize = sizes.length ? sizes[0] : undefined;
+  return { name: node.text, value, arraySize, reference, pointer, moreSizes: sizes.slice(1) };
 }
 
 const declarators = (s: Node) => s.childrenForFieldName('declarator').filter((d): d is Node => !!d);
@@ -648,7 +661,7 @@ const declarators = (s: Node) => s.childrenForFieldName('declarator').filter((d)
 // Loops-and-lists view
 
 const LOOP_TYPES = new Set(['for_statement', 'for_range_loop', 'while_statement', 'do_statement']);
-const MUTATORS = new Set(['push_back', 'pop_back', 'clear', 'insert', 'erase', 'emplace_back']);
+const MUTATORS = new Set(['push_back', 'pop_back', 'clear', 'insert', 'erase', 'emplace_back', 'resize']);
 
 const subscriptBase = (n: Node | null): string | null =>
   n?.type === 'subscript_expression' && n.childForFieldName('argument')?.type === 'identifier' ? n.childForFieldName('argument')!.text : null;
@@ -855,7 +868,7 @@ const declaredNames = (stmts: Node[]): { name: string; type: DeclType; arrayLen?
     const type = typeOf(s.childForFieldName('type'));
     for (const d of declarators(s)) {
       const info = declaratorInfo(d);
-      const elem = (type.t === 'struct' ? type.cls : type.t) as Prim;
+      const elem = ((type.t === 'struct' ? type.cls : type.t) + '[]'.repeat(info.moreSizes?.length ?? 0)) as Prim;
       out.push({ name: info.name, type: info.pointer ? { t: 'pointer', pt: type } : info.arraySize !== undefined ? { t: 'array', elem } : type });
     }
   }
@@ -1010,6 +1023,10 @@ class Interp {
       return o.type === 'this' ? 'this' : viaPointer ? `*${o.text}` : o.text;
     }
     if (n.type === 'identifier' && !this.scope.lookup(n.text) && this.scope.lookup('this')) return 'this';
+    // g[1][2] = 9: the table g changes.
+    let base = n;
+    while (base.type === 'subscript_expression') base = base.childForFieldName('argument')!;
+    if (base !== n && base.type === 'identifier') return base.text;
     return subscriptBase(n) ?? n.text;
   }
 
@@ -1298,6 +1315,15 @@ class Interp {
         else if (isGlobal) binding.cell.v = { t: 'pointer', v: null, pt: type };
         continue;
       }
+      if (info.arraySize !== undefined && info.moreSizes?.length) {
+        if (type.t === 'struct') throw unsupported(d, 'tables of structs');
+        const base = type.t as Prim;
+        const sizes = [info.arraySize, ...info.moreSizes];
+        if (sizes.slice(1).some((x) => !x)) throw new CompileError(lineOf(d), `Every size after the first must be written, like ${info.name}[3][4].`);
+        const v = this.tableFrom(base, sizes, 0, info.value, isGlobal || !!info.value, d, info.name);
+        binding.cell = { t: 'array', elem: v.elem, v };
+        continue;
+      }
       if (info.arraySize !== undefined) {
         const elem = (type.t === 'struct' ? type.cls : type.t) as Prim;
         if (isStructItem(elem)) {
@@ -1325,7 +1351,8 @@ class Interp {
         continue;
       }
       if (type.t === 'vector') {
-        const items = info.value ? this.vectorFrom(info.value, type.elem!) : [];
+        // vector<int> v(5, 0);  vector<vector<int>> g(3, vector<int>(4, 0));
+        const items = !info.value ? [] : info.value.type === 'argument_list' ? this.vectorSized(named(info.value), type.elem!, d) : this.vectorFrom(info.value, type.elem!);
         binding.cell.v = { t: 'vector', elem: type.elem, v: items };
         continue;
       }
@@ -1352,6 +1379,10 @@ class Interp {
   }
 
   private vectorFrom(value: Node, elem: Prim): CVal[] {
+    if (value.type === 'initializer_list' && elem.startsWith('vector<')) {
+      const inner = elem.slice(7, -1) as Prim;
+      return named(value).map((e) => (e.type === 'initializer_list' ? { t: 'vector', elem: inner, v: this.vectorFrom(e, inner) } : this.copy(this.convert(this.eval(e), this.itemType(elem), e, 'this list'))));
+    }
     if (value.type === 'initializer_list' && isStructItem(elem)) return named(value).map((e) => this.structFrom(e, structs.get(elem)!, 'this list'));
     if (value.type === 'initializer_list') return named(value).map((e) => this.convert(this.eval(e), { t: elem }, e, 'this list'));
     const v = this.eval(value);
@@ -1441,7 +1472,50 @@ class Interp {
 
   /** The type of one item of a vector or array: a value type, or a struct. */
   private itemType(elem: Prim | undefined): DeclType {
+    // Rows: int g[3][4] has int[] items; vector<vector<int>> has vector<int> items.
+    if (elem?.endsWith('[]')) return { t: 'array', elem: elem.slice(0, -2) as Prim };
+    if (elem?.startsWith('vector<')) return { t: 'vector', elem: elem.slice(7, -1) as Prim };
     return isStructItem(elem) ? { t: 'struct', cls: structs.get(elem!)!.name } : { t: elem ?? 'int' };
+  }
+
+  /** A new item with nothing in it yet: 0, "", an empty row or struct. */
+  private emptyItem(elem: Prim): CVal {
+    if (elem.startsWith('vector<')) return { t: 'vector', elem: elem.slice(7, -1) as Prim, v: [] };
+    if (isStructItem(elem)) return this.blank(structs.get(elem)!, true);
+    return elem === 'string' ? strv('') : this.zeroOf(elem);
+  }
+
+  /** vector<int> v(n) / v(n, value): n items (copies of value, or empty ones). */
+  private vectorSized(args: Node[], elem: Prim, at: Node): CVal[] {
+    if (args.length === 0 || args.length > 2) throw unsupported(at, 'this kind of vector');
+    const n = this.num(this.eval(args[0]));
+    if (n < 0) throw new CppCrash('IndexOutOfRange', `a vector can't have ${n} items`);
+    const fill = args[1] ? this.convert(this.eval(args[1]), this.itemType(elem), args[1], 'the vector') : this.emptyItem(elem);
+    return Array.from({ length: n }, () => this.copy(fill));
+  }
+
+  /** int g[3][4] = {{1, 2}, {3}}: rows of rows; missing items are 0 (or "no value yet" without any {...}). */
+  private tableFrom(base: Prim, sizes: (Node | null)[], level: number, init: Node | null, zero: boolean, at: Node, name: string): CVal {
+    const elem = (base + '[]'.repeat(sizes.length - level - 1)) as Prim;
+    const given = init && init.type === 'initializer_list' ? named(init) : [];
+    const size = sizes[level] ? this.num(this.eval(sizes[level]!)) : given.length;
+    if (given.length > size) throw new CompileError(lineOf(at), `${name} has room for ${size} items, not ${given.length}.`);
+    const items: CVal[] = [];
+    for (let i = 0; i < size; i++) {
+      const g = given[i] ?? null;
+      if (level + 1 < sizes.length) {
+        // A row: {...}, or text for a row of letters (char names[3][10] = {"Sam", "Bo"}).
+        if (g && (g.type === 'string_literal' || g.type === 'concatenated_string') && level + 2 === sizes.length && base === 'char') {
+          const text = this.eval(g).v as string;
+          const width = this.num(this.eval(sizes[level + 1]!));
+          if (text.length + 1 > width) throw new CompileError(lineOf(g), `Each row of ${name} has room for ${width - 1} letters.`);
+          const row = [...text, '\u0000'].map(chr);
+          while (row.length < width) row.push(chr('\u0000'));
+          items.push({ t: 'array', elem: 'char', v: row });
+        } else items.push(this.tableFrom(base, sizes, level + 1, g, zero, at, name));
+      } else items.push(g ? this.convert(this.eval(g), { t: base }, g, name) : zero ? this.zeroOf(base) : UNSET_VAL);
+    }
+    return { t: 'array', elem, v: items };
   }
 
   // ---- structs and classes ---------------------------------------------------------
@@ -2356,6 +2430,11 @@ class Interp {
     const args = () => argNodes.map((a) => this.eval(a));
 
     // static_cast<int>(x)
+    if (f.type === 'template_function' && /^(std::)?vector$/.test(f.childForFieldName('name')?.text ?? '')) {
+      // vector<int>(4, 0): a new list of 4 zeros.
+      const t = typeOf(f);
+      return { t: 'vector', elem: t.elem, v: this.vectorSized(argNodes, t.elem!, n) };
+    }
     if (f.type === 'template_function' && f.childForFieldName('name')?.text === 'static_cast') {
       const t = typeOf(named(named(f.childForFieldName('arguments'))[0])[0] ?? null);
       return this.convert(this.eval(argNodes[0]), t, n, 'this value');
@@ -2437,6 +2516,7 @@ class Interp {
         if (!owner(begin) || owner(begin) !== owner(end)) throw unsupported(n, 'sort like this');
         const list = this.eval(begin.childForFieldName('function')!.childForFieldName('argument')!);
         if (isStructItem(list.elem)) throw new CompileError(lineOf(n), `sort can't put ${list.elem} values in order by itself.`);
+        if (list.elem?.startsWith('vector<') || list.elem?.endsWith('[]')) throw unsupported(n, 'sorting a list of lists');
         (list.v as CVal[]).sort((x, y) => (x.t === 'string' ? String(x.v).localeCompare(String(y.v)) : this.num(x) - this.num(y)));
         return VOID;
       }
@@ -2568,12 +2648,13 @@ class Interp {
       const word = this.input.peekWord();
       if (word === null) throw new CppCrash('NoMoreInput', 'No more input');
       if (conv === 's') {
-        if (target.type !== 'identifier') throw unsupported(target, 'scanf %s into this');
-        const b = this.scope.lookup(target.text);
-        if (!b || b.cell.v === UNSET || b.cell.v.t !== 'array' || b.cell.v.elem !== 'char') {
+        // scanf("%s", name) / ("%s", names[2]) / ("%s", s.name): a char array.
+        if (!['identifier', 'subscript_expression', 'field_expression'].includes(target.type)) throw unsupported(target, 'scanf %s into this');
+        const arr = target.type === 'identifier' ? this.scope.lookup(target.text)?.cell.v : this.eval(target);
+        if (!arr || arr === UNSET || arr.t !== 'array' || arr.elem !== 'char') {
           throw new CompileError(lineOf(target), `${target.text} must be a char array to hold text.`);
         }
-        const items = b.cell.v.v as CVal[];
+        const items = arr.v as CVal[];
         const text = this.input.word();
         if (text.length + 1 > items.length) throw new CppCrash('IndexOutOfRange', `"${text}" does not fit in ${target.text} (room for ${items.length - 1} letters)`);
         [...text, '\u0000'].forEach((c, j) => (items[j] = chr(c)));
@@ -2624,8 +2705,20 @@ class Interp {
     switch (method) {
       case 'push_back':
         if (isStructItem(vec.elem)) items.push(this.structFrom(argNodes[0], structs.get(vec.elem!)!, objNode.text));
-        else items.push(this.convert(args()[0], { t: vec.elem ?? 'int' }, n, objNode.text));
+        else if (vec.elem?.startsWith('vector<') && argNodes[0]?.type === 'initializer_list') {
+          const inner = vec.elem.slice(7, -1) as Prim;
+          items.push({ t: 'vector', elem: inner, v: this.vectorFrom(argNodes[0], inner) });
+        } else items.push(this.copy(this.convert(args()[0], this.itemType(vec.elem), n, objNode.text)));
         return VOID;
+      case 'resize': {
+        const [size, fill] = args();
+        const k = this.num(size);
+        if (k < 0) throw new CppCrash('IndexOutOfRange', `a vector can't have ${k} items`);
+        const item = fill ? this.convert(fill, this.itemType(vec.elem), n, objNode.text) : this.emptyItem(vec.elem ?? 'int');
+        while (items.length < k) items.push(this.copy(item));
+        items.length = k;
+        return VOID;
+      }
       case 'emplace_back':
         if (!isStructItem(vec.elem)) throw unsupported(n, 'vector.emplace_back() here');
         items.push(this.construct(n, structs.get(vec.elem!)!, argNodes));
