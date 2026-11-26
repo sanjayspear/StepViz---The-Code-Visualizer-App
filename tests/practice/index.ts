@@ -1,6 +1,10 @@
 // Reference solutions by topic (never shipped to students).
 import { SOLUTIONS as BASICS_MATH } from './basics-math.solutions';
 import { SOLUTIONS as STRINGS } from './strings.solutions';
+import { SOLUTIONS as SORTING_GREEDY_INTERVALS } from './sorting-greedy-intervals.solutions';
+import { SOLUTIONS as DYNAMIC_PROGRAMMING } from './dynamic-programming.solutions';
+import { SOLUTIONS as GRAPHS } from './graphs.solutions';
+import { SOLUTIONS as TREES_BST } from './trees-bst.solutions';
 import { SOLUTIONS as LINKED_LISTS } from './linked-lists.solutions';
 import { SOLUTIONS as RECURSION_BACKTRACKING } from './recursion-backtracking.solutions';
 import { SOLUTIONS as BINARY_SEARCH } from './binary-search.solutions';
@@ -21,4 +25,8 @@ export const SOLUTIONS_BY_TOPIC: Record<string, Record<number, string>> = {
   'binary-search': BINARY_SEARCH,
   'recursion-backtracking': RECURSION_BACKTRACKING,
   'linked-lists': LINKED_LISTS,
+  'trees-bst': TREES_BST,
+  graphs: GRAPHS,
+  'dynamic-programming': DYNAMIC_PROGRAMMING,
+  'sorting-greedy-intervals': SORTING_GREEDY_INTERVALS,
 };

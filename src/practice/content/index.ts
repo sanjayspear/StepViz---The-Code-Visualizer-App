@@ -3,6 +3,10 @@ import type { CodeLanguage } from '../../examples';
 import type { PracticeContent } from './types';
 import { BASICS_MATH } from './python/basics-math';
 import { STRINGS } from './python/strings';
+import { SORTING_GREEDY_INTERVALS } from './python/sorting-greedy-intervals';
+import { DYNAMIC_PROGRAMMING } from './python/dynamic-programming';
+import { GRAPHS } from './python/graphs';
+import { TREES_BST } from './python/trees-bst';
 import { LINKED_LISTS } from './python/linked-lists';
 import { RECURSION_BACKTRACKING } from './python/recursion-backtracking';
 import { BINARY_SEARCH } from './python/binary-search';
@@ -24,6 +28,10 @@ export const PYTHON_TOPICS: Record<string, PracticeContent[]> = {
   'binary-search': BINARY_SEARCH,
   'recursion-backtracking': RECURSION_BACKTRACKING,
   'linked-lists': LINKED_LISTS,
+  'trees-bst': TREES_BST,
+  graphs: GRAPHS,
+  'dynamic-programming': DYNAMIC_PROGRAMMING,
+  'sorting-greedy-intervals': SORTING_GREEDY_INTERVALS,
 };
 
 const BY_LANGUAGE: Partial<Record<CodeLanguage, Map<number, PracticeContent>>> = {

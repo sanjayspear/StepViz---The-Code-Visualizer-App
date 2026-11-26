@@ -55,6 +55,8 @@ export interface CheckTestResult {
   problem?: 'missing' | 'error' | 'timeout' | 'skipped' | 'shared';
   /** the function or class that is missing */
   missing?: string;
+  /** expected and got are whole phrases ("should change argument 1 to [1, 2]", "Argument 1 became [2, 1].") */
+  phrased?: boolean;
   errorType?: string;
   message?: string;
   line?: number | null;

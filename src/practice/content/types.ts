@@ -20,7 +20,7 @@ export interface PracticeTest {
    * exact (default), approx, unordered (a list in any order), sets (any order inside too),
    * output (what was printed), or a shape check: topo, peak, gray, inorder
    */
-  compare?: 'exact' | 'approx' | 'unordered' | 'sets' | 'output' | 'topo' | 'peak' | 'gray' | 'inorder';
+  compare?: 'exact' | 'approx' | 'unordered' | 'sets' | 'output' | 'topo' | 'peak' | 'gray' | 'inorder' | 'balanced';
   /** the argument after the call (in-place questions); prefix: only its first <answer> items */
   mutated?: { arg: number; value: Value; prefix?: boolean; check?: 'negfirst' };
   /** a node of the input list reported by its position or its value */

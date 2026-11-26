@@ -129,13 +129,13 @@ test('previous / next follow the list the question was opened from', async ({ pa
 });
 
 test('language picker: languages without starter code say "coming soon"; unknown questions say so', async ({ page }) => {
-  // Basics & math has Python; Strings (Q30) not yet.
+  // Every question has Python (first and last checked); the other languages come later.
   await page.goto('./#/practice/q/7');
   await expect(page.locator('.practice-question select option').first()).toHaveText('Python');
-  await page.goto('./#/practice/q/30');
-  await expect(page.getByText('Python starter code and tests for Strings are coming soon', { exact: false })).toBeVisible();
+  await page.goto('./#/practice/q/320');
+  await expect(page.locator('.practice-work .cm-content')).toContainText('def largest_number(nums):');
   await expect(page.locator('.practice-question select option')).toHaveText([
-    'Python (coming soon)',
+    'Python',
     'JavaScript (coming soon)',
     'Java (coming soon)',
     'C++ (coming soon)',

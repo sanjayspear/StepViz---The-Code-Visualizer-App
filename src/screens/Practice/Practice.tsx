@@ -555,7 +555,15 @@ function TestResults({ result }: { result: CheckResult }) {
           <li key={i} className={`practice-test practice-test--${t.passed ? 'pass' : 'fail'}`}>
             <span className="practice-test__verdict">{t.passed ? 'Passed' : 'Failed'}</span>
             <span className="practice-test__body">
-              <code>{t.call}</code> should give <code>{t.expected}</code>
+              {t.phrased ? (
+                <>
+                  <code>{t.call}</code> {t.expected}
+                </>
+              ) : (
+                <>
+                  <code>{t.call}</code> should give <code>{t.expected}</code>
+                </>
+              )}
               {!t.passed && <span className="practice-test__why">{testProblem(t)}</span>}
             </span>
           </li>
@@ -571,6 +579,8 @@ function testProblem(t: CheckTestResult): string {
       return `There is no function or class called ${t.missing ?? t.call.split('(')[0]} in your code.`;
     case 'shared':
       return `It gave ${t.got}, but it reuses nodes of the original. A copy must be made of new nodes.`;
+    case undefined:
+      return t.phrased ? t.got : `It gave ${t.got}.`;
     case 'timeout':
       return 'It took longer than 2 seconds, so it was stopped. Check that every loop can end, or look for a quicker way.';
     case 'skipped':

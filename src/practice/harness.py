@@ -8,8 +8,10 @@
 #     compare   "exact" (default: same value and kind; a tuple counts as a list), "approx",
 #               "unordered" (a list in any order), "sets" (any order, and each inner list in
 #               any order), "output" (what the call printed), or a check of the answer's shape:
-#               "topo", "peak", "gray", "inorder"
-#     mutated   {"arg": 0, "value": [...], "prefix": true}: the argument after the call
+#               "topo", "peak", "gray", "inorder" (a valid BST with these values in order),
+#               "balanced" (the same, and height-balanced)
+#     mutated   {"arg": 0, "value": [...], "prefix": true}: the argument after the call; the result
+#               then has "phrased": its expected and got are whole phrases ("should change ...")
 #               (prefix: only its first <returned number> items; check "negfirst": the same
 #               numbers as value, every negative one first)
 #     returns   "index" / "value": a node of the input list is reported as its position / value
@@ -339,10 +341,14 @@ def _shape_ok(how, got, args, expected):
         if not isinstance(got, list) or len(got) != 2 ** n or got[0] != 0 or sorted(got) != list(range(2 ** n)):
             return False
         return all(bin(a ^ b).count("1") == 1 for a, b in zip(got, got[1:]))
-    if how == "inorder":  # a BST after a change: its values in order, and a valid BST
+    if how in ("inorder", "balanced"):  # a BST holding these values in order (balanced: also height-balanced)
+        if got is None:
+            return expected == []
         tree = _export(got) if not isinstance(got, dict) else got
         values = tree.get("$tree", []) if isinstance(tree, dict) else None
-        return values is not None and _tree_inorder(values) == expected and _is_bst(values)
+        if values is None or _tree_inorder(values) != expected or not _is_bst(values):
+            return False
+        return how == "inorder" or _is_balanced(values)
     return False
 
 
@@ -381,6 +387,18 @@ def _tree_inorder(values):
 def _is_bst(values):
     order = _tree_inorder(values)
     return all(a < b for a, b in zip(order, order[1:]))
+
+
+def _is_balanced(values):
+    nodes = _tree_nodes(values)
+    def height(i):  # -1 when some part is out of balance
+        if i is None:
+            return 0
+        a, b = height(nodes[i][1]), height(nodes[i][2])
+        if a < 0 or b < 0 or abs(a - b) > 1:
+            return -1
+        return max(a, b) + 1
+    return not nodes or height(0) >= 0
 
 
 # ---- rules ------------------------------------------------------------------------------------
@@ -502,18 +520,22 @@ def _expected_text(t):
     if how == "gray":
         return "a Gray code: 0 first, each number differs from the next in one bit"
     if how == "inorder":
-        return "a valid BST holding %s" % repr(t["expected"])
-    text = _text(t["expected"])
-    if how in ("unordered", "sets"):
-        text += " (in any order)"
+        return "a valid BST holding %s" % repr(t["expected"]) if t["expected"] else "an empty tree (None)"
+    if how == "balanced":
+        return "a height-balanced BST holding %s" % repr(t["expected"]) if t["expected"] else "an empty tree (None)"
+    any_order = " (in any order)" if how in ("unordered", "sets") else ""
     if "mutated" in t:
+        # A whole phrase after the call (the page shows it as it is): "should change argument 1 to ..."
         m = t["mutated"]
-        changed = "the first <answer> items of " if m.get("prefix") else ""
-        after = "%sargument %d becomes %s" % (changed, m["arg"] + 1, _text(m["value"]))
+        arg = "argument %d" % (m["arg"] + 1)
         if m.get("check") == "negfirst":
-            after = "argument %d keeps its numbers, with every negative number first" % (m["arg"] + 1)
-        text = after if t["expected"] is None and not m.get("prefix") else "%s, and %s" % (text, after)
-    return text
+            return "should rearrange %s so every negative number comes first" % arg
+        if m.get("prefix"):
+            return "should give %s and leave %s%s at the start of %s" % (_text(t["expected"]), _text(m["value"]), any_order, arg)
+        if t["expected"] is None:
+            return "should change %s to %s" % (arg, _text(m["value"]))
+        return "should give %s and change %s to %s" % (_text(t["expected"]), arg, _text(m["value"]))
+    return _text(t["expected"]) + any_order
 
 
 def _run_test(t, g, out, state, total_deadline, watch):
@@ -522,6 +544,8 @@ def _run_test(t, g, out, state, total_deadline, watch):
         t = dict(t)
         t["expected"] = {int(k): v for k, v in t["expected"].items()}
     entry = {"call": _shown_call(t), "expected": _expected_text(t)}
+    if "mutated" in t:
+        entry["phrased"] = True  # expected and got are whole phrases
     ctx = _Ctx(g)
     is_ops = t["call"] == "$ops"
     target = g.get(t["cls"] if is_ops else t["call"])
@@ -603,8 +627,8 @@ def _run_test(t, g, out, state, total_deadline, watch):
         passed = printed == t["expected"]
         entry.update(passed=passed, got=repr(printed))
         return entry
-    if how in ("topo", "peak", "gray", "inorder"):
-        passed = _shape_ok(how, got if how != "inorder" else got_plain, _copy.deepcopy(t.get("args", [])), t["expected"])
+    if how in ("topo", "peak", "gray", "inorder", "balanced"):
+        passed = _shape_ok(how, got if how not in ("inorder", "balanced") else got_plain, _copy.deepcopy(t.get("args", [])), t["expected"])
     else:
         passed = _same(got_plain, t["expected"], how)
     got_text = _text(got_plain if not isinstance(got, tuple) else tuple(got_plain))
@@ -625,10 +649,13 @@ def _run_test(t, g, out, state, total_deadline, watch):
         else:
             ok_after = _same(after, m["value"], how if how in ("unordered", "sets") else "exact")
         ok_return = passed if t["expected"] is not None or m.get("prefix") else True
-        if t["expected"] is None and not m.get("prefix"):
-            got_text = "argument %d became %s" % (m["arg"] + 1, _text(after))
+        arg = "argument %d" % (m["arg"] + 1)
+        if m.get("prefix"):
+            got_text = "It gave %s, and %s started with %s." % (got_text, arg, _text(after))
+        elif t["expected"] is None:
+            got_text = "%s became %s." % (arg[0].upper() + arg[1:], _text(after))
         else:
-            got_text = "%s, and argument %d became %s" % (got_text, m["arg"] + 1, _text(after))
+            got_text = "It gave %s, and %s became %s." % (got_text, arg, _text(after))
         passed = ok_after and ok_return
     if t.get("copy") and passed:
         inputs = set(id(n) for n in ctx.inputs)
