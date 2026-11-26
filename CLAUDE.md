@@ -346,6 +346,34 @@ Playwright tests. Static build for GitHub Pages.
   Home ("static variables inside functions"); before, it was wrongly reset on
   every call. Unsupported: several statics in one line, static arrays written
   with [ ], static pointers.
+- Practice section (owner's brief, 2026-11-26): built from docs/320-questions.pdf
+  (layout guide: docs/practice-mockup .png; match our tokens, not the picture).
+  Phases: P1a data (done), P1b screens, P2 starter code + tests (Python first),
+  P3 hand-written walkthroughs (easy questions first). No AI inside the product;
+  I may draft P2/P3 content, but every test set must pass against a reference
+  solution in our test suite before it ships, hints / walkthroughs must be
+  accurate, for beginners, with a real-life comparison; work topic by topic and
+  stop after each topic for the owner's spot-check. Ticks are manual (after P2:
+  a "Mark as solved?" prompt when all tests pass). The student's answer code is
+  never stored. Navigation: Home and Practice only (Lessons later). Daily goal 3,
+  reset at local midnight, one constant. Topic names exactly as in the PDF
+  ("Basics & math"). Every question open at any time (no locking, no order);
+  question list: search by number or title, difficulty filter, hide solved,
+  "Surprise me" (a random unsolved one); question page: language picker (Python
+  first, others "coming soon"); previous / next follow the current list (topic,
+  filter or search). URLs #/practice/..., progress in localStorage
+  (stepviz.practice.v1).
+  P1a: scripts/build-questions.mjs (npm run questions; --check verifies) reads
+  the PDF with pdfjs-dist (dev dependency, Apache-2.0) by position on the page
+  and writes src/practice/questions.json ({ source, topics: [{ id, name, first,
+  last }], questions: [{ id, topic, difficulty, title }] }); it stops unless
+  there are 320 questions numbered 1-320 in order, 14 topics and an E/M/H on
+  each; topics come from the heading above each question on the page and are
+  checked against the heading's range (no mismatches: Q25 is drawn above "2.
+  Strings", it only looks like it is under Strings in plain extracted text).
+  No blanket text rules (they damaged "O surrounded by X" and "with . and *");
+  the only cleanup is joining 12 wrapped questions. Hand-written content will
+  live in separate files so re-running the script never overwrites it.
 - Checked against real compilers (D1, 2026-11-26): tests/golden holds everyday
   Java / C++ / C programs whose expected output comes from real javac/java 21
   and clang (scripts/golden-refresh.sh rebuilds it; avoid library-specific
@@ -666,7 +694,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`); C6 C++ libstdc++ sort, lambdas, algorithms, stack/queue/priority_queue (`tests/algorithms-cpp.spec.ts`); C7 C++ pair, unordered_map, unordered_set (`tests/containers-cpp.spec.ts`); D1 checked against real javac / clang (`tests/golden/`, `tests/golden-java-cpp.spec.ts`, `scripts/golden-refresh.sh`); D3 JavaScript against node, console.log like node (`tests/golden/js`, `tests/inspect-jstracer.spec.ts`; 315 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`); K2 Java inheritance (tests in `tests/inheritance-java.spec.ts`); C5 C++ inheritance (tests in `tests/inheritance-cpp.spec.ts`); try-line step removed in Python/JS; I1 Java interfaces + Comparable (`tests/interfaces-java.spec.ts`); S2 sets (`tests/sets-java.spec.ts`); ST1 Java statics (`tests/statics-java.spec.ts`); PY1 Python/JS classes (`tests/classes-tracer.spec.ts`); SW2 switch values + var (`tests/switchvar-java.spec.ts`); L2 lambdas (`tests/lambdas-java.spec.ts`); OP1 C++ operators (`tests/operators-cpp.spec.ts`); ST2 C++ static members (`tests/statics-cpp.spec.ts`); ST3 Java streams (`tests/streams-java.spec.ts`); N1 exact 64-bit longs (`tests/longs-java-cpp.spec.ts`); J3 Java StringBuilder, Stack/Queue/Deque/PriorityQueue, lists of lists, map merge/compute (`tests/collections-java.spec.ts`); C6 C++ libstdc++ sort, lambdas, algorithms, stack/queue/priority_queue (`tests/algorithms-cpp.spec.ts`); C7 C++ pair, unordered_map, unordered_set (`tests/containers-cpp.spec.ts`); D1 checked against real javac / clang (`tests/golden/`, `tests/golden-java-cpp.spec.ts`, `scripts/golden-refresh.sh`); D3 JavaScript against node, console.log like node (`tests/golden/js`, `tests/inspect-jstracer.spec.ts`); Practice P1a: questions.json from the PDF (`scripts/build-questions.mjs`, `tests/practice-questions.spec.ts`; 319 tests pass). Next: Practice P1b, only after the owner replies to the P1a report.
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

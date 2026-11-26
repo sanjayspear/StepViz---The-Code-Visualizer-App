@@ -1,0 +1,2011 @@
+{
+  "source": "docs/320-questions.pdf",
+  "topics": [
+    {
+      "id": "basics-math",
+      "name": "Basics & math",
+      "first": 1,
+      "last": 25
+    },
+    {
+      "id": "strings",
+      "name": "Strings",
+      "first": 26,
+      "last": 55
+    },
+    {
+      "id": "arrays-matrices",
+      "name": "Arrays & matrices",
+      "first": 56,
+      "last": 85
+    },
+    {
+      "id": "hash-maps-sets",
+      "name": "Hash maps & sets",
+      "first": 86,
+      "last": 110
+    },
+    {
+      "id": "two-pointers",
+      "name": "Two pointers",
+      "first": 111,
+      "last": 130
+    },
+    {
+      "id": "sliding-window",
+      "name": "Sliding window",
+      "first": 131,
+      "last": 150
+    },
+    {
+      "id": "stacks-queues",
+      "name": "Stacks & queues",
+      "first": 151,
+      "last": 170
+    },
+    {
+      "id": "binary-search",
+      "name": "Binary search",
+      "first": 171,
+      "last": 190
+    },
+    {
+      "id": "recursion-backtracking",
+      "name": "Recursion & backtracking",
+      "first": 191,
+      "last": 215
+    },
+    {
+      "id": "linked-lists",
+      "name": "Linked lists",
+      "first": 216,
+      "last": 235
+    },
+    {
+      "id": "trees-bst",
+      "name": "Trees & BST",
+      "first": 236,
+      "last": 260
+    },
+    {
+      "id": "graphs",
+      "name": "Graphs",
+      "first": 261,
+      "last": 280
+    },
+    {
+      "id": "dynamic-programming",
+      "name": "Dynamic programming",
+      "first": 281,
+      "last": 305
+    },
+    {
+      "id": "sorting-greedy-intervals",
+      "name": "Sorting, greedy & intervals",
+      "first": 306,
+      "last": 320
+    }
+  ],
+  "questions": [
+    {
+      "id": 1,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Swap two numbers without using a third variable."
+    },
+    {
+      "id": 2,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Check if a number is even or odd without using %."
+    },
+    {
+      "id": 3,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Find the sum of the digits of a number (1234 → 10)."
+    },
+    {
+      "id": 4,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Reverse an integer (123 → 321), handling negative numbers."
+    },
+    {
+      "id": 5,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Check if a number is a palindrome without converting it to a string."
+    },
+    {
+      "id": 6,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Count the digits in a number."
+    },
+    {
+      "id": 7,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Compute the factorial of n, both iteratively and recursively."
+    },
+    {
+      "id": 8,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Check if a number is prime."
+    },
+    {
+      "id": 9,
+      "topic": "basics-math",
+      "difficulty": "M",
+      "title": "Print all primes up to n using the Sieve of Eratosthenes."
+    },
+    {
+      "id": 10,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Find the GCD and LCM of two numbers."
+    },
+    {
+      "id": 11,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Check if a number is an Armstrong number (153 = 1³ + 5³ + 3³)."
+    },
+    {
+      "id": 12,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Check if a number is a perfect number (sum of its divisors equals itself)."
+    },
+    {
+      "id": 13,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Find the nth Fibonacci number in O(n) time."
+    },
+    {
+      "id": 14,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Check if a number is a power of two."
+    },
+    {
+      "id": 15,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Convert a decimal number to binary without built-in functions."
+    },
+    {
+      "id": 16,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Convert a binary string to a decimal number."
+    },
+    {
+      "id": 17,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Count the number of 1 bits in a number's binary form."
+    },
+    {
+      "id": 18,
+      "topic": "basics-math",
+      "difficulty": "M",
+      "title": "Compute x to the power n in O(log n) time."
+    },
+    {
+      "id": 19,
+      "topic": "basics-math",
+      "difficulty": "M",
+      "title": "Find the integer square root of a number without sqrt()."
+    },
+    {
+      "id": 20,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Check if a year is a leap year."
+    },
+    {
+      "id": 21,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Find the sum of all multiples of 3 or 5 below 1000."
+    },
+    {
+      "id": 22,
+      "topic": "basics-math",
+      "difficulty": "M",
+      "title": "Convert an integer to a Roman numeral."
+    },
+    {
+      "id": 23,
+      "topic": "basics-math",
+      "difficulty": "E",
+      "title": "Convert a Roman numeral to an integer."
+    },
+    {
+      "id": 24,
+      "topic": "basics-math",
+      "difficulty": "M",
+      "title": "Add two numbers given as strings (\"999\" + \"1\" = \"1000\")."
+    },
+    {
+      "id": 25,
+      "topic": "basics-math",
+      "difficulty": "H",
+      "title": "Multiply two very large numbers given as strings."
+    },
+    {
+      "id": 26,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Reverse a string without built-in reverse functions."
+    },
+    {
+      "id": 27,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Check if a string is a palindrome, ignoring case and non-letters."
+    },
+    {
+      "id": 28,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Count the vowels and consonants in a string."
+    },
+    {
+      "id": 29,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Count the frequency of each character in a string."
+    },
+    {
+      "id": 30,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Find the first non-repeating character in a string."
+    },
+    {
+      "id": 31,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Find the first character that repeats."
+    },
+    {
+      "id": 32,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Remove duplicate characters, keeping the first occurrence of each."
+    },
+    {
+      "id": 33,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Check if two strings are anagrams."
+    },
+    {
+      "id": 34,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Reverse the order of words in a sentence."
+    },
+    {
+      "id": 35,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Reverse each word in a sentence but keep the word order."
+    },
+    {
+      "id": 36,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Capitalize the first letter of every word."
+    },
+    {
+      "id": 37,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Check if a string has all unique characters, without extra data structures."
+    },
+    {
+      "id": 38,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Find the longest word in a sentence."
+    },
+    {
+      "id": 39,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Count the words in a sentence that has extra spaces anywhere."
+    },
+    {
+      "id": 40,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Check if one string is a rotation of another (\"waterbottle\", \"erbottlewat\")."
+    },
+    {
+      "id": 41,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Compress a string (\"aaabcc\" → \"a3b1c2\"); return the original if it isn't shorter."
+    },
+    {
+      "id": 42,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Decode a compressed string (\"a3b2\" → \"aaabb\")."
+    },
+    {
+      "id": 43,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Find the longest common prefix of an array of strings."
+    },
+    {
+      "id": 44,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Check if a sentence is a pangram (uses every letter a–z)."
+    },
+    {
+      "id": 45,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Check if string a is a subsequence of string b."
+    },
+    {
+      "id": 46,
+      "topic": "strings",
+      "difficulty": "E",
+      "title": "Find the first index where one string occurs inside another, without built-ins."
+    },
+    {
+      "id": 47,
+      "topic": "strings",
+      "difficulty": "M",
+      "title": "Generate all permutations of a string."
+    },
+    {
+      "id": 48,
+      "topic": "strings",
+      "difficulty": "M",
+      "title": "Convert a string to an integer by hand, handling spaces, sign and overflow."
+    },
+    {
+      "id": 49,
+      "topic": "strings",
+      "difficulty": "M",
+      "title": "Find the longest palindromic substring."
+    },
+    {
+      "id": 50,
+      "topic": "strings",
+      "difficulty": "M",
+      "title": "Group a list of words into sets of anagrams."
+    },
+    {
+      "id": 51,
+      "topic": "strings",
+      "difficulty": "M",
+      "title": "Find the minimum deletions needed to make two strings anagrams."
+    },
+    {
+      "id": 52,
+      "topic": "strings",
+      "difficulty": "M",
+      "title": "Check if two strings are exactly one edit (insert, delete or replace) apart."
+    },
+    {
+      "id": 53,
+      "topic": "strings",
+      "difficulty": "M",
+      "title": "Write a string in a zigzag pattern over n rows, then read it line by line."
+    },
+    {
+      "id": 54,
+      "topic": "strings",
+      "difficulty": "M",
+      "title": "Generate the nth term of the count-and-say sequence (1, 11, 21, 1211...)."
+    },
+    {
+      "id": 55,
+      "topic": "strings",
+      "difficulty": "H",
+      "title": "Find the smallest window in s that contains all characters of t."
+    },
+    {
+      "id": 56,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Find the largest and smallest elements without built-in functions."
+    },
+    {
+      "id": 57,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Find the second largest element."
+    },
+    {
+      "id": 58,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Reverse an array in place."
+    },
+    {
+      "id": 59,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Check if an array is sorted."
+    },
+    {
+      "id": 60,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Remove duplicates from a sorted array in place and return the new length."
+    },
+    {
+      "id": 61,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Move all zeros to the end while keeping the order of other elements."
+    },
+    {
+      "id": 62,
+      "topic": "arrays-matrices",
+      "difficulty": "M",
+      "title": "Rotate an array to the right by k steps."
+    },
+    {
+      "id": 63,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Find the missing number in an array containing 0 to n."
+    },
+    {
+      "id": 64,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Find the one element that appears once when every other appears twice."
+    },
+    {
+      "id": 65,
+      "topic": "arrays-matrices",
+      "difficulty": "M",
+      "title": "Find the duplicate in an array of n + 1 numbers from 1 to n."
+    },
+    {
+      "id": 66,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Merge two sorted arrays into one sorted array."
+    },
+    {
+      "id": 67,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Find the intersection of two arrays."
+    },
+    {
+      "id": 68,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Find the union of two arrays."
+    },
+    {
+      "id": 69,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Add one to a number stored as an array of digits ([9, 9] → [1, 0, 0])."
+    },
+    {
+      "id": 70,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Find the element that appears more than n/2 times."
+    },
+    {
+      "id": 71,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Given daily stock prices, find the max profit from one buy and one sell."
+    },
+    {
+      "id": 72,
+      "topic": "arrays-matrices",
+      "difficulty": "M",
+      "title": "Find the max stock profit when you can buy and sell many times."
+    },
+    {
+      "id": 73,
+      "topic": "arrays-matrices",
+      "difficulty": "M",
+      "title": "Find the contiguous subarray with the largest sum."
+    },
+    {
+      "id": 74,
+      "topic": "arrays-matrices",
+      "difficulty": "M",
+      "title": "Return an array where each item is the product of all others, without division."
+    },
+    {
+      "id": 75,
+      "topic": "arrays-matrices",
+      "difficulty": "M",
+      "title": "Find all elements that appear more than n/3 times."
+    },
+    {
+      "id": 76,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Generate the first n rows of Pascal's triangle."
+    },
+    {
+      "id": 77,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Transpose a matrix."
+    },
+    {
+      "id": 78,
+      "topic": "arrays-matrices",
+      "difficulty": "M",
+      "title": "Rotate a square matrix 90 degrees clockwise in place."
+    },
+    {
+      "id": 79,
+      "topic": "arrays-matrices",
+      "difficulty": "M",
+      "title": "Return the elements of a matrix in spiral order."
+    },
+    {
+      "id": 80,
+      "topic": "arrays-matrices",
+      "difficulty": "M",
+      "title": "If a matrix cell is 0, set its whole row and column to 0."
+    },
+    {
+      "id": 81,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Find all leaders: elements greater than everything to their right."
+    },
+    {
+      "id": 82,
+      "topic": "arrays-matrices",
+      "difficulty": "E",
+      "title": "Find the index where the left sum equals the right sum."
+    },
+    {
+      "id": 83,
+      "topic": "arrays-matrices",
+      "difficulty": "M",
+      "title": "Rearrange an array into its next lexicographic permutation."
+    },
+    {
+      "id": 84,
+      "topic": "arrays-matrices",
+      "difficulty": "M",
+      "title": "Find the length of the longest run of consecutive numbers in an unsorted array, in O(n)."
+    },
+    {
+      "id": 85,
+      "topic": "arrays-matrices",
+      "difficulty": "H",
+      "title": "Given bar heights, compute how much rain water is trapped between them."
+    },
+    {
+      "id": 86,
+      "topic": "hash-maps-sets",
+      "difficulty": "E",
+      "title": "Return the indices of two numbers that add up to a target."
+    },
+    {
+      "id": 87,
+      "topic": "hash-maps-sets",
+      "difficulty": "E",
+      "title": "Check if an array contains any duplicate."
+    },
+    {
+      "id": 88,
+      "topic": "hash-maps-sets",
+      "difficulty": "E",
+      "title": "Count the frequency of each element in an array."
+    },
+    {
+      "id": 89,
+      "topic": "hash-maps-sets",
+      "difficulty": "E",
+      "title": "Find the most frequent element."
+    },
+    {
+      "id": 90,
+      "topic": "hash-maps-sets",
+      "difficulty": "E",
+      "title": "Find all elements that appear exactly once."
+    },
+    {
+      "id": 91,
+      "topic": "hash-maps-sets",
+      "difficulty": "E",
+      "title": "Check if two arrays contain the same elements, regardless of order."
+    },
+    {
+      "id": 92,
+      "topic": "hash-maps-sets",
+      "difficulty": "E",
+      "title": "Find common elements in three sorted arrays."
+    },
+    {
+      "id": 93,
+      "topic": "hash-maps-sets",
+      "difficulty": "E",
+      "title": "Check if two strings are isomorphic (\"egg\" and \"add\")."
+    },
+    {
+      "id": 94,
+      "topic": "hash-maps-sets",
+      "difficulty": "E",
+      "title": "Check if a pattern matches words (\"abba\" and \"dog cat cat dog\")."
+    },
+    {
+      "id": 95,
+      "topic": "hash-maps-sets",
+      "difficulty": "E",
+      "title": "Check if a ransom note can be built from the letters of a magazine."
+    },
+    {
+      "id": 96,
+      "topic": "hash-maps-sets",
+      "difficulty": "E",
+      "title": "Check if a number is \"happy\" (repeatedly summing squared digits reaches 1)."
+    },
+    {
+      "id": 97,
+      "topic": "hash-maps-sets",
+      "difficulty": "E",
+      "title": "Check if any two equal elements are at most k positions apart."
+    },
+    {
+      "id": 98,
+      "topic": "hash-maps-sets",
+      "difficulty": "M",
+      "title": "Find the k most frequent elements."
+    },
+    {
+      "id": 99,
+      "topic": "hash-maps-sets",
+      "difficulty": "M",
+      "title": "Sort the characters of a string by how often they appear."
+    },
+    {
+      "id": 100,
+      "topic": "hash-maps-sets",
+      "difficulty": "M",
+      "title": "Count the subarrays whose sum equals k."
+    },
+    {
+      "id": 101,
+      "topic": "hash-maps-sets",
+      "difficulty": "M",
+      "title": "Find the longest subarray with sum zero."
+    },
+    {
+      "id": 102,
+      "topic": "hash-maps-sets",
+      "difficulty": "M",
+      "title": "Find the longest subarray with an equal number of 0s and 1s."
+    },
+    {
+      "id": 103,
+      "topic": "hash-maps-sets",
+      "difficulty": "M",
+      "title": "Find all pairs with a difference of exactly k."
+    },
+    {
+      "id": 104,
+      "topic": "hash-maps-sets",
+      "difficulty": "M",
+      "title": "Count pairs whose sum is divisible by k."
+    },
+    {
+      "id": 105,
+      "topic": "hash-maps-sets",
+      "difficulty": "M",
+      "title": "Check if a partially filled 9×9 sudoku board is valid."
+    },
+    {
+      "id": 106,
+      "topic": "hash-maps-sets",
+      "difficulty": "M",
+      "title": "Count the tuples across four arrays that sum to zero."
+    },
+    {
+      "id": 107,
+      "topic": "hash-maps-sets",
+      "difficulty": "M",
+      "title": "Design a hash map from scratch with put, get and remove."
+    },
+    {
+      "id": 108,
+      "topic": "hash-maps-sets",
+      "difficulty": "M",
+      "title": "Design an LRU cache with get and put in O(1)."
+    },
+    {
+      "id": 109,
+      "topic": "hash-maps-sets",
+      "difficulty": "M",
+      "title": "Group strings that are shifts of each other (\"abc\", \"bcd\", \"xyz\")."
+    },
+    {
+      "id": 110,
+      "topic": "hash-maps-sets",
+      "difficulty": "H",
+      "title": "Find the smallest missing positive integer in O(n) time and O(1) space."
+    },
+    {
+      "id": 111,
+      "topic": "two-pointers",
+      "difficulty": "E",
+      "title": "Find two numbers in a sorted array that add up to a target."
+    },
+    {
+      "id": 112,
+      "topic": "two-pointers",
+      "difficulty": "E",
+      "title": "Reverse only the vowels of a string."
+    },
+    {
+      "id": 113,
+      "topic": "two-pointers",
+      "difficulty": "E",
+      "title": "Remove all instances of a value from an array in place."
+    },
+    {
+      "id": 114,
+      "topic": "two-pointers",
+      "difficulty": "E",
+      "title": "Return the squares of a sorted array, also sorted."
+    },
+    {
+      "id": 115,
+      "topic": "two-pointers",
+      "difficulty": "E",
+      "title": "Merge a sorted array into another sorted array that has extra space at the end."
+    },
+    {
+      "id": 116,
+      "topic": "two-pointers",
+      "difficulty": "E",
+      "title": "Move all negative numbers before positive ones."
+    },
+    {
+      "id": 117,
+      "topic": "two-pointers",
+      "difficulty": "E",
+      "title": "Compare two strings where # means backspace (\"ab#c\" vs \"ad#c\")."
+    },
+    {
+      "id": 118,
+      "topic": "two-pointers",
+      "difficulty": "E",
+      "title": "Check if a string can be a palindrome after deleting at most one character."
+    },
+    {
+      "id": 119,
+      "topic": "two-pointers",
+      "difficulty": "E",
+      "title": "Find a pair with a given difference in a sorted array."
+    },
+    {
+      "id": 120,
+      "topic": "two-pointers",
+      "difficulty": "M",
+      "title": "Pick two lines that hold the most water between them."
+    },
+    {
+      "id": 121,
+      "topic": "two-pointers",
+      "difficulty": "M",
+      "title": "Find all unique triplets that sum to zero."
+    },
+    {
+      "id": 122,
+      "topic": "two-pointers",
+      "difficulty": "M",
+      "title": "Find the triplet with the sum closest to a target."
+    },
+    {
+      "id": 123,
+      "topic": "two-pointers",
+      "difficulty": "M",
+      "title": "Find all unique quadruplets that sum to a target."
+    },
+    {
+      "id": 124,
+      "topic": "two-pointers",
+      "difficulty": "M",
+      "title": "Sort an array of 0s, 1s and 2s in a single pass."
+    },
+    {
+      "id": 125,
+      "topic": "two-pointers",
+      "difficulty": "M",
+      "title": "Remove duplicates from a sorted array so each value appears at most twice."
+    },
+    {
+      "id": 126,
+      "topic": "two-pointers",
+      "difficulty": "M",
+      "title": "Count pairs in a sorted array with a sum less than the target."
+    },
+    {
+      "id": 127,
+      "topic": "two-pointers",
+      "difficulty": "M",
+      "title": "Find the minimum boats needed if each boat holds two people under a weight limit."
+    },
+    {
+      "id": 128,
+      "topic": "two-pointers",
+      "difficulty": "M",
+      "title": "Find the shortest subarray that, if sorted, makes the whole array sorted."
+    },
+    {
+      "id": 129,
+      "topic": "two-pointers",
+      "difficulty": "M",
+      "title": "Find the smallest difference between an element of one sorted array and another."
+    },
+    {
+      "id": 130,
+      "topic": "two-pointers",
+      "difficulty": "M",
+      "title": "Count the triplets that can form a valid triangle."
+    },
+    {
+      "id": 131,
+      "topic": "sliding-window",
+      "difficulty": "E",
+      "title": "Find the maximum sum of any subarray of size k."
+    },
+    {
+      "id": 132,
+      "topic": "sliding-window",
+      "difficulty": "E",
+      "title": "Find the average of every window of size k."
+    },
+    {
+      "id": 133,
+      "topic": "sliding-window",
+      "difficulty": "E",
+      "title": "Find the first negative number in every window of size k."
+    },
+    {
+      "id": 134,
+      "topic": "sliding-window",
+      "difficulty": "E",
+      "title": "Find the max number of vowels in any substring of length k."
+    },
+    {
+      "id": 135,
+      "topic": "sliding-window",
+      "difficulty": "M",
+      "title": "Find the longest substring without repeating characters."
+    },
+    {
+      "id": 136,
+      "topic": "sliding-window",
+      "difficulty": "M",
+      "title": "Find the longest substring with at most k distinct characters."
+    },
+    {
+      "id": 137,
+      "topic": "sliding-window",
+      "difficulty": "M",
+      "title": "Find the longest substring of one repeated letter if you may change up to k characters."
+    },
+    {
+      "id": 138,
+      "topic": "sliding-window",
+      "difficulty": "M",
+      "title": "Find the longest run of 1s if you may flip at most k zeros."
+    },
+    {
+      "id": 139,
+      "topic": "sliding-window",
+      "difficulty": "M",
+      "title": "Find the smallest subarray with a sum of at least a target."
+    },
+    {
+      "id": 140,
+      "topic": "sliding-window",
+      "difficulty": "M",
+      "title": "Find the longest subarray that contains at most two distinct values."
+    },
+    {
+      "id": 141,
+      "topic": "sliding-window",
+      "difficulty": "M",
+      "title": "Check if a string contains any permutation of another string."
+    },
+    {
+      "id": 142,
+      "topic": "sliding-window",
+      "difficulty": "M",
+      "title": "Find all start indices of anagrams of a pattern in a text."
+    },
+    {
+      "id": 143,
+      "topic": "sliding-window",
+      "difficulty": "M",
+      "title": "Count the subarrays with a product less than k."
+    },
+    {
+      "id": 144,
+      "topic": "sliding-window",
+      "difficulty": "M",
+      "title": "Find the longest run of 1s after deleting exactly one element."
+    },
+    {
+      "id": 145,
+      "topic": "sliding-window",
+      "difficulty": "M",
+      "title": "Take k cards from either end of a row to get the max total points."
+    },
+    {
+      "id": 146,
+      "topic": "sliding-window",
+      "difficulty": "M",
+      "title": "Find the minimum swaps to group all 1s together."
+    },
+    {
+      "id": 147,
+      "topic": "sliding-window",
+      "difficulty": "M",
+      "title": "Count occurrences of anagrams of a word in a text."
+    },
+    {
+      "id": 148,
+      "topic": "sliding-window",
+      "difficulty": "H",
+      "title": "Count the subarrays with exactly k distinct integers."
+    },
+    {
+      "id": 149,
+      "topic": "sliding-window",
+      "difficulty": "H",
+      "title": "Return the maximum of every window of size k."
+    },
+    {
+      "id": 150,
+      "topic": "sliding-window",
+      "difficulty": "H",
+      "title": "Find the longest substring where every character appears at least k times."
+    },
+    {
+      "id": 151,
+      "topic": "stacks-queues",
+      "difficulty": "E",
+      "title": "Check if brackets ()[]{} in a string are balanced."
+    },
+    {
+      "id": 152,
+      "topic": "stacks-queues",
+      "difficulty": "E",
+      "title": "Implement a stack with push, pop and peek using an array."
+    },
+    {
+      "id": 153,
+      "topic": "stacks-queues",
+      "difficulty": "E",
+      "title": "Implement a queue using two stacks."
+    },
+    {
+      "id": 154,
+      "topic": "stacks-queues",
+      "difficulty": "E",
+      "title": "Implement a stack using queues."
+    },
+    {
+      "id": 155,
+      "topic": "stacks-queues",
+      "difficulty": "E",
+      "title": "Reverse a string using a stack."
+    },
+    {
+      "id": 156,
+      "topic": "stacks-queues",
+      "difficulty": "E",
+      "title": "Repeatedly remove adjacent duplicate letters (\"abbaca\" → \"ca\")."
+    },
+    {
+      "id": 157,
+      "topic": "stacks-queues",
+      "difficulty": "E",
+      "title": "Generate binary numbers from 1 to n using a queue."
+    },
+    {
+      "id": 158,
+      "topic": "stacks-queues",
+      "difficulty": "M",
+      "title": "Design a stack that returns its minimum in O(1)."
+    },
+    {
+      "id": 159,
+      "topic": "stacks-queues",
+      "difficulty": "M",
+      "title": "Evaluate a postfix expression (\"2 3 1 * + 9 -\")."
+    },
+    {
+      "id": 160,
+      "topic": "stacks-queues",
+      "difficulty": "M",
+      "title": "Convert an infix expression to postfix."
+    },
+    {
+      "id": 161,
+      "topic": "stacks-queues",
+      "difficulty": "M",
+      "title": "Find the next greater element for every item in an array."
+    },
+    {
+      "id": 162,
+      "topic": "stacks-queues",
+      "difficulty": "M",
+      "title": "For each day, find how many days until a warmer temperature."
+    },
+    {
+      "id": 163,
+      "topic": "stacks-queues",
+      "difficulty": "M",
+      "title": "Simplify a Unix-style file path (\"/a/./b/../c/\" → \"/a/c\")."
+    },
+    {
+      "id": 164,
+      "topic": "stacks-queues",
+      "difficulty": "M",
+      "title": "Decode a string like \"3[a2[c]]\" → \"accaccacc\"."
+    },
+    {
+      "id": 165,
+      "topic": "stacks-queues",
+      "difficulty": "M",
+      "title": "Design a circular queue of fixed size."
+    },
+    {
+      "id": 166,
+      "topic": "stacks-queues",
+      "difficulty": "M",
+      "title": "For each day's stock price, find how many consecutive days before it had a lower or equal price."
+    },
+    {
+      "id": 167,
+      "topic": "stacks-queues",
+      "difficulty": "M",
+      "title": "Simulate asteroids moving left and right and colliding."
+    },
+    {
+      "id": 168,
+      "topic": "stacks-queues",
+      "difficulty": "H",
+      "title": "Find the largest rectangle in a histogram."
+    },
+    {
+      "id": 169,
+      "topic": "stacks-queues",
+      "difficulty": "H",
+      "title": "Build a calculator that handles +, − and parentheses."
+    },
+    {
+      "id": 170,
+      "topic": "stacks-queues",
+      "difficulty": "H",
+      "title": "Find the length of the longest valid parentheses substring."
+    },
+    {
+      "id": 171,
+      "topic": "binary-search",
+      "difficulty": "E",
+      "title": "Find a target in a sorted array using binary search."
+    },
+    {
+      "id": 172,
+      "topic": "binary-search",
+      "difficulty": "E",
+      "title": "Find the index where a target is, or where it would be inserted."
+    },
+    {
+      "id": 173,
+      "topic": "binary-search",
+      "difficulty": "E",
+      "title": "Count how many times a number appears in a sorted array, in O(log n)."
+    },
+    {
+      "id": 174,
+      "topic": "binary-search",
+      "difficulty": "E",
+      "title": "Find the floor of a square root using binary search."
+    },
+    {
+      "id": 175,
+      "topic": "binary-search",
+      "difficulty": "E",
+      "title": "Check if a number is a perfect square without sqrt()."
+    },
+    {
+      "id": 176,
+      "topic": "binary-search",
+      "difficulty": "E",
+      "title": "Guess a hidden number when told \"higher\" or \"lower\"."
+    },
+    {
+      "id": 177,
+      "topic": "binary-search",
+      "difficulty": "E",
+      "title": "Find the first bad version in a series of versions."
+    },
+    {
+      "id": 178,
+      "topic": "binary-search",
+      "difficulty": "E",
+      "title": "Find the smallest letter in a sorted list that is greater than a target."
+    },
+    {
+      "id": 179,
+      "topic": "binary-search",
+      "difficulty": "M",
+      "title": "Find the first and last position of a target in a sorted array."
+    },
+    {
+      "id": 180,
+      "topic": "binary-search",
+      "difficulty": "M",
+      "title": "Find a peak element (bigger than its neighbours)."
+    },
+    {
+      "id": 181,
+      "topic": "binary-search",
+      "difficulty": "M",
+      "title": "Search for a target in a rotated sorted array."
+    },
+    {
+      "id": 182,
+      "topic": "binary-search",
+      "difficulty": "M",
+      "title": "Find the minimum in a rotated sorted array."
+    },
+    {
+      "id": 183,
+      "topic": "binary-search",
+      "difficulty": "M",
+      "title": "Search for a target in a matrix whose rows and columns are sorted."
+    },
+    {
+      "id": 184,
+      "topic": "binary-search",
+      "difficulty": "M",
+      "title": "In a sorted array where every element appears twice except one, find the single one in O(log n)."
+    },
+    {
+      "id": 185,
+      "topic": "binary-search",
+      "difficulty": "M",
+      "title": "Find the minimum eating speed to finish all banana piles within h hours."
+    },
+    {
+      "id": 186,
+      "topic": "binary-search",
+      "difficulty": "M",
+      "title": "Find the minimum ship capacity to deliver all packages within d days."
+    },
+    {
+      "id": 187,
+      "topic": "binary-search",
+      "difficulty": "M",
+      "title": "Find the kth smallest element in a sorted matrix."
+    },
+    {
+      "id": 188,
+      "topic": "binary-search",
+      "difficulty": "M",
+      "title": "Find a target in a sorted array of unknown size."
+    },
+    {
+      "id": 189,
+      "topic": "binary-search",
+      "difficulty": "H",
+      "title": "Split an array into k parts so the largest part sum is as small as possible."
+    },
+    {
+      "id": 190,
+      "topic": "binary-search",
+      "difficulty": "H",
+      "title": "Find the median of two sorted arrays in O(log(m + n))."
+    },
+    {
+      "id": 191,
+      "topic": "recursion-backtracking",
+      "difficulty": "E",
+      "title": "Print 1 to n using recursion, with no loops."
+    },
+    {
+      "id": 192,
+      "topic": "recursion-backtracking",
+      "difficulty": "E",
+      "title": "Find the sum of an array recursively."
+    },
+    {
+      "id": 193,
+      "topic": "recursion-backtracking",
+      "difficulty": "E",
+      "title": "Reverse a string recursively."
+    },
+    {
+      "id": 194,
+      "topic": "recursion-backtracking",
+      "difficulty": "E",
+      "title": "Check if a string is a palindrome recursively."
+    },
+    {
+      "id": 195,
+      "topic": "recursion-backtracking",
+      "difficulty": "E",
+      "title": "Compute x to the power n recursively."
+    },
+    {
+      "id": 196,
+      "topic": "recursion-backtracking",
+      "difficulty": "E",
+      "title": "Count the paths from top-left to bottom-right of a grid moving only right or down."
+    },
+    {
+      "id": 197,
+      "topic": "recursion-backtracking",
+      "difficulty": "E",
+      "title": "Flood fill: recolour all connected cells of the same colour in an image."
+    },
+    {
+      "id": 198,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Print the moves to solve the Tower of Hanoi for n disks."
+    },
+    {
+      "id": 199,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Generate all subsets of an array."
+    },
+    {
+      "id": 200,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Generate all subsets of an array that has duplicates, with no repeated subsets."
+    },
+    {
+      "id": 201,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Generate all permutations of an array."
+    },
+    {
+      "id": 202,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Generate all unique permutations of an array with duplicates."
+    },
+    {
+      "id": 203,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Generate all combinations of k numbers chosen from 1 to n."
+    },
+    {
+      "id": 204,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Find all combinations that sum to a target, reusing numbers."
+    },
+    {
+      "id": 205,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Find all combinations that sum to a target, using each number once."
+    },
+    {
+      "id": 206,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Generate all letter combinations of a phone number's digits."
+    },
+    {
+      "id": 207,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Generate all valid combinations of n pairs of parentheses."
+    },
+    {
+      "id": 208,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Split a string into parts so every part is a palindrome; list all ways."
+    },
+    {
+      "id": 209,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Check if a word exists in a letter grid by moving to adjacent cells."
+    },
+    {
+      "id": 210,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Find all paths for a rat through a maze of open and blocked cells."
+    },
+    {
+      "id": 211,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Restore all valid IP addresses from a string of digits."
+    },
+    {
+      "id": 212,
+      "topic": "recursion-backtracking",
+      "difficulty": "M",
+      "title": "Generate the n-bit Gray code sequence."
+    },
+    {
+      "id": 213,
+      "topic": "recursion-backtracking",
+      "difficulty": "H",
+      "title": "Place n queens on an n×n board so none attack each other."
+    },
+    {
+      "id": 214,
+      "topic": "recursion-backtracking",
+      "difficulty": "H",
+      "title": "Solve a sudoku puzzle."
+    },
+    {
+      "id": 215,
+      "topic": "recursion-backtracking",
+      "difficulty": "H",
+      "title": "Return all ways to split a string into dictionary words."
+    },
+    {
+      "id": 216,
+      "topic": "linked-lists",
+      "difficulty": "E",
+      "title": "Build a singly linked list with insert, delete and print."
+    },
+    {
+      "id": 217,
+      "topic": "linked-lists",
+      "difficulty": "E",
+      "title": "Reverse a linked list, both iteratively and recursively."
+    },
+    {
+      "id": 218,
+      "topic": "linked-lists",
+      "difficulty": "E",
+      "title": "Find the middle node in one pass."
+    },
+    {
+      "id": 219,
+      "topic": "linked-lists",
+      "difficulty": "E",
+      "title": "Detect whether a linked list has a cycle."
+    },
+    {
+      "id": 220,
+      "topic": "linked-lists",
+      "difficulty": "E",
+      "title": "Merge two sorted linked lists."
+    },
+    {
+      "id": 221,
+      "topic": "linked-lists",
+      "difficulty": "E",
+      "title": "Remove duplicates from a sorted linked list."
+    },
+    {
+      "id": 222,
+      "topic": "linked-lists",
+      "difficulty": "E",
+      "title": "Check if a linked list is a palindrome."
+    },
+    {
+      "id": 223,
+      "topic": "linked-lists",
+      "difficulty": "E",
+      "title": "Find the node where two linked lists intersect."
+    },
+    {
+      "id": 224,
+      "topic": "linked-lists",
+      "difficulty": "M",
+      "title": "Find the node where a cycle begins."
+    },
+    {
+      "id": 225,
+      "topic": "linked-lists",
+      "difficulty": "M",
+      "title": "Remove the nth node from the end in one pass."
+    },
+    {
+      "id": 226,
+      "topic": "linked-lists",
+      "difficulty": "M",
+      "title": "Add two numbers stored as linked lists with digits in reverse order."
+    },
+    {
+      "id": 227,
+      "topic": "linked-lists",
+      "difficulty": "M",
+      "title": "Reorder a list as first, last, second, second-last, and so on."
+    },
+    {
+      "id": 228,
+      "topic": "linked-lists",
+      "difficulty": "M",
+      "title": "Rotate a linked list to the right by k places."
+    },
+    {
+      "id": 229,
+      "topic": "linked-lists",
+      "difficulty": "M",
+      "title": "Swap every two adjacent nodes."
+    },
+    {
+      "id": 230,
+      "topic": "linked-lists",
+      "difficulty": "M",
+      "title": "Group all odd-position nodes before even-position nodes."
+    },
+    {
+      "id": 231,
+      "topic": "linked-lists",
+      "difficulty": "M",
+      "title": "Partition a list so nodes less than x come before nodes ≥ x."
+    },
+    {
+      "id": 232,
+      "topic": "linked-lists",
+      "difficulty": "M",
+      "title": "Deep-copy a linked list where each node also has a random pointer."
+    },
+    {
+      "id": 233,
+      "topic": "linked-lists",
+      "difficulty": "M",
+      "title": "Sort a linked list in O(n log n)."
+    },
+    {
+      "id": 234,
+      "topic": "linked-lists",
+      "difficulty": "H",
+      "title": "Reverse the nodes of a list in groups of k."
+    },
+    {
+      "id": 235,
+      "topic": "linked-lists",
+      "difficulty": "H",
+      "title": "Merge k sorted linked lists."
+    },
+    {
+      "id": 236,
+      "topic": "trees-bst",
+      "difficulty": "E",
+      "title": "Write inorder, preorder and postorder traversal recursively."
+    },
+    {
+      "id": 237,
+      "topic": "trees-bst",
+      "difficulty": "E",
+      "title": "Find the maximum depth of a binary tree."
+    },
+    {
+      "id": 238,
+      "topic": "trees-bst",
+      "difficulty": "E",
+      "title": "Find the minimum depth of a binary tree."
+    },
+    {
+      "id": 239,
+      "topic": "trees-bst",
+      "difficulty": "E",
+      "title": "Check if two trees are identical."
+    },
+    {
+      "id": 240,
+      "topic": "trees-bst",
+      "difficulty": "E",
+      "title": "Mirror (invert) a binary tree."
+    },
+    {
+      "id": 241,
+      "topic": "trees-bst",
+      "difficulty": "E",
+      "title": "Check if a tree is symmetric."
+    },
+    {
+      "id": 242,
+      "topic": "trees-bst",
+      "difficulty": "E",
+      "title": "Count the nodes and the leaves of a tree."
+    },
+    {
+      "id": 243,
+      "topic": "trees-bst",
+      "difficulty": "E",
+      "title": "Check if any root-to-leaf path adds up to a target sum."
+    },
+    {
+      "id": 244,
+      "topic": "trees-bst",
+      "difficulty": "E",
+      "title": "List all root-to-leaf paths."
+    },
+    {
+      "id": 245,
+      "topic": "trees-bst",
+      "difficulty": "E",
+      "title": "Find the diameter (longest path between any two nodes)."
+    },
+    {
+      "id": 246,
+      "topic": "trees-bst",
+      "difficulty": "E",
+      "title": "Check if a tree is height-balanced."
+    },
+    {
+      "id": 247,
+      "topic": "trees-bst",
+      "difficulty": "E",
+      "title": "Convert a sorted array into a balanced BST."
+    },
+    {
+      "id": 248,
+      "topic": "trees-bst",
+      "difficulty": "M",
+      "title": "Write the three traversals iteratively, using a stack."
+    },
+    {
+      "id": 249,
+      "topic": "trees-bst",
+      "difficulty": "M",
+      "title": "Return the tree level by level (level-order traversal)."
+    },
+    {
+      "id": 250,
+      "topic": "trees-bst",
+      "difficulty": "M",
+      "title": "Return the level order in zigzag direction."
+    },
+    {
+      "id": 251,
+      "topic": "trees-bst",
+      "difficulty": "M",
+      "title": "Return the nodes you see from the right side of a tree."
+    },
+    {
+      "id": 252,
+      "topic": "trees-bst",
+      "difficulty": "M",
+      "title": "Find the lowest common ancestor of two nodes in a binary tree."
+    },
+    {
+      "id": 253,
+      "topic": "trees-bst",
+      "difficulty": "M",
+      "title": "Find the lowest common ancestor in a BST."
+    },
+    {
+      "id": 254,
+      "topic": "trees-bst",
+      "difficulty": "M",
+      "title": "Check if a binary tree is a valid BST."
+    },
+    {
+      "id": 255,
+      "topic": "trees-bst",
+      "difficulty": "M",
+      "title": "Insert a value into a BST, and delete a value from it."
+    },
+    {
+      "id": 256,
+      "topic": "trees-bst",
+      "difficulty": "M",
+      "title": "Find the kth smallest element in a BST."
+    },
+    {
+      "id": 257,
+      "topic": "trees-bst",
+      "difficulty": "M",
+      "title": "Build a binary tree from its preorder and inorder traversals."
+    },
+    {
+      "id": 258,
+      "topic": "trees-bst",
+      "difficulty": "M",
+      "title": "Flatten a binary tree into a linked list in place."
+    },
+    {
+      "id": 259,
+      "topic": "trees-bst",
+      "difficulty": "H",
+      "title": "Serialize a tree to a string and rebuild it."
+    },
+    {
+      "id": 260,
+      "topic": "trees-bst",
+      "difficulty": "H",
+      "title": "Find the maximum path sum between any two nodes."
+    },
+    {
+      "id": 261,
+      "topic": "graphs",
+      "difficulty": "E",
+      "title": "Represent a graph as an adjacency list and as an adjacency matrix."
+    },
+    {
+      "id": 262,
+      "topic": "graphs",
+      "difficulty": "E",
+      "title": "Traverse a graph with breadth-first search (BFS)."
+    },
+    {
+      "id": 263,
+      "topic": "graphs",
+      "difficulty": "E",
+      "title": "Traverse a graph with depth-first search (DFS)."
+    },
+    {
+      "id": 264,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Count the islands of 1s in a grid of 0s and 1s."
+    },
+    {
+      "id": 265,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Find the area of the largest island in a grid."
+    },
+    {
+      "id": 266,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Deep-copy (clone) a graph."
+    },
+    {
+      "id": 267,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Detect a cycle in an undirected graph."
+    },
+    {
+      "id": 268,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Detect a cycle in a directed graph."
+    },
+    {
+      "id": 269,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Given course prerequisites, decide if all courses can be finished."
+    },
+    {
+      "id": 270,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Return an order to take courses that respects prerequisites (topological sort)."
+    },
+    {
+      "id": 271,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Find the minutes until all oranges in a grid rot, spreading from rotten ones."
+    },
+    {
+      "id": 272,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Find the shortest path from start to end in a grid with walls."
+    },
+    {
+      "id": 273,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Count the connected components in an undirected graph."
+    },
+    {
+      "id": 274,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Check if a graph can be coloured with two colours (bipartite)."
+    },
+    {
+      "id": 275,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Find cells from which water can flow to both the top-left and bottom-right edges."
+    },
+    {
+      "id": 276,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Capture all regions of O surrounded by X in a board."
+    },
+    {
+      "id": 277,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Find shortest paths from one node using Dijkstra's algorithm."
+    },
+    {
+      "id": 278,
+      "topic": "graphs",
+      "difficulty": "M",
+      "title": "Find how long a signal takes to reach every node in a weighted network."
+    },
+    {
+      "id": 279,
+      "topic": "graphs",
+      "difficulty": "H",
+      "title": "Find the fewest one-letter changes to turn one word into another using a word list."
+    },
+    {
+      "id": 280,
+      "topic": "graphs",
+      "difficulty": "H",
+      "title": "Build a minimum spanning tree with Kruskal's or Prim's algorithm."
+    },
+    {
+      "id": 281,
+      "topic": "dynamic-programming",
+      "difficulty": "E",
+      "title": "Count the ways to climb n stairs taking 1 or 2 steps at a time."
+    },
+    {
+      "id": 282,
+      "topic": "dynamic-programming",
+      "difficulty": "E",
+      "title": "Compute Fibonacci with memoization, then with a table."
+    },
+    {
+      "id": 283,
+      "topic": "dynamic-programming",
+      "difficulty": "E",
+      "title": "Find the minimum cost to reach the top of stairs where each step has a cost."
+    },
+    {
+      "id": 284,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Rob houses in a row for max money without robbing two neighbours."
+    },
+    {
+      "id": 285,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "The same robbery problem, but the houses are in a circle."
+    },
+    {
+      "id": 286,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Find the fewest coins that make up an amount."
+    },
+    {
+      "id": 287,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Count the ways coins can make up an amount."
+    },
+    {
+      "id": 288,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Find the length of the longest increasing subsequence."
+    },
+    {
+      "id": 289,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Find the longest common subsequence of two strings."
+    },
+    {
+      "id": 290,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Find the minimum edits (insert, delete, replace) to turn one word into another."
+    },
+    {
+      "id": 291,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Solve the 0/1 knapsack problem for maximum value."
+    },
+    {
+      "id": 292,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Check if any subset of numbers adds up to a target."
+    },
+    {
+      "id": 293,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Check if an array can be split into two subsets with equal sums."
+    },
+    {
+      "id": 294,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Count unique paths in a grid from top-left to bottom-right."
+    },
+    {
+      "id": 295,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Count unique grid paths when some cells are blocked."
+    },
+    {
+      "id": 296,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Find the minimum path sum through a grid of numbers."
+    },
+    {
+      "id": 297,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Count the ways to decode a digit string where 1 = A ... 26 = Z."
+    },
+    {
+      "id": 298,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Check if a string can be split into dictionary words."
+    },
+    {
+      "id": 299,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Find the contiguous subarray with the largest product."
+    },
+    {
+      "id": 300,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Find the longest palindromic subsequence."
+    },
+    {
+      "id": 301,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Given max jump lengths, check if you can reach the last index."
+    },
+    {
+      "id": 302,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Find the minimum jumps to reach the last index."
+    },
+    {
+      "id": 303,
+      "topic": "dynamic-programming",
+      "difficulty": "M",
+      "title": "Max stock profit when you must rest one day after each sale."
+    },
+    {
+      "id": 304,
+      "topic": "dynamic-programming",
+      "difficulty": "H",
+      "title": "Implement regular expression matching with . and *."
+    },
+    {
+      "id": 305,
+      "topic": "dynamic-programming",
+      "difficulty": "H",
+      "title": "Burst balloons in the best order for maximum coins."
+    },
+    {
+      "id": 306,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "E",
+      "title": "Implement bubble sort, selection sort and insertion sort."
+    },
+    {
+      "id": 307,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "E",
+      "title": "Sort an array of 0s, 1s and 2s by counting."
+    },
+    {
+      "id": 308,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "E",
+      "title": "Check if a person can attend all meetings (no overlaps)."
+    },
+    {
+      "id": 309,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "E",
+      "title": "Give cookies to children to satisfy the most children."
+    },
+    {
+      "id": 310,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "M",
+      "title": "Implement merge sort."
+    },
+    {
+      "id": 311,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "M",
+      "title": "Implement quick sort."
+    },
+    {
+      "id": 312,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "M",
+      "title": "Find the kth largest element in an unsorted array."
+    },
+    {
+      "id": 313,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "M",
+      "title": "Merge all overlapping intervals."
+    },
+    {
+      "id": 314,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "M",
+      "title": "Insert a new interval into a sorted list and merge if needed."
+    },
+    {
+      "id": 315,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "M",
+      "title": "Find the minimum intervals to remove so the rest don't overlap."
+    },
+    {
+      "id": 316,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "M",
+      "title": "Find the minimum number of meeting rooms needed."
+    },
+    {
+      "id": 317,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "M",
+      "title": "Find the minimum platforms a railway station needs for given arrivals and departures."
+    },
+    {
+      "id": 318,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "M",
+      "title": "Find the starting gas station from which you can complete a circular route."
+    },
+    {
+      "id": 319,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "M",
+      "title": "Find the least time to finish tasks when the same task needs a cooldown gap."
+    },
+    {
+      "id": 320,
+      "topic": "sorting-greedy-intervals",
+      "difficulty": "M",
+      "title": "Arrange numbers to form the largest possible number."
+    }
+  ]
+}
