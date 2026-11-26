@@ -129,7 +129,7 @@ test('previous / next follow the list the question was opened from', async ({ pa
 });
 
 test('language picker: languages without starter code say "coming soon"; unknown questions say so', async ({ page }) => {
-  // Every question has Python and JavaScript (first and last checked); the other languages come later.
+  // Every question has Python, JavaScript and Java (first and last checked); C++ and C come later.
   await page.goto('./#/practice/q/7');
   await expect(page.locator('.practice-question select option').first()).toHaveText('Python');
   await page.goto('./#/practice/q/320');
@@ -137,12 +137,12 @@ test('language picker: languages without starter code say "coming soon"; unknown
   await expect(page.locator('.practice-question select option')).toHaveText([
     'Python',
     'JavaScript',
-    'Java (coming soon)',
+    'Java',
     'C++ (coming soon)',
     'C (coming soon)',
   ]);
-  await page.locator('.practice-question select').selectOption('java');
-  await expect(page.getByText('Starter code and tests in Java are coming soon.', { exact: false })).toBeVisible();
+  await page.locator('.practice-question select').selectOption('cpp');
+  await expect(page.getByText('Starter code and tests in C++ are coming soon.', { exact: false })).toBeVisible();
   await page.goto('./#/practice/q/999');
   await expect(page.locator('h1')).toHaveText('There is no question 999');
 });

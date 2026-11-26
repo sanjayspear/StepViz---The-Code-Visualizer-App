@@ -15,6 +15,8 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { SORTING_GREEDY_INTERVALS_JAVA } from './java/sorting-greedy-intervals';
+import { DYNAMIC_PROGRAMMING_JAVA } from './java/dynamic-programming';
 import { GRAPHS_JAVA } from './java/graphs';
 import { TREES_BST_JAVA } from './java/trees-bst';
 import { LINKED_LISTS_JAVA } from './java/linked-lists';
@@ -81,6 +83,8 @@ export const JS_TOPICS: Record<string, PracticeContent[]> = {
 const byId = (topics: Record<string, PracticeContent[]>) => new Map(Object.values(topics).flatMap((list) => list.map((c) => [c.id, c] as const)));
 /** Java content by topic id (tests from the Python content; answers run in StepViz's Java interpreter). */
 export const JAVA_TOPICS: Record<string, PracticeContent[]> = {
+  'sorting-greedy-intervals': SORTING_GREEDY_INTERVALS_JAVA,
+  'dynamic-programming': DYNAMIC_PROGRAMMING_JAVA,
   graphs: GRAPHS_JAVA,
   'trees-bst': TREES_BST_JAVA,
   'linked-lists': LINKED_LISTS_JAVA,

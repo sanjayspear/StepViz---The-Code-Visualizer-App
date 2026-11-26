@@ -11,8 +11,12 @@ import { SOLUTIONS as RECURSION_BACKTRACKING } from './recursion-backtracking.so
 import { SOLUTIONS as LINKED_LISTS } from './linked-lists.solutions';
 import { SOLUTIONS as TREES_BST } from './trees-bst.solutions';
 import { SOLUTIONS as GRAPHS } from './graphs.solutions';
+import { SOLUTIONS as DYNAMIC_PROGRAMMING } from './dynamic-programming.solutions';
+import { SOLUTIONS as SORTING_GREEDY_INTERVALS } from './sorting-greedy-intervals.solutions';
 
 export const JAVA_SOLUTIONS_BY_TOPIC: Record<string, Record<number, string>> = {
+  'sorting-greedy-intervals': SORTING_GREEDY_INTERVALS,
+  'dynamic-programming': DYNAMIC_PROGRAMMING,
   graphs: GRAPHS,
   'trees-bst': TREES_BST,
   'linked-lists': LINKED_LISTS,

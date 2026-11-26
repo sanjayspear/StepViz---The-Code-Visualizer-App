@@ -396,6 +396,25 @@ Playwright tests. Static build for GitHub Pages.
   carries from / q / d / hide), back to that list. Filters and typing update
   the URL in place (Back leaves the list). Daily count resets at local
   midnight (also while the page stays open); DAILY_GOAL in progress.ts.
+  P2 (Java): done for all 320 questions. src/practice/javaHarness.ts runs in
+  the Java worker (message 'check'): each test is one quiet run of the answer
+  (RunOptions.quiet: no steps recorded, its own time limit; runJavaQuiet in
+  the interpreter) with the answer's main() renamed and a generated main()
+  added at the end of class Main, so line numbers stay the student's: the
+  arguments are written as Java from the answer's own method header (int[],
+  List<...>, char[][], ListNode / TreeNode / Node built node by node, Guesser /
+  VersionChecker / Reader made with the test's value), the answer is kept in
+  static variables and read back as values. Java starters (content/java/,
+  helper javaStarter in java/shared.ts) are public class Main with static
+  methods and placeholder returns; tests/practice-java.spec.ts also runs every
+  starter's main() in the visualiser. Java-only differences: Q152's class is
+  ArrayStack and Q216's MyLinkedList (java.util has Stack and LinkedList);
+  Q214 uses easier sudoku puzzles (the interpreter took 11 s and 38 s on the
+  hard ones against the 2 s limit); Q232 copies by interleaving and Q266 maps
+  by value (no maps with node keys). Interpreter gaps worked around (not
+  added): Arrays.copyOf, Arrays.fill, Arrays.equals, iterator(), lists of
+  int[]. Fix found on the way: objects inside a list field show as Node {…}
+  (cyclic graphs no longer stop the visualiser).
   P2 (JavaScript, owner 2026-11-26: "complete practice content for all
   programs", order JavaScript, Java, C++, C, then worked answers): done for
   all 320 questions. src/practice/jsHarness.ts is the twin of harness.py, run
