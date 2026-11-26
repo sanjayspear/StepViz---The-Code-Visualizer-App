@@ -15,6 +15,7 @@ import { SLIDING_WINDOW } from './python/sliding-window';
 import { TWO_POINTERS } from './python/two-pointers';
 import { HASH_MAPS_SETS } from './python/hash-maps-sets';
 import { ARRAYS_MATRICES } from './python/arrays-matrices';
+import { STACKS_QUEUES_CPP } from './cpp/stacks-queues';
 import { SLIDING_WINDOW_CPP } from './cpp/sliding-window';
 import { TWO_POINTERS_CPP } from './cpp/two-pointers';
 import { HASH_MAPS_SETS_CPP } from './cpp/hash-maps-sets';
@@ -107,6 +108,7 @@ export const JAVA_TOPICS: Record<string, PracticeContent[]> = {
 
 /** C++ content by topic id (tests from the Python content; answers run in StepViz's C++ interpreter). */
 export const CPP_TOPICS: Record<string, PracticeContent[]> = {
+  'stacks-queues': STACKS_QUEUES_CPP,
   'sliding-window': SLIDING_WINDOW_CPP,
   'two-pointers': TWO_POINTERS_CPP,
   'hash-maps-sets': HASH_MAPS_SETS_CPP,

@@ -2219,7 +2219,7 @@ class Interp {
         }
         v = { t: 'array', elem, v: Array.from({ length: n }, () => (isStructItem(elem) ? this.blank(structs.get(elem)!, zero) : zero ? this.zeroOf(elem) : UNSET_VAL)) };
       } else if (f.type.t === 'struct') v = this.blank(structs.get(f.type.cls!)!, zero);
-      else if (f.type.t === 'vector') v = { t: 'vector', elem: f.type.elem, v: [] };
+      else if (f.type.t === 'vector') v = { t: 'vector', elem: f.type.elem, v: [], coll: f.type.coll };
       else if (f.type.t === 'string') v = strv('');
       else v = zero ? this.zeroOf(f.type.t as Prim) : UNSET_VAL;
       fields.set(f.name, v);
@@ -2363,7 +2363,7 @@ class Interp {
       if (field.type.t === 'struct') {
         const inner = structs.get(field.type.cls!)!;
         value = args.length === 1 && !inner.ctors.length ? this.structFrom(args[0], inner, fname) : this.construct(fi, inner, args);
-      } else if (field.type.t === 'vector') value = args.length ? { t: 'vector', elem: field.type.elem, v: this.vectorFrom(args[0], field.type.elem!) } : { t: 'vector', elem: field.type.elem, v: [] };
+      } else if (field.type.t === 'vector') value = args.length ? { t: 'vector', elem: field.type.elem, v: this.vectorFrom(args[0], field.type.elem!) } : { t: 'vector', elem: field.type.elem, v: [], coll: field.type.coll };
       else if (!args.length) value = field.type.t === 'string' ? strv('') : this.zeroOf(field.type.t as Prim);
       else value = this.convert(this.eval(args[0]), field.type, fi, fname);
       fields.set(fname, this.copy(value));
@@ -4009,6 +4009,11 @@ class Interp {
     }
     if ((method === 'length' || method === 'size') && a.length === 0) return lng(text.length);
     if (method === 'empty' && a.length === 0) return bool(text.length === 0);
+    if ((method === 'front' || method === 'back') && a.length === 0) {
+      // Real C++ gives garbage on empty text; StepViz stops, like v.back() on an empty vector.
+      if (!text.length) throw new CppCrash('IndexOutOfRange', `${method} on empty text`);
+      return chr(text[method === 'front' ? 0 : text.length - 1]);
+    }
     if (method === 'at' && a.length === 1) {
       const i = this.num(a[0]);
       if (i < 0 || i >= text.length) {

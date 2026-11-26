@@ -5,8 +5,10 @@ import { SOLUTIONS as ARRAYS_MATRICES } from './arrays-matrices.solutions';
 import { SOLUTIONS as HASH_MAPS_SETS } from './hash-maps-sets.solutions';
 import { SOLUTIONS as TWO_POINTERS } from './two-pointers.solutions';
 import { SOLUTIONS as SLIDING_WINDOW } from './sliding-window.solutions';
+import { SOLUTIONS as STACKS_QUEUES } from './stacks-queues.solutions';
 
 export const CPP_SOLUTIONS_BY_TOPIC: Record<string, Record<number, string>> = {
+  'stacks-queues': STACKS_QUEUES,
   'sliding-window': SLIDING_WINDOW,
   'two-pointers': TWO_POINTERS,
   'hash-maps-sets': HASH_MAPS_SETS,

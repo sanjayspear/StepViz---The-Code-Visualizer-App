@@ -81,3 +81,31 @@ test('vectors compare item by item, like C++ (==, !=, <, and a shorter one that 
   expect(r.status).toBe('ok');
   expect(r.steps.at(-1)!.output).toBe('101111\n');
 });
+
+test('a stack or queue member of a class keeps working like one; text has front() and back()', () => {
+  const src = `#include <iostream>
+#include <stack>
+#include <queue>
+#include <string>
+using namespace std;
+
+class Box {
+public:
+    stack<int> st;
+    queue<int> q;
+};
+
+int main() {
+    Box b;
+    b.st.push(1);
+    b.st.push(2);
+    b.q.push(3);
+    b.q.push(4);
+    string s = "abc";
+    cout << b.st.top() << b.q.front() << s.front() << s.back() << endl;
+    return 0;
+}`;
+  const r = runCpp(parser.parse(src)!, { maxSteps: 5000, maxSeconds: 5 });
+  expect(r.status).toBe('ok');
+  expect(r.steps.at(-1)!.output).toBe('23ac\n');
+});
