@@ -238,10 +238,8 @@ export function checkCppAnswer(parser: Parser, source: string, spec: { tests: Pr
         const ops = t.ops ?? [];
         const consArgs = ops[0].slice(1);
         const cons = (shape.constructors.get(t.cls!) ?? []).find((c) => c.params.length === consArgs.length) ?? { ret: t.cls!, params: [] };
-        const made = consArgs.map((a, i) => {
-          body.push(declare(cons.params[i]?.type ?? 'int', `stepvizC${i}`, a));
-          return `stepvizC${i}`;
-        });
+        // Written as values: StepViz's C++ reads T x(n) with a variable n as a declaration it can't run.
+        const made = consArgs.map((a, i) => literal(cons.params[i]?.type ?? 'int', a));
         body.push(made.length ? `${t.cls} stepvizObj(${made.join(', ')});` : `${t.cls} stepvizObj;`);
         ops.slice(1).forEach((op, k) => {
           const m = cls!.get(op[0] as string);
