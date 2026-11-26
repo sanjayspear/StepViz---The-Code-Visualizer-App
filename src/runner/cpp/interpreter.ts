@@ -93,8 +93,34 @@ interface PtrTarget {
   cell: { v: unknown };
   name: string;
   frame: string;
-  /** the variable whose box holds it (dead once its block or function has ended) */
+  /** the variable whose box holds it (dead once its block or function has ended, or deleted) */
   owner: { dead?: boolean } | null;
+  /** a pointer into a list: the items, the position (may be one past the end), the list's name */
+  arr?: CVal[];
+  index?: number;
+  base?: string;
+  /** a box made with new: deleted already? an array (new int[3])? */
+  heap?: { dead?: boolean; deleted?: boolean; isArray: boolean };
+}
+/** A pointer to position i of a list (p + 1, &a[2], a used as a pointer). */
+function itemPointer(items: CVal[], index: number, base: string, frame: string, owner: { dead?: boolean } | null, heap?: PtrTarget['heap']): PtrTarget {
+  return {
+    cell: {
+      get v() {
+        return items[index];
+      },
+      set v(x: unknown) {
+        items[index] = x as CVal;
+      },
+    },
+    name: heap ? `item ${index} of ${base}` : `${base}[${index}]`,
+    frame,
+    owner,
+    arr: items,
+    index,
+    base,
+    heap,
+  };
 }
 let nextAddress = 1;
 
@@ -231,6 +257,7 @@ export function formatCpp(x: unknown): string | undefined {
 /** Do two pointers point to the same place? */
 function samePlace(a: PtrTarget | null, b: PtrTarget | null): boolean {
   if (!a || !b) return a === b;
+  if (a.arr || b.arr) return a.arr === b.arr && a.index === b.index;
   return a.cell === b.cell || (a.owner !== null && a.owner === b.owner && a.name === b.name);
 }
 /** A made-up address for printing a pointer (real ones differ from run to run). */
@@ -238,7 +265,7 @@ const addresses = new WeakMap<object, number>();
 function addressOf(t: PtrTarget): string {
   const key = (t.owner ?? t.cell) as object;
   if (!addresses.has(key)) addresses.set(key, nextAddress++);
-  const index = Number(/\[(\d+)\]$/.exec(t.name)?.[1] ?? 0);
+  const index = t.index ?? 0;
   return `0x7ffc${(0x1000 + addresses.get(key)! * 0x40 + index * 4).toString(16)}`;
 }
 
@@ -247,9 +274,17 @@ const LABEL = '\u0000label';
 function pointerText(x: CVal, here: string | null): string {
   const t = x.v as PtrTarget | null;
   if (!t) return 'nullptr';
-  if (here === LABEL) return `&${t.name}`;
+  if (here === LABEL) return t.heap ? `${t.name}` : `&${t.name}`;
+  if (t.owner?.dead) return `points to ${t.name}${t.heap ? '' : here !== null && t.frame !== here && t.frame !== 'Global' ? ` in ${t.frame}` : ''} (gone)`;
+  // A box made with new has no name: show what is in it.
+  if (t.heap) {
+    if (t.arr) return `points to ${t.name} ${formatCpp(t.arr) ?? ''}`;
+    const v = t.cell.v as CVal;
+    if (v === UNSET_VAL) return `points to ${t.name} (no value yet)`;
+    return v.t === 'struct' ? `points to new ${formatCpp(v)}` : `points to ${t.name} (${formatCpp(v) ?? '?'})`;
+  }
   const where = here !== null && t.frame !== here && t.frame !== 'Global' ? ` in ${t.frame}` : '';
-  return `points to ${t.name}${where}${t.owner?.dead ? ' (gone)' : ''}`;
+  return `points to ${t.name}${where}`;
 }
 
 /** How a struct shows: Point {x: 1, y: ?} (a struct inside it, one level deep: Point {…}). */
@@ -346,8 +381,6 @@ function syntaxError(tree: Tree): CompileError | null {
 
 const FEATURES: Record<string, string> = {
   abstract_pointer_declarator: 'pointers without a name',
-  new_expression: 'new',
-  delete_expression: 'delete',
   union_specifier: 'unions',
   enum_specifier: 'enums',
   template_declaration: 'templates',
@@ -1046,6 +1079,7 @@ class Interp {
         const e = named(s)[0];
         if (!e) return { k: 'other' };
         if (e.type === 'assignment_expression') return { k: 'assign', t: [this.targetName(e.childForFieldName('left')!)] };
+        if (e.type === 'delete_expression' && named(e)[0]?.type === 'identifier') return { k: 'assign', t: [named(e)[0].text] };
         if (e.type === 'update_expression') return { k: 'assign', t: [this.targetName(e.childForFieldName('argument')!)] };
         if (e.type === 'binary_expression') {
           const { head, items } = chain(e, '<<');
@@ -1311,7 +1345,7 @@ class Interp {
         const ptrType: DeclType = { t: 'pointer', pt: type };
         binding.cell = { ...ptrType, v: UNSET };
         if (info.value?.type === 'string_literal' || info.value?.type === 'concatenated_string') throw unsupported(d, 'text pointers (char*)');
-        if (info.value) binding.cell.v = this.convert(this.eval(info.value), ptrType, d, info.name);
+        if (info.value) binding.cell.v = this.convert(this.decay(this.eval(info.value), info.value), ptrType, d, info.name);
         else if (isGlobal) binding.cell.v = { t: 'pointer', v: null, pt: type };
         continue;
       }
@@ -1667,7 +1701,77 @@ class Interp {
     const t = p.v as PtrTarget | null;
     if (!t) throw new CppCrash('NullPointer', `${at.text} is nullptr`);
     if (t.owner?.dead) throw new CppCrash('Dangling', `${at.text} points to ${t.name}, which no longer exists`);
+    if (t.arr && (t.index! < 0 || t.index! >= t.arr.length)) throw new CppCrash('IndexOutOfRange', `${at.text} points outside ${t.base}`);
     return t;
+  }
+
+  /** a used as a pointer (int* p = a; sum(a, 5)): it points to a[0]. */
+  private decay(v: CVal, node: Node | null): CVal {
+    if (v.t !== 'array') return v;
+    const b = node?.type === 'identifier' ? this.scope.lookup(node.text) : undefined;
+    const frame = b && this.globals.vars.get(node!.text) === b ? 'Global' : this.rt.stack[this.rt.stack.length - 1].label;
+    return { t: 'pointer', pt: this.itemType(v.elem), v: itemPointer(v.v as CVal[], 0, node?.text ?? 'the list', frame, b?.cell ?? null) };
+  }
+
+  /** p + k: k places further along the same list (one past the end is allowed; reading there is not). */
+  private move(p: CVal, k: number, at: Node): CVal {
+    const t = p.v as PtrTarget | null;
+    if (!t) throw new CppCrash('NullPointer', `${at.text} uses a nullptr`);
+    if (!t.arr) throw unsupported(at, 'moving a pointer that does not point into a list');
+    const index = t.index! + k;
+    if (index < 0 || index > t.arr.length) throw new CppCrash('IndexOutOfRange', `${at.text} would point outside ${t.base}`);
+    return { ...p, v: itemPointer(t.arr, index, t.base!, t.frame, t.owner, t.heap) };
+  }
+
+  /** new int(5) / new int / new int[n] / new int[3]() / new Point{1, 2} / new Dog("Rex", 3): a box with no name. */
+  private newBox(n: Node): CVal {
+    const typeNode = n.childForFieldName('type')!;
+    const type = typeOf(typeNode);
+    const typeText = type.t === 'struct' ? type.cls! : typeNode.text;
+    const args = n.childForFieldName('arguments');
+    const length = n.childForFieldName('declarator')?.childForFieldName('length');
+    if (n.childForFieldName('placement')) throw unsupported(n, 'placement new');
+    if (length) {
+      const size = this.num(this.eval(length));
+      if (size < 0) throw new CppCrash('IndexOutOfRange', `new can't make ${size} items`);
+      const given = args?.type === 'initializer_list' ? named(args) : [];
+      const st = type.t === 'struct' ? structs.get(type.cls!)! : null;
+      const items: CVal[] = Array.from({ length: size }, (_, i) => {
+        if (st) return given[i] ? this.structFrom(given[i], st, 'the new list') : args ? this.structFromValues(st, [], n) : this.construct(n, st, []);
+        if (given[i]) return this.convert(this.eval(given[i]), type, given[i], 'the new list');
+        return args ? this.zeroOf(type.t as Prim) : UNSET_VAL; // new int[3]() fills with 0
+      });
+      const heap: NonNullable<PtrTarget['heap']> = { isArray: true };
+      return { t: 'pointer', pt: type, v: itemPointer(items, 0, `new ${typeText}[${size}]`, 'heap', heap, heap) };
+    }
+    let value: CVal;
+    if (type.t === 'struct') {
+      const st = structs.get(type.cls!)!;
+      value = !args ? this.construct(n, st, []) : args.type === 'initializer_list' ? this.structFrom(args, st, 'the new box') : this.construct(n, st, named(args));
+    } else if (!args) value = UNSET_VAL;
+    else {
+      const items = named(args);
+      if (items.length > 1) throw new CompileError(lineOf(n), `new ${typeText} takes one starting value.`);
+      value = items[0] ? this.convert(this.eval(items[0]), type, items[0], `new ${typeText}`) : this.zeroOf(type.t as Prim);
+    }
+    const heap: NonNullable<PtrTarget['heap']> = { isArray: false };
+    return { t: 'pointer', pt: type, v: { cell: { v: value }, name: `new ${typeText}`, frame: 'heap', owner: heap, heap } };
+  }
+
+  /** delete p / delete[] p: the box made with new is gone (using it again is a crash). */
+  private deleteBox(n: Node): CVal {
+    const arg = named(n)[0];
+    const p = this.eval(arg);
+    if (p.t !== 'pointer') throw new CompileError(lineOf(n), `delete needs a pointer, and ${arg.text} is not one.`);
+    const t = p.v as PtrTarget | null;
+    if (!t) return VOID; // delete nullptr does nothing
+    if (!t.heap || (t.arr && t.index !== 0)) throw new CppCrash('BadDelete', `${arg.text} does not point to a box made with new`);
+    if (t.heap.deleted) throw new CppCrash('DoubleDelete', `${t.name} was deleted already`);
+    const isArray = /^delete\s*\[\s*\]/.test(n.text);
+    if (isArray !== t.heap.isArray) throw new CompileError(lineOf(n), t.heap.isArray ? `${arg.text} points to a list made with new[]: use delete[] ${arg.text}.` : `${arg.text} points to one box: use delete ${arg.text} (without []).`);
+    t.heap.deleted = true;
+    t.heap.dead = true;
+    return VOID;
   }
 
   /** &x, &a[2], &p.x: a pointer to that box. */
@@ -1687,9 +1791,7 @@ class Interp {
     if (n.type === 'subscript_expression') {
       const { list, index } = this.element(n);
       if (list.t === 'string') throw unsupported(n, 'pointers to letters of text');
-      const items = list.v as CVal[];
-      const cell = { get v() { return items[index]; }, set v(x: CVal) { items[index] = x; } };
-      return { t: 'pointer', pt: this.itemType(list.elem), v: { cell, name: `${n.childForFieldName('argument')!.text}[${index}]`, frame: frame(owner), owner: owner?.cell ?? null } };
+      return { t: 'pointer', pt: this.itemType(list.elem), v: itemPointer(list.v as CVal[], index, n.childForFieldName('argument')!.text, frame(owner), owner?.cell ?? null) };
     }
     if (n.type === 'field_expression') {
       const m = this.member(n);
@@ -1951,7 +2053,7 @@ class Interp {
         scope.vars.set(info.name, { cell: { t: 'array', elem: a.elem, v: a } }); // arrays are not copied
       } else if (info.pointer) {
         const ptrType: DeclType = { t: 'pointer', pt: type };
-        scope.vars.set(info.name, { cell: { ...ptrType, v: this.convert(this.eval(arg), ptrType, arg, info.name) } });
+        scope.vars.set(info.name, { cell: { ...ptrType, v: this.convert(this.decay(this.eval(arg), arg), ptrType, arg, info.name) } });
       } else if (type.t === 'struct' && arg.type === 'initializer_list') {
         scope.vars.set(info.name, { cell: { ...type, v: this.structFrom(arg, structs.get(type.cls!)!, info.name) } });
       } else {
@@ -2103,7 +2205,26 @@ class Interp {
       if ((op !== '==' && op !== '!=') || a.t !== b.t) throw unsupported(n, 'iterators like this');
       return bool(op === '==' ? a.v === b.v : a.v !== b.v);
     }
+    if ((a.t === 'pointer' || b.t === 'pointer') && (op === '+' || op === '-')) {
+      // p + 2, 2 + p, a + 1 (a list used as a pointer), p - 1, q - p (how far apart)
+      const x = this.decay(a, n.childForFieldName('left'));
+      const y = this.decay(b, n.childForFieldName('right'));
+      if (x.t === 'pointer' && y.t === 'pointer') {
+        const [s1, s2] = [x.v as PtrTarget | null, y.v as PtrTarget | null];
+        if (op !== '-' || !s1?.arr || s1.arr !== s2?.arr) throw unsupported(n, 'this pointer arithmetic');
+        return lng(s1.index! - s2.index!);
+      }
+      if (x.t === 'pointer') return this.move(x, (op === '+' ? 1 : -1) * this.num(y), n);
+      if (op === '+') return this.move(y, this.num(x), n);
+      throw unsupported(n, 'this pointer arithmetic');
+    }
     if (a.t === 'pointer' || b.t === 'pointer') {
+      if (['<', '<=', '>', '>='].includes(op) && a.t === 'pointer' && b.t === 'pointer') {
+        const [s1, s2] = [a.v as PtrTarget | null, b.v as PtrTarget | null];
+        if (!s1?.arr || s1.arr !== s2?.arr) throw unsupported(n, 'comparing pointers into different lists');
+        const d = s1.index! - s2.index!;
+        return bool(op === '<' ? d < 0 : op === '<=' ? d <= 0 : op === '>' ? d > 0 : d >= 0);
+      }
       if (op !== '==' && op !== '!=') throw unsupported(n, 'pointer arithmetic');
       if (a.t !== 'pointer' || b.t !== 'pointer') throw new CompileError(lineOf(n), `${LANG_NAME()} can't compare a pointer with ${formatCpp(a.t === 'pointer' ? b : a)}.`);
       const same = samePlace(a.v as PtrTarget | null, b.v as PtrTarget | null);
@@ -2220,6 +2341,7 @@ class Interp {
     if (t.type === 'subscript_expression') {
       const list = this.eval(t.childForFieldName('argument')!);
       if (list.t === 'map') return this.itemType(list.elem).t;
+      if (list.t === 'pointer') return list.pt?.t ?? 'int';
       return list.elem ?? (list.t === 'string' ? 'char' : 'int');
     }
     const b = this.scope.lookup(t.text) ?? this.implicitMember(t);
@@ -2232,7 +2354,6 @@ class Interp {
     const list = this.eval(n.childForFieldName('argument')!);
     const i = this.num(this.eval(subscriptIndex(n)));
     const length = list.t === 'string' ? (list.v as string).length : list.t === 'vector' || list.t === 'array' ? (list.v as CVal[]).length : -1;
-    if (list.t === 'pointer') throw unsupported(n, 'pointer arithmetic (p[i])');
     if (length < 0) throw new CompileError(lineOf(n), `${n.childForFieldName('argument')!.text} is not a list.`);
     if (i < 0 || i >= length) {
       const message = `position ${i} is outside a ${list.t === 'string' ? 'text' : 'list'} of length ${length}`;
@@ -2249,6 +2370,12 @@ class Interp {
   private assignTo(target: Node, value: CVal): CVal {
     if (target.type === 'subscript_expression') {
       const container = this.eval(target.childForFieldName('argument')!);
+      if (container.t === 'pointer') {
+        const t = this.targetOf(this.move(container, this.num(this.eval(subscriptIndex(target))), target), target);
+        const stored = this.copy(this.convert(value, container.pt ?? { t: 'int' }, target, target.text));
+        t.cell.v = stored;
+        return stored;
+      }
       if (container.t === 'map') {
         const entry = this.mapSlot(container, subscriptIndex(target));
         entry[1] = this.copy(this.convert(value, this.itemType(container.elem), target, target.text));
@@ -2315,6 +2442,7 @@ class Interp {
     if (n.type === 'subscript_expression') {
       const container = this.eval(n.childForFieldName('argument')!);
       if (container.t === 'map') return this.mapSlot(container, subscriptIndex(n))[1];
+      if (container.t === 'pointer') return this.deref(this.move(container, this.num(this.eval(subscriptIndex(n))), n), n);
       const { list, index } = this.element(n);
       if (list.t === 'string') return chr((list.v as string)[index]);
       const item = (list.v as CVal[])[index];
@@ -2345,6 +2473,10 @@ class Interp {
       }
       case 'null':
         return { t: 'pointer', v: null };
+      case 'new_expression':
+        return this.newBox(n);
+      case 'delete_expression':
+        return this.deleteBox(n);
       case 'pointer_expression': {
         const arg = n.childForFieldName('argument')!;
         if (n.childForFieldName('operator')?.type === '&') return this.addressOf(arg);
@@ -2377,7 +2509,11 @@ class Interp {
         const op = n.childForFieldName('operator')!.type;
         const prefix = n.child(0)?.type === op;
         const before = this.readTarget(target);
-        if (before.t === 'pointer') throw unsupported(n, 'pointer arithmetic');
+        if (before.t === 'pointer') {
+          const moved = this.move(before, op === '++' ? 1 : -1, n);
+          this.assignTo(target, moved);
+          return prefix ? moved : before;
+        }
         if (!NUMERIC.has(before.t)) throw new CompileError(lineOf(n), `${op} only works on numbers.`);
         const after = this.convert(this.arith(op === '++' ? '+' : '-', before, int(1), n), { t: before.t }, n, target.text);
         const stored = this.assignTo(target, after);
@@ -2392,11 +2528,17 @@ class Interp {
             const b = this.scope.lookup(left.text);
             if (b?.cell.t === 'vector') return this.assignTo(left, { t: 'vector', elem: b.cell.elem, v: this.vectorFrom(rightNode, b.cell.elem!) });
           }
-          return this.assignTo(left, this.eval(rightNode));
+          const value = this.eval(rightNode);
+          return this.assignTo(left, value.t === 'array' && this.lvalueType(left) === 'pointer' ? this.decay(value, rightNode) : value);
         }
         const current = this.readTarget(left);
         const right = this.eval(rightNode);
         const bin = op.slice(0, -1);
+        if (current.t === 'pointer') {
+          // p += 2 / p -= 1
+          if (bin !== '+' && bin !== '-') throw unsupported(n, 'this pointer arithmetic');
+          return this.assignTo(left, this.move(current, (bin === '+' ? 1 : -1) * this.num(right), n));
+        }
         if (current.t === 'string' && bin === '+') {
           if (right.t !== 'string' && right.t !== 'char') throw new CompileError(lineOf(n), 'Text can only be joined with text here. Use to_string() for numbers.');
           return this.assignTo(left, strv(String(current.v) + String(right.v)));

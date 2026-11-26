@@ -167,7 +167,7 @@ test('problems found before running stay on Home with a line number', () => {
     return r.error!.message;
   };
   expect(msg(main('    int x = 1\n    cout << x;'))).toBe('Line 8: C++ could not understand this line.');
-  expect(msg(main('    int x = 1;\n    int* p = &x;\n    p++;'))).toBe("Line 10: StepViz can't run pointer arithmetic in C++ yet.");
+  expect(msg(main('    int x = 1;\n    int* p = &x;\n    p++;'))).toBe("Line 10: StepViz can't run moving a pointer that does not point into a list in C++ yet.");
   expect(msg('#include <set>\n' + main('    int x = 1;'))).toBe("Line 1: StepViz can't run #include <set> in C++ yet.");
   expect(msg(HEAD + 'void f() {}')).toBe('Line 1: StepViz needs an int main() function to start the program.');
   expect(msg(main('    struct P { int x; };'))).toBe("Line 8: StepViz can't run structs inside functions in C++ yet.");

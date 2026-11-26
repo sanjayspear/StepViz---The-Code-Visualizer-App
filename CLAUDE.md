@@ -56,8 +56,8 @@ trace (done). (i) In-browser AI explanations are PAUSED (work saved on the branc
    - P1 (done): basic pointers (C and C++) and std::map.
    - Then, on the owner's "act like the senior developer and architect", my order:
      G1 tables (2-D arrays) in Java/C++/C and vector<vector<int>> (done), H1 Java
-     HashMap/TreeMap/LinkedHashMap (done), C/C++ pointer arithmetic + new/delete,
-     inheritance (Java and C++).
+     HashMap/TreeMap/LinkedHashMap (done), P2 C/C++ pointer arithmetic + new/delete
+     (done), inheritance (Java and C++).
 
 Phase 1 covers:
 
@@ -286,8 +286,22 @@ Playwright tests. Static build for GitHub Pages.
   box p points to, x in main(), changes from 1 to 2." / "Through the pointer pa,
   a changes from ... to ...". Rules: "p is a double* box, so it can't hold points
   to x."; "pa is a pointer: use -> to reach its member, like pa->x."
-  Unsupported: pointer arithmetic (p++, p[i]), pointers to pointers, new/delete,
-  char* text, pointers to whole arrays, functions that give back pointers.
+  P2: pointers into lists: int* p = a (a list used as a pointer: points to a[0];
+  call labels sum(&a[0], 4)), p++, p += 2, *(p - 1), p[i], q - p, p < q; one past
+  the end may be pointed to, reading there is "This position is outside the
+  list." Moving a pointer to a plain variable stays unsupported. new / delete:
+  boxes made with new have no name, so the text shows the value: "points to new
+  int (5)", "points to new Point {x: 1, y: 2}", "points to item 0 of new int[3]
+  [0, 0, 0]". delete: "The box q points to (new int) is deleted. q still points
+  there, but the box no longer exists." / "The list arr points to (new int[3]) is
+  deleted. ..."; use after delete = Dangling crash; "This box was already
+  deleted, so it can't be deleted again."; "delete only works on a pointer that
+  new gave back."; delete vs delete[] mismatch stays on Home ("a points to a list
+  made with new[]: use delete[] a."). Through pointers: "The box q points to (new
+  int) changes from 5 to 6." / "Through arr, item 1 of new int[3] changes from 0
+  to 7." / "The box p points to, a[1], changes from 2 to 20." Unsupported:
+  pointers to pointers, char* text, placement new, malloc/free, memory-leak
+  warnings.
   std::map: m = {"Ali": 1, "Sam": 3} in key order; m[k] adds a missing key with
   0/""/empty struct like C++ (reading too); at() throws out_of_range ("map::at");
   find(k) != m.end() works, other iterator use does not; range-for with [k, v]
@@ -359,7 +373,7 @@ Paused on 2026-11-25.
 - K1 (2026-11-25): simple Java classes (tests in `tests/classes-java.spec.ts`).
 - C4 (2026-11-25): C++ structs/classes and C structs (tests in `tests/structs-cpp.spec.ts`).
 - P1 (2026-11-25): pointers (C, C++) and std::map (tests in `tests/pointers-cpp.spec.ts`).
-- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`; 186 tests pass).
+- 2026-11-26: fix for struct member values that use other members; G1 tables in Java/C++/C (tests in `tests/tables-cpp.spec.ts`); H1 Java maps (tests in `tests/maps-java.spec.ts`); P2 pointer arithmetic + new/delete (tests in `tests/pointers-cpp.spec.ts`; 188 tests pass).
 
 ### In progress
 - `wip/llama-ai`: optional AI explanations by Llama in Ollama on the student's own desktop (button "Explain with AI (Llama on this computer)", setup panel, accuracy guard, phone menu note, CSP allows only http://localhost:11434). Built and tested (with a stand-in Ollama and with real Llama 3.2 3B on all 5 languages: works, ~2 s per step, no errors). NOT merged because the text quality is not good enough: about 1 step in 6 is wrong in a way the guard cannot catch ("total is added to itself"), and many "In real life" lines do not fit. Left: try Llama 3.1 8B (about 5 GB; download was started and stopped, not on the Mac yet) on the same 20 programs; if clearly accurate, switch AI_MODEL to it and merge; otherwise keep AI off and leave the branch.

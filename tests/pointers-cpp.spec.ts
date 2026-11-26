@@ -66,10 +66,10 @@ test('pointer crashes: nullptr and a pointer to a box that is gone', () => {
 
 test('what stays unsupported or is rejected like the compiler', () => {
   const msg = (body: string) => run(prog(body)).error?.message;
-  expect(msg('    int a[3] = {1, 2, 3};\n    int* p = &a[0];\n    p++;')).toBe("Line 9: StepViz can't run pointer arithmetic in C++ yet.");
+  expect(msg('    int x = 1;\n    int* p = &x;\n    p++;')).toBe("Line 9: StepViz can't run moving a pointer that does not point into a list in C++ yet.");
   expect(msg('    int x = 1;\n    int* p = &x;\n    int** pp = &p;')).toBe("Line 9: StepViz can't run pointers to pointers in C++ yet.");
   expect(msg('    int x = 1;\n    double* p = &x;')).toBe("Line 8: p is a double* box, so it can't hold points to x.");
-  expect(msg('    int* p = new int(5);')).toBe("Line 7: StepViz can't run new in C++ yet.");
+  expect(msg('    int* p = new int(5);\n    delete p;')).toBeUndefined();
   // A pointer printed with cout shows an address (made up, like real ones that change every run).
   expect(run(prog('    int x = 1;\n    int* p = &x;\n    cout << p << endl;')).steps.at(-1)!.output).toMatch(/^0x7ffc[0-9a-f]+\n$/);
   // C has pointers too: swap through pointers.
@@ -104,4 +104,53 @@ test('map: m[k] adds a missing key, key order, erase, find, count, at, loops wit
   const atCrash = run(prog('    map<string, int> m;\n    try {\n        int v = m.at("x");\n    } catch (const out_of_range& ex) {\n        cout << ex.what() << endl;\n    }'));
   expect(atCrash.steps.at(-1)!.output).toBe('map::at\n');
   expect(run(prog('    unordered_map<string, int> m;')).error?.message).toBe("Line 7: StepViz can't run unordered_map (map works) in C++ yet.");
+});
+
+test('pointer arithmetic: a list used as a pointer, p++, p += 2, *(p - 1), p[i], q - p; a pointer parameter receiving a list', () => {
+  const src = prog(`    int a[4] = {1, 2, 3, 4};
+    int* p = a;
+    p++;
+    *p = 20;
+    p += 2;
+    int k = *(p - 1);
+    cout << sum(a, 4) << " " << k << " " << (p - a) << " " << p[0] << endl;
+    p++;
+    cout << *p;`, 'int sum(int* a, int n) {\n    int t = 0;\n    for (int i = 0; i < n; i++) {\n        t += a[i];\n    }\n    return t;\n}\n\n');
+  const { r, e } = explain(src);
+  const at = (line: number) => r.steps.findIndex((s) => s.line === line && s.kind === 'assign');
+  expect(r.steps[at(16)].frames[0].vars.p).toBe('points to a[0]');
+  expect(e[at(17)].what).toMatch(/^(p now points to a\[1\] instead of a\[0\]|The pointer p moves from a\[0\] to a\[1\])\.$/);
+  expect(e[at(18)].what).toMatch(/^(The box p points to, a\[1\], changes from 2 to 20|Through the pointer p, a\[1\] changes from 2 to 20)\.$/);
+  expect(r.steps.find((s) => s.kind === 'call')!.frames[1].name).toBe('sum(&a[0], 4)');
+  expect(r.steps.find((s) => s.kind === 'print')!.output).toBe('28 3 3 4\n');
+  // p now points one past the end: moving there is fine, reading there is not.
+  expect(r.error).toMatchObject({ type: 'IndexOutOfRange', line: 23 });
+});
+
+test('new and delete: boxes with no name show their value; use after delete, double delete, delete without new, delete vs delete[]', () => {
+  const src = prog(`    int* q = new int(5);
+    *q = *q + 1;
+    int* arr = new int[3]();
+    arr[1] = 7;
+    Point* pt = new Point{1, 2};
+    pt->x = 9;
+    delete q;
+    delete[] arr;
+    delete pt;
+    cout << "done" << endl;`, 'struct Point {\n    int x;\n    int y;\n};\n\n');
+  const { r, e } = explain(src);
+  expect(r.status).toBe('ok');
+  const at = (line: number) => r.steps.findIndex((s) => s.line === line);
+  expect(r.steps[at(12)].frames[0].vars.q).toBe('points to new int (5)');
+  expect(e[at(13)].what).toBe('The box q points to (new int) changes from 5 to 6.');
+  expect(r.steps[at(14)].frames[0].vars.arr).toBe('points to item 0 of new int[3] [0, 0, 0]');
+  expect(e[at(15)].what).toBe('Through arr, item 1 of new int[3] changes from 0 to 7.');
+  expect(r.steps[at(17)].frames[0].vars.pt).toBe('points to new Point {x: 9, y: 2}');
+  expect(e[at(18)].what).toBe('The box q points to (new int) is deleted. q still points there, but the box no longer exists.');
+  expect(e[at(19)].what).toBe('The list arr points to (new int[3]) is deleted. arr still points there, but the list no longer exists.');
+  const crash = (body: string) => explain(prog(body));
+  expect(crash('    int* q = new int(5);\n    delete q;\n    cout << *q;').e.at(-1)!.what).toBe('This pointer points to a box that no longer exists.');
+  expect(crash('    int* q = new int(5);\n    delete q;\n    delete q;').e.at(-1)!.what).toBe("This box was already deleted, so it can't be deleted again.");
+  expect(crash('    int x = 1;\n    int* q = &x;\n    delete q;').e.at(-1)!.what).toBe('delete only works on a pointer that new gave back.');
+  expect(run(prog('    int* a = new int[3];\n    delete a;')).error?.message).toBe('Line 8: a points to a list made with new[]: use delete[] a.');
 });

@@ -41,6 +41,8 @@ const ERROR_SENTENCES: Record<string, string> = {
   Uninitialized: 'This box was used before it was given a value.',
   NullPointer: 'This pointer is nullptr, so it points to nothing.',
   Dangling: 'This pointer points to a box that no longer exists.',
+  DoubleDelete: 'This box was already deleted, so it can\'t be deleted again.',
+  BadDelete: 'delete only works on a pointer that new gave back.',
   NoMoreInput: 'Your program asked for more input than you typed.',
   BadInput: 'The input was not the kind of value the program expected.',
 };

@@ -488,17 +488,52 @@ function throughPointer(f: Facts): { sub: SubKind; variants: string[] } | null {
   const target = (f.step.detail?.targets ?? []).find((t) => t.startsWith('*'));
   if (!target) return null;
   const p = target.slice(1);
-  const m = /^points to (\w+)(?: in (.+?))?$/.exec(f.top.vars[p] ?? '');
+  const now = parsePointer(f.top.vars[p] ?? '');
+  if (!now || now.gone) return null;
+  // A box made with new: its value is part of the pointer's text.
+  if (now.value !== undefined) {
+    const was = parsePointer(prevFrameOf(f)?.vars[p] ?? '');
+    if (!was || was.value === undefined || was.value === now.value) return null;
+    return { sub: 'assign-change', variants: [`The box ${p} points to (${now.target}) changes from ${sayValue(was.value)} to ${sayValue(now.value)}.`] };
+  }
+  // A variable, or an item of a list (a[1]), in this frame or another one.
+  const m = /^(\w+)(?:\[(\d+)\])?$/.exec(now.target);
   if (!m) return null;
-  const frameName = m[2] ?? f.top.name;
-  const now = f.step.frames.find((fr) => fr.name === frameName)?.vars[m[1]];
-  const was = f.prev?.frames.find((fr) => fr.name === frameName)?.vars[m[1]];
-  if (now === undefined || was === undefined) return null;
-  const where = m[2] ? `${m[1]} in ${m[2]}` : m[1];
+  const frameName = now.frame ?? f.top.name;
+  let nowV = f.step.frames.find((fr) => fr.name === frameName)?.vars[m[1]];
+  let wasV = f.prev?.frames.find((fr) => fr.name === frameName)?.vars[m[1]];
+  if (nowV === undefined || wasV === undefined) return null;
+  if (m[2] !== undefined) {
+    nowV = listItems(nowV)?.[Number(m[2])];
+    wasV = listItems(wasV)?.[Number(m[2])];
+    if (nowV === undefined || wasV === undefined) return null;
+  }
+  const where = now.frame ? `${now.target} in ${now.frame}` : now.target;
   return {
     sub: 'assign-change',
-    variants: [`The box ${p} points to, ${where}, changes from ${sayValue(was)} to ${sayValue(now)}.`, `Through the pointer ${p}, ${where} changes from ${sayValue(was)} to ${sayValue(now)}.`],
+    variants: [`The box ${p} points to, ${where}, changes from ${sayValue(wasV)} to ${sayValue(nowV)}.`, `Through the pointer ${p}, ${where} changes from ${sayValue(wasV)} to ${sayValue(nowV)}.`],
   };
+}
+
+/**
+ * A pointer's text: "points to x", "points to x in main()", "points to new int (5)",
+ * "points to new Point {x: 1}", "points to item 0 of new int[3] [0, 0, 0]", "... (gone)".
+ */
+function parsePointer(v: string): { target: string; frame?: string; value?: string; gone: boolean } | null {
+  if (v === 'nullptr') return { target: 'nothing (nullptr)', gone: false };
+  if (!v.startsWith('points to ')) return null;
+  let rest = v.slice('points to '.length);
+  const gone = rest.endsWith(' (gone)');
+  if (gone) rest = rest.slice(0, -' (gone)'.length);
+  let m = /^(item \d+ of new [^[]+\[\d+\]) (\[.*\])$/.exec(rest);
+  if (m) return { target: m[1], value: m[2], gone };
+  m = /^(new \w+) \((.*)\)$/.exec(rest);
+  if (m) return { target: m[1], value: m[2], gone };
+  m = /^new (\w+) (\{.*\})$/.exec(rest);
+  if (m) return { target: `new ${m[1]}`, value: `${m[1]} ${m[2]}`, gone };
+  m = /^(.+?) in (.+)$/.exec(rest);
+  if (m) return { target: m[1], frame: m[2], gone };
+  return { target: rest, gone };
 }
 
 /** Assignment sentences: one clause per name ("total changes from 1 to 3"). */
@@ -616,11 +651,29 @@ function assignment(f: Facts): { sub: SubKind; variants: string[] } | null {
   // Pointers: "p now points to y instead of x." / "We make a pointer called p. It points to x."
   if (changes.length === 1) {
     const c = changes[0];
-    const target = (v: string) => (v === 'nullptr' ? 'nothing (nullptr)' : /^points to /.test(v) ? v.replace(/^points to /, '') : null);
-    const now = target(f.top.vars[c.t]);
-    const was = before[c.t] !== undefined ? target(before[c.t]) : null;
-    if (now !== null && c.kind === 'new') return { sub: 'assign-new', variants: [`We make a pointer called ${c.t}. It points to ${now}.`, `A new pointer ${c.t} now points to ${now}.`] };
-    if (now !== null && was !== null && c.kind === 'change') return { sub: 'assign-change', variants: [`${c.t} now points to ${now} instead of ${was}.`, `The pointer ${c.t} moves from ${was} to ${now}.`] };
+    const now = parsePointer(f.top.vars[c.t]);
+    const was = before[c.t] !== undefined ? parsePointer(before[c.t]) : null;
+    const shown = (x: NonNullable<typeof now>) => (x.value !== undefined && !x.gone ? `${x.target} (${sayValue(x.value)})` : x.frame ? `${x.target} in ${x.frame}` : x.target);
+    if (now && c.kind === 'new') return { sub: 'assign-new', variants: [`We make a pointer called ${c.t}. It points to ${shown(now)}.`, `A new pointer ${c.t} now points to ${shown(now)}.`] };
+    if (now && was && c.kind === 'change') {
+      if (now.target === was.target && now.gone && !was.gone) {
+        const list = /^item \d+ of (.+)$/.exec(now.target);
+        if (list) return { sub: 'assign-change', variants: [`The list ${c.t} points to (${list[1]}) is deleted. ${c.t} still points there, but the list no longer exists.`] };
+        return { sub: 'assign-change', variants: [`The box ${c.t} points to (${now.target}) is deleted. ${c.t} still points there, but the box no longer exists.`] };
+      }
+      if (now.target === was.target && now.value !== undefined && was.value !== undefined) {
+        // The box itself changed (arr[1] = 7 through the pointer).
+        const a = listItems(was.value);
+        const b = listItems(now.value);
+        const diff = a && b && a.length === b.length ? b.map((x, i) => (x === a[i] ? -1 : i)).filter((i) => i >= 0) : [];
+        if (diff.length === 1) {
+          const i = diff[0];
+          return { sub: 'assign-change', variants: [`Through ${c.t}, item ${i} of ${now.target.replace(/^item \d+ of /, '')} changes from ${sayValue(a![i])} to ${sayValue(b![i])}.`] };
+        }
+        return { sub: 'assign-change', variants: [`The box ${c.t} points to (${now.target}) changes from ${sayValue(was.value)} to ${sayValue(now.value)}.`] };
+      }
+      return { sub: 'assign-change', variants: [`${c.t} now points to ${shown(now)} instead of ${shown(was)}.`, `The pointer ${c.t} moves from ${shown(was)} to ${shown(now)}.`] };
+    }
   }
   // An object where fields changed: "this.name changes from null to "Rex"."
   if (changes.length === 1 && changes[0].kind === 'change') {
