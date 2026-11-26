@@ -10,8 +10,10 @@ import { SOLUTIONS as BINARY_SEARCH } from './binary-search.solutions';
 import { SOLUTIONS as RECURSION_BACKTRACKING } from './recursion-backtracking.solutions';
 import { SOLUTIONS as SORTING_GREEDY_INTERVALS } from './sorting-greedy-intervals.solutions';
 import { SOLUTIONS as DYNAMIC_PROGRAMMING } from './dynamic-programming.solutions';
+import { SOLUTIONS as GRAPHS } from './graphs.solutions';
 
 export const CPP_SOLUTIONS_BY_TOPIC: Record<string, Record<number, string>> = {
+  graphs: GRAPHS,
   'dynamic-programming': DYNAMIC_PROGRAMMING,
   'sorting-greedy-intervals': SORTING_GREEDY_INTERVALS,
   'recursion-backtracking': RECURSION_BACKTRACKING,

@@ -29,9 +29,14 @@ export function jsTests(tests: PracticeTest[]): PracticeTest[] {
   });
 }
 
-export function fromPython(python: PracticeContent[], parts: Record<number, JsPart>): PracticeContent[] {
-  return python.map((py) => {
+/**
+ * The content of a topic in another language, built on the Python content. A part set to null means
+ * "not in this language yet" (the question page then shows the language as coming soon).
+ */
+export function fromPython(python: PracticeContent[], parts: Record<number, JsPart | null>): PracticeContent[] {
+  return python.flatMap((py) => {
     const js = parts[py.id];
+    if (js === null) return [];
     if (!js) throw new Error(`JavaScript content for Q${py.id} is missing`);
     if (py.forbid && js.forbid === undefined) throw new Error(`Q${py.id}: the Python rule needs a JavaScript version (or forbid: null)`);
     return {
@@ -44,6 +49,9 @@ export function fromPython(python: PracticeContent[], parts: Record<number, JsPa
     };
   });
 }
+
+/** The questions a fromPython topic leaves out (parts set to null). */
+export const leftOut = (parts: Record<number, JsPart | null>) => Object.keys(parts).filter((id) => parts[Number(id)] === null).map(Number);
 
 /** Words that only make sense in Python: a hint using them needs a JavaScript version. */
 export const PYTHON_WORDS =

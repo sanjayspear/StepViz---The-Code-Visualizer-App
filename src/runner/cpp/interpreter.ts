@@ -3460,8 +3460,13 @@ class Interp {
       case 'qualified_identifier':
         return this.readVar(n);
       case 'parameter_declaration':
-        // Dog d(name): the name in the brackets is read as a variable (see declaratorInfo).
-        return this.readVar(n.childForFieldName('type')!);
+        // Dog d(name): the name in the brackets is read as a variable (see declaratorInfo);
+        // in vector<bool> v(n, false) tree-sitter takes false for a type name too.
+        {
+          const t = n.childForFieldName('type')!;
+          if (t.text === 'true' || t.text === 'false') return bool(t.text === 'true');
+          return this.readVar(t);
+        }
       case 'parenthesized_expression':
         return this.eval(named(n)[0]);
       case 'binary_expression':

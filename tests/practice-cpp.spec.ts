@@ -11,6 +11,7 @@ import { runCpp } from '../src/runner/cpp/interpreter';
 import type { JsForbid } from '../src/practice/jsHarness';
 import { createParser } from '../src/runner/treeSitter';
 import { CPP_SOLUTIONS_BY_TOPIC } from './practice/cpp';
+import { CPP_LATER } from '../src/practice/content/cpp/shared';
 
 // isalpha, isdigit and isalnum are C and C++ functions too.
 const PYTHON_ONLY = new RegExp(PYTHON_WORDS.source.replace('|isdigit|isalpha|isalnum', ''));
@@ -24,7 +25,8 @@ const check = (source: string, c: PracticeContent) => checkCppAnswer(parser, sou
 for (const [topic, items] of Object.entries(CPP_TOPICS)) {
   const solutions = CPP_SOLUTIONS_BY_TOPIC[topic];
   test(`C++ ${topic}: content for every question of the topic, well formed`, () => {
-    const ids = data.questions.filter((q) => q.topic === topic).map((q) => q.id);
+    // Every question of the topic, except the ones that wait for a later stage (CPP_LATER).
+    const ids = data.questions.filter((q) => q.topic === topic && !CPP_LATER.has(q.id)).map((q) => q.id);
     expect(items.map((c) => c.id)).toEqual(ids);
     const pythonHints = items.filter((c) => PYTHON_ONLY.test(c.hint)).map((c) => `Q${c.id}: ${c.hint.match(PYTHON_ONLY)![0]}`);
     expect(pythonHints, 'hints that still talk Python').toEqual([]);

@@ -141,11 +141,12 @@ int main() {
     int size = 2;
     vector<int> v(size);
     int x(a);
-    cout << d.name << d.age << " " << g[0][0] << h[0][0] << " " << v.size() << x << endl;
+    vector<bool> seen(size, false);
+    cout << d.name << d.age << " " << g[0][0] << h[0][0] << " " << v.size() << x << seen.size() << endl;
     return 0;
 }`;
   const r = runCpp(parser.parse(src)!, { maxSteps: 5000, maxSeconds: 5 });
   expect(r.status).toBe('ok');
-  expect(r.steps.at(-1)!.output).toBe('Rex3 19 23\n');
+  expect(r.steps.at(-1)!.output).toBe('Rex3 19 232\n');
   expect(r.steps.some((s) => s.frames.some((f) => f.name === 'Dog::Dog("Rex", 3)'))).toBe(true);
 });
