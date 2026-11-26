@@ -8,8 +8,10 @@ import { SOLUTIONS as SLIDING_WINDOW } from './sliding-window.solutions';
 import { SOLUTIONS as STACKS_QUEUES } from './stacks-queues.solutions';
 import { SOLUTIONS as BINARY_SEARCH } from './binary-search.solutions';
 import { SOLUTIONS as RECURSION_BACKTRACKING } from './recursion-backtracking.solutions';
+import { SOLUTIONS as SORTING_GREEDY_INTERVALS } from './sorting-greedy-intervals.solutions';
 
 export const CPP_SOLUTIONS_BY_TOPIC: Record<string, Record<number, string>> = {
+  'sorting-greedy-intervals': SORTING_GREEDY_INTERVALS,
   'recursion-backtracking': RECURSION_BACKTRACKING,
   'binary-search': BINARY_SEARCH,
   'stacks-queues': STACKS_QUEUES,

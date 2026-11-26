@@ -72,14 +72,20 @@ test('unordered_map and unordered_set follow libstdc++ hash table: the order sho
   expect(e[r.steps.findIndex((s) => s.line === lineOf(3))].what).toMatch(/^(m gets a new key "banana" with the value 2|"banana" is added to m with the value 2)\.$/);
 });
 
-test('vectors compare item by item, like C++ (==, !=, <, and a shorter one that matches so far is smaller)', () => {
+test('vectors compare item by item, like C++ (==, !=, <, and a shorter one that matches so far is smaller); sort of a vector of vectors', () => {
   const r = run(`    vector<int> a = {1, 2};
     vector<int> b = {1, 2};
     vector<int> c = {1, 3};
     vector<int> d = {1};
-    cout << (a == b) << (a == c) << (a != c) << (a < c) << (d < a) << (c > a) << endl;`);
+    cout << (a == b) << (a == c) << (a != c) << (a < c) << (d < a) << (c > a) << endl;
+    vector<vector<int>> rows = {{2, 1}, {1, 5}, {1, 2, 0}};
+    sort(rows.begin(), rows.end());
+    cout << rows[0][1] << rows[1][1] << rows[2][0] << endl;
+    vector<vector<int>> iv = {{8, 10}, {1, 3}, {2, 6}};
+    sort(iv.begin(), iv.end(), [](const vector<int>& x, const vector<int>& y) { return x[1] < y[1]; });
+    cout << iv[0][0] << iv[1][0] << iv[2][0] << endl;`);
   expect(r.status).toBe('ok');
-  expect(r.steps.at(-1)!.output).toBe('101111\n');
+  expect(r.steps.at(-1)!.output).toBe('101111\n252\n128\n');
 });
 
 test('a stack or queue member of a class keeps working like one; text has front() and back()', () => {

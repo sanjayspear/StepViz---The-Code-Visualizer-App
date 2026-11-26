@@ -3740,7 +3740,8 @@ class Interp {
         // libstdc++'s std::sort, step for step: a lambda or the program's operator< is called in g++'s order.
         const r = this.range(n, argNodes[0], argNodes[1]);
         if (r.whole.t === 'string') throw unsupported(n, 'sorting the letters of text');
-        if (r.whole.elem?.startsWith('vector<') || r.whole.elem?.endsWith('[]')) throw unsupported(n, 'sorting a list of lists');
+        // A vector of vectors sorts row by row (vectors compare item by item); a table (int g[3][2]) can't be sorted in C++.
+        if (r.whole.elem?.endsWith('[]')) throw new CompileError(lineOf(n), "sort can't move the rows of a table (int g[3][2]): use vector<vector<int>>.");
         if (r.items.slice(r.from, r.to).some((x) => x === UNSET_VAL)) throw new CppCrash('Uninitialized', 'sort read an item that has no value yet');
         const less = argNodes[2] ? this.comparator(argNodes[2], n) : (x: CVal, y: CVal) => this.lessThan(x, y, n);
         const part = r.items.slice(r.from, r.to);
